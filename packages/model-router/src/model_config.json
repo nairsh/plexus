@@ -1,0 +1,20 @@
+{
+  "default_orchestrator_model": "litellm/gemini-3.1-flash-lite-preview",
+  "orchestrator_models": [
+    "litellm/gemini-3.1-flash-lite-preview",
+    "litellm/gemini-3-flash-preview",
+    "litellm/gemini-3.1-pro-preview",
+    "litellm/ali-kimi-k2.5",
+    "litellm/ali-qwen3.5-plus"
+  ],
+  "subagent_models": {
+    "llm_completion": "litellm/gemini-3-flash-preview",
+    "code_execution_planner": "litellm/gemini-3-flash-preview",
+    "file_operation_planner": "litellm/gemini-3.1-flash-lite-preview"
+  },
+  "tools": {
+    "search_provider": "tavily",
+    "fetch_provider": "tavily",
+    "sandbox_runtime": "open_terminal"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "pro-search": {
+    "model": "openai/gpt-4o",
+    "tools": [{ "type": "web_search" }, { "type": "fetch_url" }],
+    "max_output_tokens": 8192,
+    "instructions": "You are a research assistant. Use web search for current information. Cite sources."
+  },
+  "code-assist": {
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "tools": [{ "type": "code_execution" }],
+    "max_output_tokens": 16384,
+    "instructions": "You are an expert software engineer. Write clean, well-documented code."
+  },
+  "quick-answer": {
+    "model": "openai/gpt-4o-mini",
+    "tools": [{ "type": "web_search" }],
+    "max_output_tokens": 2048,
+    "instructions": "Answer concisely and accurately."
+  }
+}

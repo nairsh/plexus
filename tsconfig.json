@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "noEmit": true,
+    "paths": {
+      "@orchestrator/shared": ["./packages/shared/src/index.ts"],
+      "@orchestrator/model-router": ["./packages/model-router/src/index.ts"],
+      "@orchestrator/billing": ["./packages/billing/src/index.ts"],
+      "@orchestrator/sandbox": ["./packages/sandbox/src/index.ts"],
+      "@orchestrator/orchestrator": ["./packages/orchestrator/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "scripts/**/*.ts"
+  ]
+}

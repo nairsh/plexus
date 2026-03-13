@@ -1,0 +1,856 @@
+openapi: "3.1.0"
+info:
+  title: Orchestrator Platform API
+  description: |
+    Multi-Model AI Agent Orchestration Platform API.
+    Provides a unified gateway to multiple LLM providers (OpenAI, Anthropic, Google),
+    isolated code execution sandboxes, and a workflow orchestration engine that
+    decomposes objectives into DAGs of parallel tasks.
+  version: "0.1.0"
+  contact:
+    name: Orchestrator Platform
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key authentication. Pass your key as `Bearer sk-...`
+
+  schemas:
+    # ── Error ──
+    APIError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [authentication_error, rate_limit_error, invalid_request, model_error, sandbox_error, workflow_error, billing_error, internal_error]
+            message:
+              type: string
+            code:
+              type: string
+            param:
+              type: string
+            retry_after:
+              type: number
+
+    # ── Agent API ──
+    AgentRequest:
+      type: object
+      required: [input]
+      properties:
+        model:
+          type: string
+          description: "Provider/model ID, e.g. openai/gpt-4o"
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/ConversationMessage'
+        instructions:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+        max_output_tokens:
+          type: integer
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        stream:
+          type: boolean
+          default: false
+        reasoning:
+          type: object
+          properties:
+            effort:
+              type: string
+              enum: [low, medium, high]
+        preset:
+          type: string
+        model_fallback:
+          type: array
+          items:
+            type: string
+        previous_response_id:
+          type: string
+
+    AgentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed, incomplete]
+        output:
+          type: array
+          items:
+            type: object
+        output_text:
+          type: string
+        usage:
+          $ref: '#/components/schemas/UsageInfo'
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+        created_at:
+          type: number
+        completed_at:
+          type: number
+
+    UsageInfo:
+      type: object
+      properties:
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        cost:
+          type: object
+          properties:
+            currency:
+              type: string
+              enum: [USD]
+            input_cost:
+              type: number
+            output_cost:
+              type: number
+            tool_calls_cost:
+              type: number
+            total_cost:
+              type: number
+
+    ConversationMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+
+    Tool:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [web_search, fetch_url, function, code_execution]
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            parameters:
+              type: object
+
+    # ── Models ──
+    ModelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        display_name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        cost_per_1m_input:
+          type: number
+        cost_per_1m_output:
+          type: number
+        context_window:
+          type: integer
+        max_output_tokens:
+          type: integer
+
+    # ── Sandbox ──
+    SandboxConfig:
+      type: object
+      required: [language]
+      properties:
+        language:
+          type: string
+          enum: [python, javascript, sql]
+        timeout_seconds:
+          type: integer
+          maximum: 3600
+        packages:
+          type: array
+          items:
+            type: string
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              content_base64:
+                type: string
+
+    SandboxSession:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [creating, ready, executing, terminated, error]
+        language:
+          type: string
+        created_at:
+          type: string
+
+    ExecutionResult:
+      type: object
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        execution_time_ms:
+          type: number
+        files_modified:
+          type: array
+          items:
+            type: string
+
+    # ── Workflows ──
+    WorkflowConfig:
+      type: object
+      required: [objective]
+      properties:
+        objective:
+          type: string
+          maxLength: 10000
+        model_overrides:
+          type: object
+          additionalProperties:
+            type: string
+        tools:
+          type: array
+          items:
+            type: string
+        max_credits:
+          type: number
+        callback_url:
+          type: string
+          format: uri
+        human_approval:
+          type: boolean
+          default: false
+        background:
+          type: boolean
+          default: false
+        context_files:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              content_base64:
+                type: string
+              media_type:
+                type: string
+
+    WorkflowSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        objective:
+          type: string
+        status:
+          type: string
+          enum: [pending, planning, executing, paused, completed, failed, cancelled]
+        plan:
+          type: object
+          nullable: true
+        credits_consumed:
+          type: number
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        completed_at:
+          type: string
+          nullable: true
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              task_type:
+                type: string
+              description:
+                type: string
+              status:
+                type: string
+              output_preview:
+                type: string
+                nullable: true
+              started_at:
+                type: string
+                nullable: true
+              completed_at:
+                type: string
+                nullable: true
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  timestamp:
+                    type: string
+                  version:
+                    type: string
+
+  /v1/models:
+    get:
+      summary: List available models
+      security: []
+      tags: [Models]
+      responses:
+        "200":
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelInfo'
+
+  /v1/presets:
+    get:
+      summary: List available presets
+      security: []
+      tags: [Models]
+      responses:
+        "200":
+          description: Preset configurations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: object
+
+  # ── Agent API ──
+  /v1/responses:
+    post:
+      summary: Create an agent response
+      description: |
+        The workhorse endpoint. Sends a prompt to an AI model and returns the response.
+        Supports web search, URL fetch, and code execution tools.
+        Use `stream: true` for SSE text deltas.
+      tags: [Agent API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRequest'
+      responses:
+        "200":
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of text deltas (when stream=true)
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        "401":
+          description: Authentication error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        "402":
+          description: Insufficient credits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  # ── Billing ──
+  /v1/billing/balance:
+    get:
+      summary: Get credit balance
+      tags: [Billing]
+      responses:
+        "200":
+          description: Current balance and usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credits_balance:
+                    type: number
+                  tier:
+                    type: string
+                  usage_this_period:
+                    type: object
+                    properties:
+                      credits_used:
+                        type: number
+                      request_count:
+                        type: integer
+
+  /v1/billing/usage:
+    get:
+      summary: Get usage details
+      tags: [Billing]
+      parameters:
+        - name: start
+          in: query
+          schema:
+            type: string
+        - name: end
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage details
+
+  /v1/billing/top-up:
+    post:
+      summary: Add credits
+      tags: [Billing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount:
+                  type: number
+                  minimum: 0
+      responses:
+        "200":
+          description: Credits added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credits_balance:
+                    type: number
+                  amount_added:
+                    type: number
+
+  /v1/billing/transactions:
+    get:
+      summary: List credit transactions
+      tags: [Billing]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      type: object
+
+  # ── Sandbox ──
+  /v1/sandbox/sessions:
+    post:
+      summary: Create a sandbox session
+      tags: [Sandbox]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SandboxConfig'
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxSession'
+
+  /v1/sandbox/sessions/{id}:
+    get:
+      summary: Get session info
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxSession'
+    delete:
+      summary: Terminate a session
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session terminated
+
+  /v1/sandbox/sessions/{id}/execute:
+    post:
+      summary: Execute code in a session
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                timeout_seconds:
+                  type: integer
+                  maximum: 300
+      responses:
+        "200":
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResult'
+
+  /v1/sandbox/sessions/{id}/files:
+    get:
+      summary: List files in workspace
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: directory
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: string
+
+  /v1/sandbox/sessions/{id}/file/{path}:
+    get:
+      summary: Read a file from workspace
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content
+    put:
+      summary: Write a file to workspace
+      tags: [Sandbox]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                content_base64:
+                  type: string
+      responses:
+        "200":
+          description: File written
+
+  # ── Workflows ──
+  /v1/workflows:
+    post:
+      summary: Create and start a workflow
+      description: |
+        Takes a natural-language objective, uses an LLM to plan a DAG of tasks,
+        and begins executing them in parallel.
+      tags: [Workflows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowConfig'
+      responses:
+        "201":
+          description: Workflow created and planning started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflow_id:
+                    type: string
+                  status:
+                    type: string
+                  created_at:
+                    type: string
+                  plan:
+                    type: object
+                    properties:
+                      task_count:
+                        type: integer
+                      tasks:
+                        type: array
+                        items:
+                          type: object
+    get:
+      summary: List workflows
+      tags: [Workflows]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowSummary'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /v1/workflows/{id}:
+    get:
+      summary: Get workflow details
+      tags: [Workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowSummary'
+    delete:
+      summary: Cancel a workflow
+      tags: [Workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow cancelled
+
+  /v1/workflows/{id}/stream:
+    get:
+      summary: Stream workflow events (SSE)
+      description: |
+        Server-Sent Events stream of workflow progress.
+        Events: planning_complete, task_started, task_completed, task_failed,
+        human_approval_required, workflow_completed, workflow_failed, credit_update.
+      tags: [Workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /v1/workflows/{id}/approve:
+    post:
+      summary: Approve or reject a pending task
+      tags: [Workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id, approved]
+              properties:
+                task_id:
+                  type: string
+                approved:
+                  type: boolean
+                feedback:
+                  type: string
+      responses:
+        "200":
+          description: Approval processed
+
+tags:
+  - name: System
+    description: Health check and system info
+  - name: Models
+    description: Available models and presets
+  - name: Agent API
+    description: Unified multi-provider LLM gateway
+  - name: Billing
+    description: Credit management and usage tracking
+  - name: Sandbox
+    description: Isolated code execution environments
+  - name: Workflows
+    description: Workflow orchestration engine

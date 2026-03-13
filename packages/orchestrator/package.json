@@ -1,0 +1,13 @@
+{
+  "name": "@orchestrator/orchestrator",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@orchestrator/billing": "workspace:*",
+    "@orchestrator/model-router": "workspace:*",
+    "@orchestrator/sandbox": "workspace:*",
+    "@orchestrator/shared": "workspace:*"
+  }
+}
