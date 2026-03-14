@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // ── Tool schemas ──
 export const ToolSchema = z.object({
-  type: z.enum(['web_search', 'fetch_url', 'function', 'code_execution']),
+  type: z.enum(['web_search', 'fetch_url', 'function', 'code_execution', 'file_read', 'file_write', 'file_edit', 'bash', 'grep', 'glob']),
   function: z
     .object({
       name: z.string(),
@@ -56,6 +56,7 @@ export const AgentRequestSchema = z.object({
   previous_response_id: z.string().optional(),
   model_fallback: z.array(z.string()).optional(),
   preset: z.string().optional(),
+  chat_id: z.string().optional(),
 });
 
 // ── Sandbox config ──
@@ -103,7 +104,59 @@ export const WorkflowConfigSchema = z.object({
   background: z.boolean().optional().default(false),
 });
 
-// ── DAG Task ──
+// ── Agent type ──
+export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file']);
+
+// ── Orchestrator task (new architecture) ──
+export const OrchestratorTaskSchema = z.object({
+  task_id: z.string().min(1),
+  description: z.string().min(1),
+  agent_type: AgentTypeSchema,
+  depends_on: z.array(z.string()).default([]),
+  output_artifact: z.string().min(1).optional(),
+});
+
+export const OrchestratorTaskListSchema = z.object({
+  tasks: z.array(OrchestratorTaskSchema).min(1),
+});
+
+// ── Orchestrator loop decision ──
+const OrchestratorActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('dispatch'),
+    task_ids: z.array(z.string()).min(1),
+  }),
+  z.object({
+    type: z.literal('add_task'),
+    task_id: z.string().min(1),
+    description: z.string().min(1),
+    agent_type: AgentTypeSchema,
+    depends_on: z.array(z.string()).default([]),
+    reason_generated: z.string().min(1).optional(),
+    output_artifact: z.string().min(1).optional(),
+    supersedes_task_id: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('skip'),
+    task_id: z.string().min(1),
+    reason: z.string(),
+  }),
+  z.object({
+    type: z.literal('complete'),
+    output: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('delegate_write'),
+    prompt: z.string().min(1),
+  }),
+]);
+
+export const OrchestratorDecisionSchema = z.object({
+  thinking: z.string(),
+  actions: z.array(OrchestratorActionSchema).min(1),
+});
+
+// ── Legacy DAG Task (kept for backward compat) ──
 export const DAGTaskSchema = z.object({
   task_id: z.string(),
   parent_task_ids: z.array(z.string()),
@@ -115,6 +168,11 @@ export const DAGTaskSchema = z.object({
     'file_operation',
     'api_call',
     'human_approval',
+    'research',
+    'analyze',
+    'write',
+    'code',
+    'file',
   ]),
   description: z.string(),
   model: z.string().optional().nullable(),

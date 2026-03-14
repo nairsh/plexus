@@ -109,19 +109,20 @@ export function runMigrations(): void {
       id TEXT PRIMARY KEY,
       workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
       parent_task_ids TEXT NOT NULL DEFAULT '[]',
-      task_type TEXT NOT NULL CHECK (task_type IN ('llm_completion','web_search','code_execution','browser_action','file_operation','api_call','human_approval')),
+      task_type TEXT NOT NULL CHECK (task_type IN ('llm_completion','web_search','code_execution','browser_action','file_operation','api_call','human_approval','research','analyze','write','code','file')),
       description TEXT,
       model TEXT,
       tools TEXT,
       input_context TEXT,
       output TEXT,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','blocked','cancelled')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','blocked','cancelled','skipped')),
       sandbox_id TEXT,
       retry_count INTEGER NOT NULL DEFAULT 0,
       cost TEXT,
       started_at TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id, status);
 
@@ -187,9 +188,65 @@ export function runMigrations(): void {
   addColumnIfMissing('workflows', 'orchestrator_model', 'TEXT');
   addColumnIfMissing('workflows', 'started_at', 'TEXT');
   addColumnIfMissing('workflows', 'ended_at', 'TEXT');
+  addColumnIfMissing('tasks', 'model', 'TEXT');
+  addColumnIfMissing('tasks', 'tools', 'TEXT');
+  // Note: updated_at column will be added via table recreation below
   addColumnIfMissing('sandbox_sessions', 'chat_id', 'TEXT REFERENCES sandbox_workspaces(chat_id)');
   addColumnIfMissing('sandbox_sessions', 'open_terminal_url', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'environment_status', "TEXT NOT NULL DEFAULT 'running'");
+
+  // Update task_type CHECK constraint to include new agent types
+  // Note: SQLite doesn't support ALTER TABLE for CHECK constraints
+  // We recreate the tasks table with the updated constraint
+  const hasResearchType = database.prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%research%' AND name='tasks'").get();
+  if (!hasResearchType) {
+    logger.info('Updating tasks table to support new agent types...');
+    
+    // Temporarily disable foreign keys to allow table recreation
+    database.exec('PRAGMA foreign_keys = OFF');
+    
+    try {
+      database.exec(`
+        -- Drop temporary table if exists from previous failed migration
+        DROP TABLE IF EXISTS tasks_new;
+        
+        -- Create new tasks table with updated schema
+        CREATE TABLE tasks_new (
+          id TEXT PRIMARY KEY,
+          workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+          parent_task_ids TEXT NOT NULL DEFAULT '[]',
+          task_type TEXT NOT NULL CHECK (task_type IN ('llm_completion','web_search','code_execution','browser_action','file_operation','api_call','human_approval','research','analyze','write','code','file')),
+          description TEXT,
+          model TEXT,
+          tools TEXT,
+          input_context TEXT,
+          output TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','blocked','cancelled','skipped')),
+          sandbox_id TEXT,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          cost TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        
+        -- Copy data from old table
+        INSERT INTO tasks_new SELECT *, datetime('now') as updated_at FROM tasks;
+        
+        -- Drop old table and rename new one
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+        
+        -- Recreate index
+        CREATE INDEX idx_tasks_workflow ON tasks(workflow_id, status);
+      `);
+      logger.info('Tasks table updated successfully');
+    } finally {
+      // Re-enable foreign keys
+      database.exec('PRAGMA foreign_keys = ON');
+    }
+  }
 
   logger.info('Database migrations completed');
 }

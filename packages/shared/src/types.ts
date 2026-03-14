@@ -13,6 +13,7 @@ export interface AgentRequest {
   model_fallback?: string[];
   preset?: string;
   trace?: ToolTraceHooks;
+  chat_id?: string;
 }
 
 export interface ToolTraceHooks {
@@ -60,13 +61,36 @@ export interface UsageInfo {
   };
 }
 
+export type TaskOrigin = 'planned' | 'runtime_generated';
+
+export interface TaskUsageSummary {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface TaskMetadata {
+  origin: TaskOrigin;
+  semantic_key?: string | null;
+  output_artifact?: string | null;
+  reason_generated?: string | null;
+  supersedes_task_id?: string | null;
+}
+
+export interface SubagentExecutionResult {
+  output: string;
+  model: string;
+  usage: UsageInfo;
+}
+
 export interface OutputBlock {
-  type: 'search_results' | 'fetch_url_results' | 'message';
+  type: 'search_results' | 'fetch_url_results' | 'message' | 'file_read_result' | 'file_write_result' | 'file_edit_result' | 'bash_result' | 'grep_result' | 'glob_result';
   [key: string]: unknown;
 }
 
 export interface Tool {
-  type: 'web_search' | 'fetch_url' | 'function' | 'code_execution';
+  type: 'web_search' | 'fetch_url' | 'function' | 'code_execution' | 'file_read' | 'file_write' | 'file_edit' | 'bash' | 'grep' | 'glob';
   function?: { name: string; description: string; parameters: object };
 }
 
@@ -135,6 +159,47 @@ export interface ExecutionResult {
 }
 
 // ── Orchestrator ──
+
+/** The type of specialized sub-agent that handles a task */
+export type AgentType = 'research' | 'analyze' | 'write' | 'code' | 'file';
+
+/** A single task in the orchestrator's task list */
+export interface OrchestratorTask {
+  task_id: string;
+  description: string;
+  agent_type: AgentType;
+  depends_on: string[];
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'skipped';
+  origin?: TaskOrigin;
+  semantic_key?: string | null;
+  output_artifact?: string | null;
+  reason_generated?: string | null;
+  supersedes_task_id?: string | null;
+}
+
+/** Action types the orchestrator LLM can take each loop iteration */
+export type OrchestratorAction =
+  | { type: 'dispatch'; task_ids: string[] }
+  | {
+      type: 'add_task';
+      task_id: string;
+      description: string;
+      agent_type: AgentType;
+      depends_on: string[];
+      reason_generated?: string;
+      output_artifact?: string;
+      supersedes_task_id?: string;
+    }
+  | { type: 'skip'; task_id: string; reason: string }
+  | { type: 'complete'; output: string }
+  | { type: 'delegate_write'; prompt: string };
+
+/** The structured decision the orchestrator LLM returns each iteration */
+export interface OrchestratorDecision {
+  thinking: string;
+  actions: OrchestratorAction[];
+}
+
 export interface WorkflowConfig {
   objective: string;
   orchestrator_model?: string;
@@ -148,10 +213,12 @@ export interface WorkflowConfig {
   background?: boolean;
 }
 
+/** @deprecated Use OrchestratorTask — kept for backward compatibility with stored workflows */
 export interface DAGPlan {
   tasks: DAGTask[];
 }
 
+/** @deprecated Use OrchestratorTask — kept for backward compatibility with stored workflows */
 export interface DAGTask {
   task_id: string;
   parent_task_ids: string[];
@@ -165,17 +232,43 @@ export interface DAGTask {
 export interface WorkflowEvent {
   type:
     | 'planning_complete'
+    | 'tasks_initialized'
+    | 'orchestrator_thinking'
     | 'task_started'
+    | 'task_dispatched'
     | 'task_completed'
     | 'task_failed'
+    | 'task_added'
+    | 'task_reused'
+    | 'task_skipped'
     | 'human_approval_required'
     | 'workflow_completed'
     | 'workflow_failed'
-    | 'credit_update';
+    | 'credit_update'
+    | 'subagent_tool_call'
+    | 'subagent_tool_result';
   workflow_id: string;
   task_id?: string;
   data: unknown;
   timestamp: string;
+}
+
+export interface OrchestratorThinkingData {
+  thinking: string;
+  iteration: number;
+  mode?: 'llm' | 'direct_dispatch' | 'direct_completion' | 'fallback';
+}
+
+export interface WorkflowTaskPlanEntry {
+  id: string;
+  description: string;
+  agent_type: AgentType;
+  depends_on: string[];
+  status?: OrchestratorTask['status'];
+  origin?: TaskOrigin;
+  output_artifact?: string | null;
+  reason_generated?: string | null;
+  supersedes_task_id?: string | null;
 }
 
 export type WorkflowStepType =
