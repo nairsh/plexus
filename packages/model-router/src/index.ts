@@ -16,6 +16,12 @@ export {
   getAllowedOrchestratorModels,
   resolveOrchestratorModel,
   getSubagentModel,
+  getAgentModel,
+  getAllAgentModels,
+  saveRuntimeModelConfig,
+  updateAgentModels,
+  type RuntimeModelConfig,
+  type AgentModels,
 } from './config.js';
 export { executeWebSearch } from './tools/webSearch.js';
 export { executeFetchUrl } from './tools/fetchUrl.js';

@@ -1,14 +1,16 @@
 {
   "name": "@orchestrator/cli",
   "version": "0.1.0",
-  "description": "CLI tool for testing the orchestrator system",
+  "description": "CLI tool for the orchestrator platform",
   "type": "module",
   "bin": {
+    "orchestrator": "tsx src/cli/index.ts",
     "orchestrate": "tsx src/orchestrate.ts",
     "test-web-search": "tsx src/test-web-search.ts"
   },
   "scripts": {},
   "dependencies": {
+    "@inquirer/prompts": "^7.0.0",
     "@orchestrator/model-router": "workspace:*",
     "@orchestrator/orchestrator": "workspace:*",
     "@orchestrator/shared": "workspace:*",

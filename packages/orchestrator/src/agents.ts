@@ -5,7 +5,7 @@
  * The orchestrator dispatches tasks to these agents; they return their output as a string.
  */
 
-import { routeRequest, getOpenTerminalSessionForChat } from '@orchestrator/model-router';
+import { routeRequest, getOpenTerminalSessionForChat, getAgentModel as getConfigAgentModel } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
 import { createSession, execute as sandboxExecute, terminateSession } from '@orchestrator/sandbox';
 import { logger } from '@orchestrator/shared';
@@ -146,7 +146,8 @@ export async function dispatchToAgent(
   ctx: AgentExecutionContext
 ): Promise<SubagentExecutionResult> {
   const config = AGENT_CONFIGS[task.agent_type];
-  const model = ctx.config.model_overrides?.[task.agent_type] ?? config.model;
+  // Use the getAgentModel function which checks config first, then falls back to hardcoded
+  const model = getAgentModel(task.agent_type, ctx.config.model_overrides);
 
   logger.info(
     { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type, model, promptLength: prompt.length },
@@ -239,7 +240,17 @@ export function getAgentDisplayName(agentType: AgentType): string {
 }
 
 export function getAgentModel(agentType: AgentType, overrides?: Record<string, string>): string {
-  return overrides?.[agentType] ?? AGENT_CONFIGS[agentType].model;
+  // First check overrides (from workflow config)
+  if (overrides?.[agentType]) {
+    return overrides[agentType];
+  }
+  // Then check runtime config (from CLI onboarding)
+  const configModel = getConfigAgentModel(agentType);
+  if (configModel) {
+    return configModel;
+  }
+  // Fall back to hardcoded default
+  return AGENT_CONFIGS[agentType].model;
 }
 
 // Re-export sandbox utilities for cleanup

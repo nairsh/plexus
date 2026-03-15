@@ -9,8 +9,15 @@
   ],
   "subagent_models": {
     "llm_completion": "litellm/gemini-3-flash-preview",
-    "code_execution_planner": "litellm/gemini-3-flash-preview",
+    "code_execution_planner": "litellm/gemini-3.1-flash-lite-preview",
     "file_operation_planner": "litellm/gemini-3.1-flash-lite-preview"
+  },
+  "agent_models": {
+    "research": "litellm/gemini-3-flash-preview",
+    "analyze": "litellm/ali-kimi-k2.5",
+    "write": "litellm/ali-kimi-k2.5",
+    "code": "litellm/gemini-3-flash-preview",
+    "file": "litellm/gemini-3.1-flash-lite-preview"
   },
   "tools": {
     "search_provider": "tavily",
