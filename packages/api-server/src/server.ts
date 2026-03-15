@@ -158,7 +158,7 @@ export async function startServer() {
 
   // Create and start server
   const server = await createServer();
-  const port = parseInt(process.env['PORT'] || '3000', 10);
+  const port = parseInt(process.env['PORT'] || '8080', 10);
 
   // Start background services
   const cleanerInterval = startRateLimitCleaner();

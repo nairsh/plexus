@@ -35,6 +35,8 @@ import {
   updateOrchestratorModels,
   setAgentModel,
   getAllAgentModels,
+  normalizeModelId,
+  validateAndNormalizeModels,
 } from '../lib/config-manager.js';
 
 // ── Main menu ──
@@ -440,9 +442,25 @@ async function fetchModelsFromLiteLLM(): Promise<void> {
     });
 
     if (update) {
-      const litellmModels = models.map((m) => `litellm/${m}`);
-      updateOrchestratorModels(litellmModels);
-      printSuccess(`Updated allowed models with ${models.length} models`);
+      const litellmModels = models.map((m) => normalizeModelId(m));
+      const { valid, invalid, normalized } = validateAndNormalizeModels(litellmModels);
+
+      if (normalized.size > 0) {
+        console.log(chalk.dim('\nNormalized model IDs:'));
+        for (const [original, normalizedId] of normalized) {
+          console.log(chalk.dim(`  ${original} → ${normalizedId}`));
+        }
+      }
+
+      if (invalid.length > 0) {
+        console.log(chalk.yellow(`\n⚠ Skipped ${invalid.length} unrecognized models:`));
+        for (const model of invalid) {
+          console.log(chalk.dim(`  • ${model}`));
+        }
+      }
+
+      updateOrchestratorModels(valid);
+      printSuccess(`Updated allowed models with ${valid.length} models`);
     }
   } catch (error) {
     spinner.fail(chalk.red((error as Error).message));

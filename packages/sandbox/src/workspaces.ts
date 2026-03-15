@@ -18,7 +18,7 @@ const ensureDir = (path: string) => {
   mkdirSync(path, { recursive: true });
 };
 
-const getWorkspacePaths = (chatId: string) => {
+export const getWorkspacePaths = (chatId: string) => {
   const basePath = join(getWorkspaceRoot(), chatId);
   return {
     basePath,

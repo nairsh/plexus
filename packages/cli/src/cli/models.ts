@@ -24,6 +24,9 @@ import {
   updateOrchestratorModels,
   setAgentModel,
   getAllAgentModels,
+  normalizeModelId,
+  validateAndNormalizeModels,
+  tryNormalizeModelId,
 } from '../lib/config-manager.js';
 import {
   fetchLiteLLMModels,
@@ -162,18 +165,38 @@ async function fetchModels(): Promise<void> {
     const update = await promptConfirm('\nUpdate orchestrator models with these models?', { default: true });
 
     if (update) {
-      const litellmModels = models.map(m => `litellm/${m}`);
-      updateOrchestratorModels(litellmModels);
+      // Normalize models to match registry format
+      const normalizedModels = models.map(m => normalizeModelId(m));
+      const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
+
+      if (normalized.size > 0) {
+        console.log(chalk.dim('\nNormalized model IDs:'));
+        for (const [original, normalizedId] of normalized) {
+          console.log(chalk.dim(`  ${original} → ${normalizedId}`));
+        }
+      }
+
+      if (invalid.length > 0) {
+        console.log(chalk.yellow(`\n⚠ Skipped ${invalid.length} unrecognized models:`));
+        for (const model of invalid) {
+          console.log(chalk.dim(`  • ${model}`));
+        }
+      }
+
+      if (valid.length === 0) {
+        printError('No valid models found to add.');
+        return;
+      }
 
       // Ask to set default
       const defaultModel = await (await import('../lib/prompts.js')).promptModel(
         'Select default model',
-        litellmModels.slice(0, 10), // Limit choices
+        valid.slice(0, 10), // Limit choices
         {}
       );
 
-      updateOrchestratorModels(litellmModels, defaultModel);
-      printSuccess(`Updated orchestrator models with ${models.length} models.`);
+      updateOrchestratorModels(valid, defaultModel);
+      printSuccess(`Updated orchestrator models with ${valid.length} models.`);
       printSuccess(`Default model set to ${defaultModel}`);
     }
 
@@ -201,11 +224,14 @@ async function assignModel(agent: string, model: string): Promise<void> {
     process.exit(1);
   }
 
+  // Normalize the input model ID
+  const normalizedModel = tryNormalizeModelId(model) || model;
+
   // Validate model is in allowed list
   const modelConfig = getModelConfig();
 
-  if (modelConfig && !modelConfig.orchestrator_models.includes(model)) {
-    printWarning(`Model ${model} is not in the allowed orchestrator models list.`);
+  if (modelConfig && !modelConfig.orchestrator_models.includes(normalizedModel)) {
+    printWarning(`Model ${normalizedModel} is not in the allowed orchestrator models list.`);
     console.log(chalk.dim('Available models:'));
     for (const m of modelConfig.orchestrator_models) {
       console.log(chalk.dim(`  ${m}`));
@@ -220,8 +246,8 @@ async function assignModel(agent: string, model: string): Promise<void> {
     }
   }
 
-  setAgentModel(agent, model);
-  printSuccess(`Assigned ${chalk.cyan(model)} to ${printAgentBadge(agent)}`);
+  setAgentModel(agent, normalizedModel);
+  printSuccess(`Assigned ${chalk.cyan(normalizedModel)} to ${printAgentBadge(agent)}`);
 }
 
 // ── Set default model ──
@@ -240,8 +266,11 @@ async function setDefaultModel(model: string): Promise<void> {
     process.exit(1);
   }
 
-  if (!modelConfig.orchestrator_models.includes(model)) {
-    printError(`Model ${model} is not in the allowed orchestrator models list.`);
+  // Normalize the input model ID
+  const normalizedModel = tryNormalizeModelId(model) || model;
+
+  if (!modelConfig.orchestrator_models.includes(normalizedModel)) {
+    printError(`Model ${normalizedModel} is not in the allowed orchestrator models list.`);
     console.log(chalk.dim('Available models:'));
     for (const m of modelConfig.orchestrator_models) {
       console.log(chalk.dim(`  ${m}`));
@@ -249,8 +278,8 @@ async function setDefaultModel(model: string): Promise<void> {
     process.exit(1);
   }
 
-  updateOrchestratorModels(modelConfig.orchestrator_models, model);
-  printSuccess(`Default orchestrator model set to ${chalk.cyan(model)}`);
+  updateOrchestratorModels(modelConfig.orchestrator_models, normalizedModel);
+  printSuccess(`Default orchestrator model set to ${chalk.cyan(normalizedModel)}`);
 }
 
 // ── Help ──

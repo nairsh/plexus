@@ -1,70 +1,263 @@
 import { EventEmitter } from 'node:events';
-import {
-  getDb,
-  logger,
-  WorkflowError,
-  OrchestratorTaskListSchema,
-  OrchestratorDecisionSchema,
-} from '@orchestrator/shared';
+import { getDb, WorkflowError } from '@orchestrator/shared';
 import type {
   WorkflowConfig,
   WorkflowEvent,
   OrchestratorTask,
-  OrchestratorDecision,
   AgentType,
+  Tool,
+  OutputBlock,
   ToolTraceHooks,
-  WorkflowTraceStep,
-  TaskMetadata,
-  TaskUsageSummary,
   SubagentExecutionResult,
-  OrchestratorThinkingData,
+  ConversationMessage,
+  WorkflowTraceStep,
 } from '@orchestrator/shared';
-import {
-  routeRequest,
-  resolveOrchestratorModel,
-} from '@orchestrator/model-router';
+import { routeRequest, resolveOrchestratorModel } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
 import { terminateSession } from '@orchestrator/sandbox';
 import { dispatchToAgent } from './agents.js';
 import type { AgentExecutionContext } from './agents.js';
 import { getWorkflowTrace as readWorkflowTrace, logWorkflowStep } from './workflowTrace.js';
 import {
-  getTodoList,
-  addTodoTask,
-  updateTodoTaskStatus,
-  skipTodoTask,
-  formatTodoListForPrompt,
-  getReadyTasks,
-  allTasksSettled,
-  type TodoList,
-  type TodoTask,
-} from '@orchestrator/model-router';
+  createWorkItem,
+  listWorkItems,
+  getWorkItem,
+  updateWorkItem,
+  resolveWorkItemId,
+  type WorkItem,
+  type WorkItemStatus,
+} from './workItems.js';
+import { loadPrompt, formatConversationHistory } from './promptLoader.js';
 
-// ── Constants ──
+const MAX_TURNS = 60;
 
-const MAX_LOOP_ITERATIONS = 25;
-const SIMPLE_WORKFLOW_MAX_TASKS = 6;
+interface WorkflowStreamIterator extends AsyncIterable<WorkflowEvent> {
+  done: Promise<void>;
+}
 
-// ── In-memory state ──
+type WorkflowStatus = 'pending' | 'executing' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+interface SubagentRun {
+  runId: string;
+  workItemId: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  output?: string;
+  error?: string;
+  promise: Promise<void>;
+}
 
 interface WorkflowState {
   id: string;
   userId: string;
   config: WorkflowConfig;
   orchestratorModel: string;
-  status: 'pending' | 'planning' | 'executing' | 'paused' | 'completed' | 'failed' | 'cancelled';
-  taskOutputs: Map<string, string>; // Cache for quick access during iteration
+  status: WorkflowStatus;
+  lastOutput?: string;
   emitter: EventEmitter;
   abortController: AbortController;
   sandboxSessionIds: string[];
   creditsConsumed: number;
+  executionPromise?: Promise<void>;
+  messages: ConversationMessage[];
+  subagentRuns: Map<string, SubagentRun>;
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
 }
 
 const workflows = new Map<string, WorkflowState>();
 
-// ── Helpers ──
+function readWorkflowOutputFromTrace(workflowId: string): string | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT tool_output
+       FROM workflow_steps
+       WHERE workflow_id = ? AND message_content = 'workflow_completed'
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+    .get(workflowId) as { tool_output: string | null } | undefined;
 
-function emit(state: WorkflowState, event: Omit<WorkflowEvent, 'timestamp'>) {
+  if (!row?.tool_output) return null;
+
+  try {
+    const parsed = JSON.parse(row.tool_output) as { output?: unknown };
+    return typeof parsed.output === 'string' ? parsed.output : null;
+  } catch {
+    return null;
+  }
+}
+
+function hydrateWorkflowState(workflowId: string): WorkflowState | null {
+  const existing = workflows.get(workflowId);
+  if (existing) return existing;
+
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT id, user_id, objective, orchestrator_model, status, config, credits_consumed
+       FROM workflows
+       WHERE id = ?`
+    )
+    .get(workflowId) as {
+    id: string;
+    user_id: string;
+    objective: string;
+    orchestrator_model: string | null;
+    status: WorkflowStatus;
+    config: string | null;
+    credits_consumed: number | null;
+  } | undefined;
+
+  if (!row) return null;
+
+  let config: WorkflowConfig = { objective: row.objective };
+  if (row.config) {
+    try {
+      const parsed = JSON.parse(row.config) as WorkflowConfig;
+      if (parsed && typeof parsed === 'object' && typeof parsed.objective === 'string') {
+        config = parsed;
+      }
+    } catch {
+      // keep fallback config
+    }
+  }
+
+  const output = readWorkflowOutputFromTrace(workflowId);
+  const messages: ConversationMessage[] = [{ role: 'user', content: row.objective }];
+  const conversationHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }> = [
+    { role: 'user', content: row.objective, timestamp: new Date().toISOString() },
+  ];
+
+  if (output) {
+    messages.push({ role: 'assistant', content: output });
+    conversationHistory.push({ role: 'assistant', content: output, timestamp: new Date().toISOString() });
+  }
+
+  const state: WorkflowState = {
+    id: row.id,
+    userId: row.user_id,
+    config,
+    orchestratorModel: row.orchestrator_model ?? resolveOrchestratorModel(undefined),
+    status: row.status,
+    lastOutput: output ?? undefined,
+    emitter: new EventEmitter(),
+    abortController: new AbortController(),
+    sandboxSessionIds: [],
+    creditsConsumed: row.credits_consumed ?? 0,
+    messages,
+    subagentRuns: new Map(),
+    conversationHistory,
+  };
+
+  state.emitter.setMaxListeners(100);
+  workflows.set(workflowId, state);
+  return state;
+}
+
+// Unified orchestrator tools - LLM decides which to use
+const ORCHESTRATOR_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'write_todo',
+      description: 'Create a new todo item. Use this when you need to break work into discrete tasks that may run in parallel or sequence.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_id: { type: 'string', description: 'Unique identifier for this todo' },
+          description: { type: 'string', description: 'What needs to be done' },
+          agent_type: { type: 'string', enum: ['research', 'analyze', 'write', 'code', 'file'], description: 'Which specialist agent should handle this' },
+          depends_on: { type: 'array', items: { type: 'string' }, description: 'IDs of todos that must complete before this one can start' },
+          output_artifact: { type: 'string', description: 'Expected output or deliverable name' },
+        },
+        required: ['todo_id', 'description', 'agent_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_todo',
+      description: 'Update a todo item. Use this to change status (pending, running, completed, failed, skipped), add output, or modify details.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_id: { type: 'string' },
+          description: { type: 'string', description: 'New description (optional)' },
+          depends_on: { type: 'array', items: { type: 'string' }, description: 'New dependencies (optional)' },
+          status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed', 'skipped'], description: 'New status' },
+          output_artifact: { type: 'string', description: 'New expected output (optional)' },
+          output: { type: 'string', description: 'The actual output/result when marking complete' },
+          reason: { type: 'string', description: 'Reason for status change (especially for failed/skipped)' },
+        },
+        required: ['todo_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_todos',
+      description: 'List current todos and optionally filter by status or agent type.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed', 'skipped'], description: 'Filter by status' },
+          agent_type: { type: 'string', enum: ['research', 'analyze', 'write', 'code', 'file'], description: 'Filter by agent type' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'spawn_subagent',
+      description: 'Start executing a ready todo by spawning a specialized subagent. Only works if todo status is pending and dependencies are satisfied.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_id: { type: 'string' },
+          prompt_override: { type: 'string', description: 'Optional custom prompt for the subagent' },
+        },
+        required: ['todo_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'await_subagents',
+      description: 'Wait for running subagent tasks to complete. Use this when you need results before proceeding.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_ids: { type: 'array', items: { type: 'string' }, description: 'Specific todos to wait for (optional, waits for all running if omitted)' },
+          timeout_seconds: { type: 'number', description: 'Maximum time to wait', default: 30 },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_subagent_result',
+      description: 'Fetch the latest result/output from a completed subagent todo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_id: { type: 'string' },
+        },
+        required: ['todo_id'],
+      },
+    },
+  },
+];
+
+function emit(state: WorkflowState, event: Omit<WorkflowEvent, 'timestamp'>): void {
   const full: WorkflowEvent = {
     ...event,
     timestamp: new Date().toISOString(),
@@ -72,10 +265,23 @@ function emit(state: WorkflowState, event: Omit<WorkflowEvent, 'timestamp'>) {
   state.emitter.emit('event', full);
 }
 
+function incrementWorkflowCredits(state: WorkflowState, amount: number): void {
+  if (!amount || amount <= 0) return;
+  state.creditsConsumed += amount;
+
+  const db = getDb();
+  db.prepare(
+    `UPDATE workflows
+     SET credits_consumed = COALESCE(credits_consumed, 0) + ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(amount, state.id);
+}
+
 function recordStep(
   state: WorkflowState,
   step: Omit<WorkflowTraceStep, 'step_id' | 'workflow_id' | 'timestamp'> & { timestamp?: string }
-) {
+): WorkflowTraceStep {
   return logWorkflowStep({
     workflow_id: state.id,
     timestamp: step.timestamp,
@@ -89,11 +295,7 @@ function recordStep(
   });
 }
 
-function buildToolTraceHooks(
-  state: WorkflowState,
-  subagentId: string,
-  model?: string
-): ToolTraceHooks {
+function buildToolTraceHooks(state: WorkflowState, subagentId: string, model?: string): ToolTraceHooks {
   return {
     model,
     workflow_id: state.id,
@@ -108,18 +310,6 @@ function buildToolTraceHooks(
         tool_output: null,
         subagent_id: event.subagent_id ?? subagentId,
       });
-      // Emit event for CLI display
-      if (subagentId !== 'orchestrator') {
-        emit(state, {
-          type: 'subagent_tool_call',
-          workflow_id: state.id,
-          task_id: subagentId,
-          data: {
-            tool_name: event.name,
-            tool_input: event.input,
-          },
-        });
-      }
     },
     onToolResult: async (event) => {
       recordStep(state, {
@@ -127,1205 +317,618 @@ function buildToolTraceHooks(
         model_name: event.model ?? model ?? null,
         message_content: null,
         tool_name: event.name,
-        tool_input: event.input,
+        tool_input: null,
         tool_output: event.output,
         subagent_id: event.subagent_id ?? subagentId,
       });
-      // Emit event for CLI display
-      if (subagentId !== 'orchestrator') {
-        emit(state, {
-          type: 'subagent_tool_result',
-          workflow_id: state.id,
-          task_id: subagentId,
-          data: {
-            tool_name: event.name,
-            tool_output: event.output,
-          },
+    },
+  };
+}
+
+function extractToolCallsFromOutput(output: OutputBlock[]): ToolCall[] {
+  const calls: ToolCall[] = [];
+
+  for (const block of output) {
+    if (block.type !== 'tool_use') continue;
+
+    const name = typeof block.name === 'string' ? block.name : null;
+    if (!name) continue;
+
+    const rawArgs = block.arguments;
+    let parsedArgs: Record<string, unknown> = {};
+
+    if (typeof rawArgs === 'string') {
+      try {
+        parsedArgs = JSON.parse(rawArgs) as Record<string, unknown>;
+      } catch {
+        throw new WorkflowError(`Tool call arguments were not valid JSON for tool '${name}'.`);
+      }
+    } else if (rawArgs && typeof rawArgs === 'object') {
+      parsedArgs = rawArgs as Record<string, unknown>;
+    }
+
+    calls.push({ name, arguments: parsedArgs });
+  }
+
+  return calls;
+}
+
+interface ToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+function normalizeToolCall(call: ToolCall): ToolCall {
+  const args = call.arguments;
+
+  switch (call.name) {
+    case 'create_work_item':
+      return {
+        name: 'write_todo',
+        arguments: {
+          ...args,
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+        },
+      };
+    case 'update_work_item':
+      return {
+        name: 'edit_todo',
+        arguments: {
+          ...args,
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+          reason: (args.reason as string | undefined) ?? (args.reason_generated as string | undefined),
+        },
+      };
+    case 'list_work_items':
+      return { name: 'list_todos', arguments: args };
+    case 'spawn_subagent':
+      return {
+        name: 'spawn_subagent',
+        arguments: {
+          ...args,
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+        },
+      };
+    case 'await_subagents':
+      return {
+        name: 'await_subagents',
+        arguments: {
+          ...args,
+          todo_ids: (args.todo_ids as string[] | undefined) ?? (args.work_item_ids as string[] | undefined),
+        },
+      };
+    case 'get_subagent_result':
+      return {
+        name: 'get_subagent_result',
+        arguments: {
+          ...args,
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+        },
+      };
+    case 'complete_work_item':
+      return {
+        name: 'edit_todo',
+        arguments: {
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+          status: 'completed',
+          output: args.output,
+        },
+      };
+    case 'fail_work_item':
+      return {
+        name: 'edit_todo',
+        arguments: {
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+          status: 'failed',
+          reason: args.error,
+          output: `[failed: ${String(args.error ?? 'unknown')}]`,
+        },
+      };
+    case 'skip_work_item':
+      return {
+        name: 'edit_todo',
+        arguments: {
+          todo_id: (args.todo_id as string | undefined) ?? (args.work_item_id as string | undefined),
+          status: 'skipped',
+          reason: args.reason,
+          output: `[skipped: ${String(args.reason ?? 'no reason')}]`,
+        },
+      };
+    default:
+      return call;
+  }
+}
+
+function tryParseLegacyEnvelope(outputText: string): { toolCalls: ToolCall[]; finalOutput?: string } | null {
+  const trimmed = outputText.trim();
+  const candidates: string[] = [trimmed];
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    candidates.push(fenced[1].trim());
+  }
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as {
+        tool_calls?: Array<{ name?: unknown; arguments?: unknown }>;
+        final_output?: unknown;
+      };
+      if (!Array.isArray(parsed.tool_calls)) continue;
+
+      const toolCalls: ToolCall[] = [];
+      for (const toolCall of parsed.tool_calls) {
+        if (typeof toolCall?.name !== 'string') continue;
+        const args = toolCall.arguments;
+        toolCalls.push({
+          name: toolCall.name,
+          arguments: args && typeof args === 'object' ? (args as Record<string, unknown>) : {},
         });
       }
-    },
-  };
-}
 
-function updateWorkflowStatus(
-  workflowId: string,
-  newStatus: WorkflowState['status'],
-  extra?: Record<string, unknown>
-) {
-  const db = getDb();
-  const sets = ["status = ?", "updated_at = datetime('now')"];
-  const params: unknown[] = [newStatus];
-
-  if (extra) {
-    for (const [key, value] of Object.entries(extra)) {
-      sets.push(`${key} = ?`);
-      params.push(typeof value === 'string' ? value : JSON.stringify(value));
+      return {
+        toolCalls,
+        finalOutput: typeof parsed.final_output === 'string' ? parsed.final_output : undefined,
+      };
+    } catch {
+      // try next candidate
     }
   }
 
-  params.push(workflowId);
-  db.prepare(`UPDATE workflows SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-
-  if (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'cancelled') {
-    db.prepare(`UPDATE workflows SET ended_at = COALESCE(ended_at, datetime('now')) WHERE id = ?`).run(workflowId);
-  }
+  return null;
 }
 
-function incrementWorkflowCredits(state: WorkflowState, amount: number) {
-  if (!amount || amount <= 0) return;
+async function callOrchestrator(
+  state: WorkflowState,
+  iteration: number
+): Promise<{ toolCalls: ToolCall[]; responseText: string; rawOutput: OutputBlock[] }> {
+  // Build context from current state
+  const todos = listWorkItems(state.id);
+  const todoContext = todos.length > 0
+    ? `Current todos:\n${todos.map(t => `- ${t.id}: [${t.status}] ${t.description} (${t.agentType})${t.dependsOn.length ? ` (depends on: ${t.dependsOn.join(', ')})` : ''}`).join('\n')}`
+    : 'No todos yet.';
 
-  state.creditsConsumed += amount;
-  const db = getDb();
-  db.prepare(
-    `UPDATE workflows
-     SET credits_consumed = COALESCE(credits_consumed, 0) + ?,
-         updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(amount, state.id);
-}
-
-function workflowBudgetExceeded(state: WorkflowState): boolean {
-  const budget = state.config.max_credits;
-  return typeof budget === 'number' && state.creditsConsumed > budget;
-}
-
-/** Strip the workflow-id prefix from task IDs for display */
-function shortId(taskId: string, workflowId: string): string {
-  return taskId.startsWith(`${workflowId}_`) ? taskId.slice(workflowId.length + 1) : taskId;
-}
-
-/** Resolve a short task ID from the orchestrator's response back to the full internal ID */
-function resolveTaskId(id: string, workflowId: string, todoList: TodoList): string {
-  // Already a full match
-  if (todoList.tasks.find(t => t.task_id === id)) return id;
-  // Try prefixing
-  const prefixed = `${workflowId}_${id}`;
-  if (todoList.tasks.find(t => t.task_id === prefixed)) return prefixed;
-  return id;
-}
-
-function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .filter(token => !new Set(['the', 'a', 'an', 'for', 'to', 'of', 'and', 'or', 'with', 'in', 'on', 'by']).has(token))
-    .join(' ');
-}
-
-function inferOutputArtifact(agentType: AgentType, taskId: string, description: string): string {
-  const normalized = `${taskId} ${description}`.toLowerCase();
-
-  if (agentType === 'write') return 'final_output';
-  if (normalized.includes('summary') || normalized.includes('report')) return 'report';
-  if (normalized.includes('analysis') || normalized.includes('evaluate')) return 'analysis';
-  if (normalized.includes('compare')) return 'comparison';
-  if (normalized.includes('scope')) return 'scope_brief';
-  if (agentType === 'research') return 'research_brief';
-
-  return `${agentType}_output`;
-}
-
-function buildSemanticKey(
-  agentType: AgentType,
-  description: string,
-  dependsOn: string[],
-  outputArtifact?: string | null
-): string {
-  const normalizedDescription = normalizeText(description).split(' ').slice(0, 16).join(' ');
-  const normalizedDeps = dependsOn.map(dep => dep.split('_').slice(-3).join('_')).sort().join('|');
-  return [agentType, outputArtifact ?? 'artifact', normalizedDescription, normalizedDeps].filter(Boolean).join('::');
-}
-
-function buildTaskMetadata(input: {
-  origin: 'planned' | 'runtime_generated';
-  agentType: AgentType;
-  description: string;
-  dependsOn: string[];
-  outputArtifact?: string | null;
-  reasonGenerated?: string | null;
-  supersedesTaskId?: string | null;
-}): TaskMetadata {
-  const outputArtifact = input.outputArtifact ?? inferOutputArtifact(input.agentType, input.description, input.description);
-  return {
-    origin: input.origin,
-    output_artifact: outputArtifact,
-    semantic_key: buildSemanticKey(input.agentType, input.description, input.dependsOn, outputArtifact),
-    reason_generated: input.reasonGenerated ?? null,
-    supersedes_task_id: input.supersedesTaskId ?? null,
-  };
-}
-
-function areTaskDependenciesSatisfied(task: TodoTask, todoList: TodoList): boolean {
-  return task.depends_on.every(depId => {
-    const dep = todoList.tasks.find(t => t.task_id === depId);
-    return dep?.status === 'completed' || dep?.status === 'skipped';
+  const instructions = loadPrompt('orchestrator.md', {
+    todoContext,
+    conversationHistory: formatConversationHistory(state.conversationHistory),
   });
-}
 
-function findSemanticallyEquivalentTask(
-  todoList: TodoList,
-  agentType: AgentType,
-  description: string,
-  dependsOn: string[],
-  outputArtifact?: string | null
-): TodoTask | undefined {
-  const semanticKey = buildSemanticKey(agentType, description, dependsOn, outputArtifact ?? inferOutputArtifact(agentType, description, description));
-  return todoList.tasks.find(task => task.semantic_key === semanticKey && task.agent_type === agentType && task.status !== 'failed' && task.status !== 'cancelled');
-}
+  const response = await routeRequest({
+    model: state.orchestratorModel,
+    input: state.messages,
+    instructions,
+    tools: ORCHESTRATOR_TOOLS,
+    tool_execution: 'manual',
+    max_output_tokens: 4096,
+    temperature: 0.2,
+    trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
+  });
 
-function buildObjectivePlanningInput(objective: string): string {
-  const lines = [`Objective: ${objective}`];
-  const normalized = objective.toLowerCase();
-
-  if (normalized.includes('tanstack') && !/(query|router|table|form|store)/.test(normalized)) {
-    lines.push('Scope hint: Treat TanStack as an ecosystem. Explicitly decide which packages are relevant here (likely Query, Router, Table, Form, Store), explain what is included or excluded, and tailor the scope to the user objective.');
-  }
-
-  if (/(ecosystem|suite|family|platform)/.test(normalized)) {
-    lines.push('Scope hint: The request appears broad. Normalize the scope into concrete subtopics, make inclusions/exclusions explicit, and decompose tasks so each sub-agent investigates a materially distinct question.');
-  }
-
-  return lines.join('\n');
-}
-
-function buildDirectDispatchDecision(todoList: TodoList): OrchestratorDecision | null {
-  const readyTasks = getReadyTasks(todoList);
-  if (readyTasks.length === 0) {
-    return null;
-  }
-
-  const pendingCount = todoList.tasks.filter(task => task.status === 'pending').length;
-  const allReadyAreNonWrite = readyTasks.every(task => task.agent_type !== 'write');
-  const simpleWorkflow = todoList.tasks.length <= SIMPLE_WORKFLOW_MAX_TASKS;
-
-  if ((simpleWorkflow && allReadyAreNonWrite) || pendingCount === readyTasks.length || readyTasks.length === 1) {
-    return {
-      thinking: 'Direct dispatch: existing planned tasks are ready, dependencies are unambiguous, and replanning would add unnecessary overhead.',
-      actions: [{ type: 'dispatch', task_ids: readyTasks.map(task => task.task_id) }],
-    };
-  }
-
-  return null;
-}
-
-function buildDirectCompletionDecision(todoList: TodoList): OrchestratorDecision | null {
-  if (!allTasksSettled(todoList)) {
-    return null;
-  }
-
-  const completedWriteTask = [...todoList.tasks]
-    .reverse()
-    .find(task => task.status === 'completed' && task.agent_type === 'write' && task.output);
-
-  if (completedWriteTask?.output) {
-    return {
-      thinking: 'Workflow wrap-up: the planned final write task already finished, so I can finalize immediately.',
-      actions: [{ type: 'complete', output: completedWriteTask.output }],
-    };
-  }
-
-  return null;
-}
-
-function summarizeTaskUsage(result: SubagentExecutionResult): TaskUsageSummary {
-  return {
-    model: result.model,
-    input_tokens: result.usage.input_tokens,
-    output_tokens: result.usage.output_tokens,
-    total_tokens: result.usage.total_tokens,
-  };
-}
-
-function buildTaskCompletionPayload(result: SubagentExecutionResult) {
-  const output = result.output;
-  return {
-    output_preview: output.substring(0, 500),
-    usage: summarizeTaskUsage(result),
-    output_line_count: output.split(/\r?\n/).length,
-    output_word_count: output.trim().length === 0 ? 0 : output.trim().split(/\s+/).length,
-  };
-}
-
-function classifyDecisionMode(thinking: string): OrchestratorThinkingData['mode'] {
-  if (thinking.startsWith('Direct dispatch:')) return 'direct_dispatch';
-  if (thinking.startsWith('Workflow wrap-up:')) return 'direct_completion';
-  if (thinking.startsWith('Fallback:')) return 'fallback';
-  return 'llm';
-}
-
-// ── Prompt builders ──
-
-function buildPlanningSystemPrompt(): string {
-  return `You are an orchestrator that decomposes user objectives into an actionable task list for specialized AI sub-agents.
-
-## Available Sub-Agent Types
-
-- **research**: Searches the web and fetches URLs to gather current information. Use for any task requiring external information.
-- **analyze**: Synthesizes and reasons over research findings. No tool access — receives context, produces structured analysis.
-- **write**: Produces polished long-form content (reports, summaries, articles). No tool access — receives context, produces final text.
-- **code**: Writes and executes code in a sandbox (bash, file tools). Use for computational tasks, data processing, or automation.
-- **file**: Performs file system operations (read, write, edit files). Use when workspace artifacts are needed.
-
-## Rules
-
-1. Most objectives start with one or more **research** tasks.
-2. **analyze** tasks depend on research tasks that gather data.
-3. **write** tasks depend on analysis or research tasks — write comes last.
-4. Independent tasks (no shared dependencies) can run in parallel — keep depends_on empty for them.
-5. Keep the list focused: **3–8 tasks** for most objectives. The orchestrator can add more dynamically.
-6. Use snake_case task IDs that are short and descriptive (e.g., "research_latest_news").
-7. Do not over-specify. Trust the sub-agents to handle their domain.
-8. Normalize broad scope early. If the user names an ecosystem, suite, or product family, translate it into concrete investigation areas and make the scope explicit in task descriptions.
-9. Decompose work into materially distinct investigations. Each research task should answer a different evidence question, not just a different report section.
-10. Include "output_artifact" for every task to clarify the intended deliverable. Use concise values like "research_brief", "analysis", "comparison", "scope_brief", or "final_output".
-
-## Response Format
-
-Respond with ONLY valid JSON:
-
-{
-  "tasks": [
-    {
-      "task_id": "research_topic",
-      "description": "Search for the latest news about X and summarize key findings",
-      "agent_type": "research",
-      "depends_on": [],
-      "output_artifact": "research_brief"
-    },
-    {
-      "task_id": "analyze_findings",
-      "description": "Analyze the research findings and identify key trends and patterns",
-      "agent_type": "analyze",
-      "depends_on": ["research_topic"],
-      "output_artifact": "analysis"
-    },
-    {
-      "task_id": "write_report",
-      "description": "Write a comprehensive report based on the analysis",
-      "agent_type": "write",
-      "depends_on": ["analyze_findings"],
-      "output_artifact": "final_output"
-    }
-  ]
-}`;
-}
-
-function buildOrchestratorLoopSystemPrompt(todoList: TodoList): string {
-  const todoSection = formatTodoListForPrompt(todoList, 1500);
-  
-  return `You are an intelligent orchestrator directing specialized AI sub-agents to accomplish a user's objective.
-
-${todoSection}
-
-## Available Actions
-
-When you respond, you can take these actions:
-
-- **dispatch**: Send one or more pending tasks (with satisfied dependencies) to their assigned agents.
-  Example: { "type": "dispatch", "task_ids": ["research_a", "research_b"] }
-
-- **add_task**: Add a new task to the list if you discover more work is needed.
-  Example: { "type": "add_task", "task_id": "follow_up_research", "description": "Research X in more detail", "agent_type": "research", "depends_on": ["research_a"], "reason_generated": "Need missing evidence on mobile constraints", "output_artifact": "research_brief" }
-
-- **skip**: Mark a task as unnecessary if you already have sufficient information.
-  Example: { "type": "skip", "task_id": "redundant_task", "reason": "Already covered by previous research" }
-
-- **complete**: You have enough information to produce the final output yourself. Write it fully in the "output" field. Use for concise outputs.
-  Example: { "type": "complete", "output": "The answer is..." }
-
-- **delegate_write**: Hand off to the write agent for long-form, structured, or complex outputs.
-  Example: { "type": "delegate_write", "prompt": "Write a report covering: [full context]" }
-
-## Rules
-
-1. **Check dependencies**: Only dispatch tasks whose depends_on tasks are all completed or skipped.
-2. **Parallelize**: Dispatch multiple independent tasks together in one dispatch action.
-3. **Never re-dispatch**: Don't dispatch tasks that are already running, completed, failed, or skipped.
-4. **Be adaptive**: If research reveals unexpected complexity, add tasks. If the answer is clear early, skip and complete.
-5. **One terminal action**: You can only have one "complete" or "delegate_write" action per response. Include it last when done.
-6. **Progress tracking**: The task list above shows current status. Use it to decide next steps.
-7. **Prefer planned tasks**: Always dispatch an existing ready task before generating a new semantically equivalent one.
-8. **Use runtime mutation sparingly**: Only add a task if no pending or ready task can achieve the same artifact. If you add one, include "reason_generated", "output_artifact", and "supersedes_task_id" when relevant.
-9. **Compress simple workflows**: If the remaining path is obvious and already planned, dispatch directly instead of spending another loop on replanning.
-
-## Response Format
-
-Respond with ONLY valid JSON:
-
-{
-  "thinking": "1-2 sentences explaining your reasoning based on the current task list.",
-  "actions": [
-    { "type": "dispatch", "task_ids": ["task_1"] },
-    { "type": "complete", "output": "The final answer..." }
-  ]
-}`;
-}
-
-/** Build the context prompt for a specific agent task */
-function buildAgentTaskPrompt(state: WorkflowState, task: TodoTask, todoList: TodoList): string {
-  const lines: string[] = [];
-
-  lines.push(`## Your Task\n${task.description}`);
-  if (task.output_artifact) {
-    lines.push('');
-    lines.push(`## Expected Deliverable\n${task.output_artifact}`);
-  }
-
-  // Include outputs of dependency tasks as context
-  if (task.depends_on.length > 0) {
-    lines.push('');
-    lines.push('## Context From Prior Work');
-    for (const depId of task.depends_on) {
-      const depTask = todoList.tasks.find(t => t.task_id === depId);
-      if (depTask?.output) {
-        const preview = depTask.output.length > 2000
-          ? depTask.output.substring(0, 2000) + '\n[...truncated...]'
-          : depTask.output;
-        lines.push(`\n### Output from ${depId}:`);
-        lines.push(preview);
-      }
+  if (response.usage.cost.total_cost > 0) {
+    try {
+      debitCredits(
+        state.userId,
+        response.usage.cost.total_cost,
+        `Orchestrator iteration ${iteration}: ${state.id}`,
+        'workflow',
+        state.id
+      );
+      incrementWorkflowCredits(state, response.usage.cost.total_cost);
+    } catch {
+      // Non-critical for workflow progress.
     }
   }
-
-  lines.push('');
-  lines.push(`## Overall Objective\n${state.config.objective}`);
-
-  if (task.agent_type === 'write') {
-    lines.push('');
-    lines.push('## Writing Constraints');
-    lines.push('- Start with a short scope section that states what was included and excluded.');
-    lines.push('- Prefer concise headings and bullets over wide markdown tables.');
-    lines.push('- Distinguish strongest confirmed findings from likely inferences.');
-    lines.push('- End with a practical recommendation and any important uncertainty.');
-  }
-
-  return lines.join('\n');
-}
-
-// ── Engine API ──
-
-export async function planWorkflow(
-  userId: string,
-  config: WorkflowConfig
-): Promise<{ workflowId: string; tasks: OrchestratorTask[] }> {
-  const workflowId = crypto.randomUUID();
-  const plannerModel = resolveOrchestratorModel(
-    config.orchestrator_model ?? config.model_overrides?.['planner']
-  );
-
-  // Persist workflow
-  const db = getDb();
-  db.prepare(
-    `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at)
-     VALUES (?, ?, ?, ?, ?, 'planning', ?, datetime('now'))`
-  ).run(workflowId, userId, config.objective, config.objective, plannerModel, JSON.stringify(config));
-
-  const state: WorkflowState = {
-    id: workflowId,
-    userId,
-    config,
-    orchestratorModel: plannerModel,
-    status: 'planning',
-    taskOutputs: new Map(),
-    emitter: new EventEmitter(),
-    abortController: new AbortController(),
-    sandboxSessionIds: [],
-    creditsConsumed: 0,
-  };
-  state.emitter.setMaxListeners(50);
-  workflows.set(workflowId, state);
 
   recordStep(state, {
     step_type: 'orchestrator_message',
-    model_name: plannerModel,
-    message_content: `Planning: ${config.objective}`,
+    model_name: state.orchestratorModel,
+    message_content: response.output_text.substring(0, 1000),
     tool_name: null,
-    tool_input: null,
+    tool_input: { iteration },
     tool_output: null,
     subagent_id: 'orchestrator',
   });
 
-  try {
-    const response = await routeRequest({
-      model: plannerModel,
-      input: buildObjectivePlanningInput(config.objective),
-      instructions: buildPlanningSystemPrompt(),
-      max_output_tokens: 2048,
-      temperature: 0.1,
-      text: { format: { type: 'json_schema' } },
-      trace: buildToolTraceHooks(state, 'orchestrator', plannerModel),
-    });
+  let normalizedCalls: ToolCall[] = [];
+  let responseText = response.output_text;
 
-    // Debit planning cost
-    if (response.usage.cost.total_cost > 0) {
-      try {
-        debitCredits(userId, response.usage.cost.total_cost, `Workflow planning: ${workflowId}`, 'workflow', workflowId);
-        incrementWorkflowCredits(state, response.usage.cost.total_cost);
-      } catch {
-        // Non-critical
-      }
+  const legacy = tryParseLegacyEnvelope(response.output_text);
+  if (legacy) {
+    normalizedCalls = legacy.toolCalls.map(normalizeToolCall);
+    if (legacy.finalOutput && normalizedCalls.length === 0) {
+      responseText = legacy.finalOutput;
     }
-
-    recordStep(state, {
-      step_type: 'system_event',
-      model_name: plannerModel,
-      message_content: 'planning_response',
-      tool_name: null,
-      tool_input: null,
-      tool_output: response.output_text,
-      subagent_id: 'orchestrator',
-    });
-
-    // Parse task list
-    let planJson: unknown;
-    try {
-      let text = response.output_text.trim();
-      if (text.startsWith('```')) {
-        text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-      planJson = JSON.parse(text);
-    } catch {
-      throw new WorkflowError(`Failed to parse planning response as JSON: ${response.output_text.substring(0, 200)}`);
-    }
-
-    const parseResult = OrchestratorTaskListSchema.safeParse(planJson);
-    if (!parseResult.success) {
-      throw new WorkflowError(`Invalid task list from planner: ${parseResult.error.message}`);
-    }
-
-    const rawTasks = parseResult.data.tasks;
-
-    // Add tasks to todo list via the tool
-    const internalTasks: OrchestratorTask[] = [];
-    
-    for (const raw of rawTasks) {
-      const outputArtifact = raw.output_artifact ?? inferOutputArtifact(raw.agent_type as AgentType, raw.task_id, raw.description);
-      const resolvedDependsOn = raw.depends_on.map(d => `${workflowId}_${d}`);
-      const task = await addTodoTask(
-        workflowId,
-        raw.task_id,
-        raw.description,
-        raw.agent_type as AgentType,
-        resolvedDependsOn,
-        buildTaskMetadata({
-          origin: 'planned',
-          agentType: raw.agent_type as AgentType,
-          description: raw.description,
-          dependsOn: resolvedDependsOn,
-          outputArtifact,
-        })
-      );
-      
-      internalTasks.push({
-        task_id: task.task_id,
-        description: task.description,
-        agent_type: task.agent_type,
-        depends_on: task.depends_on,
-        status: task.status,
-        origin: task.origin,
-        semantic_key: task.semantic_key,
-        output_artifact: task.output_artifact,
-        reason_generated: task.reason_generated,
-        supersedes_task_id: task.supersedes_task_id,
-      });
-    }
-
-    state.status = 'executing';
-    updateWorkflowStatus(workflowId, 'executing', {
-      plan: JSON.stringify({
-        tasks: internalTasks.map(t => ({
-          task_id: t.task_id,
-          parent_task_ids: t.depends_on,
-          task_type: t.agent_type,
-          description: t.description,
-          model: null,
-          tools: JSON.stringify({
-            origin: t.origin ?? null,
-            output_artifact: t.output_artifact ?? null,
-            semantic_key: t.semantic_key ?? null,
-            reason_generated: t.reason_generated ?? null,
-            supersedes_task_id: t.supersedes_task_id ?? null,
-          }),
-          input_template: t.description,
-        })),
-      }),
-    });
-
-    recordStep(state, {
-      step_type: 'system_event',
-      model_name: plannerModel,
-      message_content: 'tasks_initialized',
-      tool_name: null,
-      tool_input: null,
-      tool_output: { task_count: internalTasks.length },
-      subagent_id: 'orchestrator',
-    });
-
-    // Emit events
-    emit(state, {
-      type: 'tasks_initialized',
-      workflow_id: workflowId,
-      data: {
-        task_count: internalTasks.length,
-        tasks: internalTasks.map(t => ({
-            id: t.task_id,
-            description: t.description,
-            agent_type: t.agent_type,
-            depends_on: t.depends_on,
-            status: t.status,
-            origin: t.origin,
-            output_artifact: t.output_artifact,
-            reason_generated: t.reason_generated,
-            supersedes_task_id: t.supersedes_task_id,
-          })),
-        },
-      });
-
-    // Legacy planning_complete event for backward compat
-    emit(state, {
-      type: 'planning_complete',
-      workflow_id: workflowId,
-      data: {
-        task_count: internalTasks.length,
-        tasks: internalTasks.map(t => ({
-          id: t.task_id,
-          type: t.agent_type,
-          description: t.description,
-          depends_on: t.depends_on,
-        })),
-      },
-    });
-
-    logger.info({ workflowId, taskCount: internalTasks.length }, 'Workflow planned');
-
-    return { workflowId, tasks: internalTasks };
-  } catch (err) {
-    state.status = 'failed';
-    updateWorkflowStatus(workflowId, 'failed', { error: (err as Error).message });
-    emit(state, { type: 'workflow_failed', workflow_id: workflowId, data: { error: (err as Error).message } });
-    throw err;
-  }
-}
-
-export async function* executeWorkflow(workflowId: string): AsyncIterable<WorkflowEvent> {
-  const state = workflows.get(workflowId);
-  if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
-
-  const eventQueue: WorkflowEvent[] = [];
-  let resolve: (() => void) | null = null;
-  let done = false;
-
-  const listener = (event: WorkflowEvent) => {
-    eventQueue.push(event);
-    if (resolve) {
-      resolve();
-      resolve = null;
-    }
-  };
-
-  state.emitter.on('event', listener);
-
-  const executionPromise = runWorkflow(state).finally(() => {
-    done = true;
-    if (resolve) {
-      resolve();
-      resolve = null;
-    }
-  });
-
-  try {
-    while (true) {
-      if (eventQueue.length > 0) {
-        yield eventQueue.shift()!;
-      } else if (done) {
-        while (eventQueue.length > 0) {
-          yield eventQueue.shift()!;
-        }
-        break;
-      } else {
-        await new Promise<void>((r) => {
-          resolve = r;
-        });
-      }
-    }
-  } finally {
-    state.emitter.off('event', listener);
-    await executionPromise.catch(() => {});
-  }
-}
-
-async function runWorkflow(state: WorkflowState): Promise<void> {
-  let iteration = 0;
-
-  while (state.status === 'executing' && iteration < MAX_LOOP_ITERATIONS) {
-    iteration++;
-
-    // Budget check
-    if (workflowBudgetExceeded(state)) {
-      state.status = 'failed';
-      const msg = `Workflow exceeded max_credits budget of ${state.config.max_credits}`;
-      updateWorkflowStatus(state.id, 'failed', { error: msg });
-      emit(state, {
-        type: 'workflow_failed',
-        workflow_id: state.id,
-        data: { error: msg, credits_consumed: state.creditsConsumed },
-      });
-      break;
-    }
-
-    // Abort check
-    if (state.abortController.signal.aborted) {
-      state.status = 'cancelled';
-      updateWorkflowStatus(state.id, 'cancelled');
-      emit(state, { type: 'workflow_failed', workflow_id: state.id, data: { error: 'Workflow cancelled' } });
-      return;
-    }
-
-    // Fetch current todo list from database (source of truth)
-    const todoList = await getTodoList(state.id);
-
-    // Update local cache
-    for (const task of todoList.tasks) {
-      if (task.output) {
-        state.taskOutputs.set(task.task_id, task.output);
-      }
-    }
-
-    // Build prompt with todo list included
-    const systemPrompt = buildOrchestratorLoopSystemPrompt(todoList);
-
-    recordStep(state, {
-      step_type: 'orchestrator_message',
-      model_name: state.orchestratorModel,
-      message_content: `Iteration ${iteration}: evaluating state`,
-      tool_name: null,
-      tool_input: { iteration, task_count: todoList.tasks.length },
-      tool_output: null,
-      subagent_id: 'orchestrator',
-    });
-
-    let decision: OrchestratorDecision;
-
-    const directCompletionDecision = buildDirectCompletionDecision(todoList);
-    if (directCompletionDecision) {
-      decision = directCompletionDecision;
-    } else {
-      const directDispatchDecision = buildDirectDispatchDecision(todoList);
-      if (directDispatchDecision) {
-        decision = directDispatchDecision;
-      } else {
-        try {
-          const response = await routeRequest({
-            model: state.orchestratorModel,
-            input: `Objective: ${state.config.objective}\n\nWhat should I do next?`,
-            instructions: systemPrompt,
-            max_output_tokens: 2048,
-            temperature: 0.1,
-            text: { format: { type: 'json_schema' } },
-            trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
-          });
-
-          if (response.usage.cost.total_cost > 0) {
-            try {
-              debitCredits(
-                state.userId,
-                response.usage.cost.total_cost,
-                `Orchestrator loop iteration ${iteration}: ${state.id}`,
-                'workflow',
-                state.id
-              );
-              incrementWorkflowCredits(state, response.usage.cost.total_cost);
-            } catch {
-              // Non-critical
-            }
-          }
-
-          let text = response.output_text.trim();
-          if (text.startsWith('```')) {
-            text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-          }
-
-          const parsed = JSON.parse(text);
-          const parseResult = OrchestratorDecisionSchema.safeParse(parsed);
-
-          if (!parseResult.success) {
-            logger.warn(
-              { workflowId: state.id, iteration, error: parseResult.error.message },
-              'Failed to parse orchestrator decision — attempting fallback'
-            );
-            decision = buildFallbackDecision(todoList);
-          } else {
-            decision = parseResult.data;
-          }
-        } catch (err) {
-          logger.warn(
-            { workflowId: state.id, iteration, error: (err as Error).message },
-            'Orchestrator LLM call failed — attempting fallback'
-          );
-          decision = buildFallbackDecision(todoList);
-        }
-      }
-    }
-
-    recordStep(state, {
-      step_type: 'orchestrator_message',
-      model_name: state.orchestratorModel,
-      message_content: decision.thinking,
-      tool_name: null,
-      tool_input: { iteration },
-      tool_output: { actions: decision.actions.map(a => a.type) },
-      subagent_id: 'orchestrator',
-    });
-
-    emit(state, {
-      type: 'orchestrator_thinking',
-      workflow_id: state.id,
-      data: { thinking: decision.thinking, iteration, mode: classifyDecisionMode(decision.thinking) },
-    });
-
-    // Process actions
-    const taskIdsToDispatch: string[] = [];
-    let completionOutput: string | null = null;
-    let delegateWritePrompt: string | null = null;
-
-    logger.debug(
-      { workflowId: state.id, iteration, actions: decision.actions },
-      'Processing orchestrator actions'
-    );
-
-    for (const action of decision.actions) {
-      if (action.type === 'dispatch') {
-        logger.debug(
-          { workflowId: state.id, taskIds: action.task_ids },
-          'Dispatch action received'
-        );
-        for (const rawId of action.task_ids) {
-          const taskId = resolveTaskId(rawId, state.id, todoList);
-          const task = todoList.tasks.find(t => t.task_id === taskId);
-          logger.debug(
-            { workflowId: state.id, rawId, resolvedId: taskId, found: !!task },
-            'Resolving task ID'
-          );
-          if (!task) {
-            logger.warn({ workflowId: state.id, taskId: rawId }, 'dispatch: task not found');
-            continue;
-          }
-          if (task.status !== 'pending') {
-            logger.debug({ workflowId: state.id, taskId, status: task.status }, 'dispatch: skipping non-pending task');
-            continue;
-          }
-          // Validate deps are satisfied
-          const depsOk = task.depends_on.every(depId => {
-            const dep = todoList.tasks.find(t => t.task_id === depId);
-            return dep?.status === 'completed' || dep?.status === 'skipped';
-          });
-          if (!depsOk) {
-            logger.warn({ workflowId: state.id, taskId }, 'dispatch: dependencies not yet satisfied');
-            continue;
-          }
-          taskIdsToDispatch.push(taskId);
-        }
-
-      } else if (action.type === 'add_task') {
-        try {
-          const resolvedDependsOn = action.depends_on.map(d => resolveTaskId(d, state.id, todoList));
-          const outputArtifact = action.output_artifact ?? inferOutputArtifact(action.agent_type as AgentType, action.task_id, action.description);
-          const existingTask = findSemanticallyEquivalentTask(
-            todoList,
-            action.agent_type as AgentType,
-            action.description,
-            resolvedDependsOn,
-            outputArtifact
-          );
-
-          if (existingTask) {
-            emit(state, {
-              type: 'task_reused',
-              workflow_id: state.id,
-              task_id: existingTask.task_id,
-              data: {
-                requested_task_id: action.task_id,
-                description: existingTask.description,
-                agent_type: existingTask.agent_type,
-                reason: action.reason_generated ?? 'Semantically equivalent task already exists',
-                origin: existingTask.origin,
-              },
-            });
-            logger.info({ workflowId: state.id, existingTaskId: existingTask.task_id, requestedTaskId: action.task_id }, 'Reused semantically equivalent task');
-            continue;
-          }
-
-          await addTodoTask(
-            state.id,
-            action.task_id,
-            action.description,
-            action.agent_type as AgentType,
-            resolvedDependsOn,
-            buildTaskMetadata({
-              origin: 'runtime_generated',
-              agentType: action.agent_type as AgentType,
-              description: action.description,
-              dependsOn: resolvedDependsOn,
-              outputArtifact,
-              reasonGenerated: action.reason_generated ?? 'Orchestrator identified missing work at runtime',
-              supersedesTaskId: action.supersedes_task_id ? resolveTaskId(action.supersedes_task_id, state.id, todoList) : null,
-            })
-          );
-          
-          emit(state, {
-            type: 'task_added',
-            workflow_id: state.id,
-            task_id: `${state.id}_${action.task_id}`,
-            data: {
-              description: action.description,
-              agent_type: action.agent_type,
-              depends_on: action.depends_on,
-              origin: 'runtime_generated',
-              output_artifact: outputArtifact,
-              reason_generated: action.reason_generated ?? 'Orchestrator identified missing work at runtime',
-              supersedes_task_id: action.supersedes_task_id ? resolveTaskId(action.supersedes_task_id, state.id, todoList) : null,
-            },
-          });
-          logger.info({ workflowId: state.id, taskId: action.task_id }, 'Added new task dynamically');
-        } catch (err) {
-          logger.warn({ workflowId: state.id, error: (err as Error).message }, 'Failed to add task');
-        }
-
-      } else if (action.type === 'skip') {
-        const taskId = resolveTaskId(action.task_id, state.id, todoList);
-        const task = todoList.tasks.find(t => t.task_id === taskId);
-        if (task && task.status === 'pending') {
-          await skipTodoTask(state.id, taskId, action.reason);
-          emit(state, {
-            type: 'task_skipped',
-            workflow_id: state.id,
-            task_id: taskId,
-            data: { reason: action.reason },
-          });
-        }
-
-      } else if (action.type === 'complete') {
-        completionOutput = action.output;
-        break;
-
-      } else if (action.type === 'delegate_write') {
-        delegateWritePrompt = action.prompt;
-        break;
-      }
-    }
-
-    // Handle terminal completion
-    if (completionOutput !== null) {
-      state.status = 'completed';
-      updateWorkflowStatus(state.id, 'completed', { completed_at: new Date().toISOString() });
-      recordStep(state, {
-        step_type: 'system_event',
-        model_name: state.orchestratorModel,
-        message_content: 'workflow_completed',
-        tool_name: null,
-        tool_input: null,
-        tool_output: { output: completionOutput, total_credits: state.creditsConsumed },
-        subagent_id: 'orchestrator',
-      });
-      emit(state, {
-        type: 'workflow_completed',
-        workflow_id: state.id,
-        data: { output: completionOutput, total_credits: state.creditsConsumed },
-      });
-      cleanupSessions(state);
-      return;
-    }
-
-    if (delegateWritePrompt !== null) {
-      const refreshedTodoList = await getTodoList(state.id);
-      const readyWriteTask = refreshedTodoList.tasks.find(task => task.agent_type === 'write' && task.status === 'pending' && areTaskDependenciesSatisfied(task, refreshedTodoList));
-      const equivalentWriteTask = readyWriteTask ?? findSemanticallyEquivalentTask(refreshedTodoList, 'write', 'Write the final output', [], 'final_output');
-
-      let writeTaskId: string;
-      let writeTaskDescription: string;
-      let writeTaskOrigin: 'planned' | 'runtime_generated';
-
-      if (equivalentWriteTask && equivalentWriteTask.status === 'pending' && areTaskDependenciesSatisfied(equivalentWriteTask, refreshedTodoList)) {
-        writeTaskId = equivalentWriteTask.task_id;
-        writeTaskDescription = equivalentWriteTask.description;
-        writeTaskOrigin = equivalentWriteTask.origin;
-
-        emit(state, {
-          type: 'task_reused',
-          workflow_id: state.id,
-          task_id: writeTaskId,
-          data: {
-            requested_task_id: 'write_final_output',
-            description: writeTaskDescription,
-            agent_type: 'write',
-            reason: 'Reusing existing ready write task instead of generating a duplicate final-output task',
-            origin: writeTaskOrigin,
-          },
-        });
-      } else {
-        const createdWriteTask = await addTodoTask(
-          state.id,
-          'write_final_output',
-          'Write the final output',
-          'write',
-          [],
-          buildTaskMetadata({
-            origin: 'runtime_generated',
-            agentType: 'write',
-            description: 'Write the final output',
-            dependsOn: [],
-            outputArtifact: 'final_output',
-            reasonGenerated: 'No existing ready write task could produce the requested final output',
-          })
-        );
-        writeTaskId = createdWriteTask.task_id;
-        writeTaskDescription = createdWriteTask.description;
-        writeTaskOrigin = createdWriteTask.origin;
-      }
-
-      await updateTodoTaskStatus(state.id, writeTaskId, 'running');
-
-      emit(state, {
-        type: 'task_started',
-        workflow_id: state.id,
-        task_id: writeTaskId,
-        data: { description: writeTaskDescription, task_type: 'write', origin: writeTaskOrigin, output_artifact: 'final_output' },
-      });
-
-      recordStep(state, {
-        step_type: 'subagent_spawn',
-        model_name: null,
-        message_content: 'Delegating to write agent for final output',
-        tool_name: null,
-        tool_input: { agent_type: 'write' },
-        tool_output: null,
-        subagent_id: writeTaskId,
-      });
-
-      try {
-        // Create a temporary todo task object for the write agent
-        const writeTask: TodoTask = {
-          task_id: writeTaskId,
-          description: writeTaskDescription,
-          agent_type: 'write',
-          depends_on: [],
-          status: 'running',
-          origin: writeTaskOrigin,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        
-        const agentCtx = buildAgentContext(state, writeTaskId);
-        const writeResult = await dispatchToAgent(
-          { task_id: writeTaskId, description: writeTask.description, agent_type: 'write', depends_on: [], status: 'running', origin: writeTaskOrigin, output_artifact: 'final_output' },
-          delegateWritePrompt,
-          agentCtx
-        );
-        const writeOutput = writeResult.output;
-
-        await updateTodoTaskStatus(state.id, writeTaskId, 'completed', writeOutput);
-
-        emit(state, {
-          type: 'task_completed',
-          workflow_id: state.id,
-          task_id: writeTaskId,
-          data: buildTaskCompletionPayload(writeResult),
-        });
-
-        state.status = 'completed';
-        updateWorkflowStatus(state.id, 'completed', { completed_at: new Date().toISOString() });
-        recordStep(state, {
-          step_type: 'system_event',
-          model_name: state.orchestratorModel,
-          message_content: 'workflow_completed',
-          tool_name: null,
-          tool_input: null,
-          tool_output: { output: writeOutput, total_credits: state.creditsConsumed },
-          subagent_id: 'orchestrator',
-        });
-        emit(state, {
-          type: 'workflow_completed',
-          workflow_id: state.id,
-          data: { output: writeOutput, total_credits: state.creditsConsumed, final_task_id: writeTaskId },
-        });
-      } catch (err) {
-        const errMsg = (err as Error).message;
-        await updateTodoTaskStatus(state.id, writeTaskId, 'failed', errMsg);
-        state.status = 'failed';
-        updateWorkflowStatus(state.id, 'failed', { error: `Write agent failed: ${errMsg}` });
-        emit(state, {
-          type: 'workflow_failed',
-          workflow_id: state.id,
-          data: { error: `Write agent failed: ${errMsg}` },
-        });
-      }
-
-      cleanupSessions(state);
-      return;
-    }
-
-    // Dispatch tasks in parallel
-    logger.debug(
-      { workflowId: state.id, taskCount: taskIdsToDispatch.length, tasks: taskIdsToDispatch },
-      'Dispatching tasks'
-    );
-    
-    if (taskIdsToDispatch.length > 0) {
-      logger.info(
-        { workflowId: state.id, taskCount: taskIdsToDispatch.length },
-        'Starting task dispatch'
-      );
-      const taskPromises = taskIdsToDispatch.map(async (taskId) => {
-        logger.debug({ workflowId: state.id, taskId }, 'Starting task dispatch loop');
-        const task = todoList.tasks.find(t => t.task_id === taskId)!;
-        logger.debug({ workflowId: state.id, taskId, agentType: task.agent_type }, 'Found task, updating status');
-        await updateTodoTaskStatus(state.id, taskId, 'running');
-        logger.debug({ workflowId: state.id, taskId }, 'Status updated to running');
-
-        recordStep(state, {
-          step_type: 'subagent_spawn',
-          model_name: null,
-          message_content: task.description,
-          tool_name: null,
-          tool_input: { agent_type: task.agent_type, depends_on: task.depends_on },
-          tool_output: null,
-          subagent_id: taskId,
-        });
-
-        emit(state, {
-          type: 'task_started',
-          workflow_id: state.id,
-          task_id: taskId,
-          data: { description: task.description, task_type: task.agent_type, origin: task.origin, output_artifact: task.output_artifact },
-        });
-
-        const prompt = buildAgentTaskPrompt(state, task, todoList);
-        const agentCtx = buildAgentContext(state, taskId);
-
-        try {
-          const result = await dispatchToAgent(
-            {
-              task_id: taskId,
-              description: task.description,
-              agent_type: task.agent_type,
-              depends_on: task.depends_on,
-              status: 'running',
-              origin: task.origin,
-              semantic_key: task.semantic_key,
-              output_artifact: task.output_artifact,
-              reason_generated: task.reason_generated,
-              supersedes_task_id: task.supersedes_task_id,
-            },
-            prompt,
-            agentCtx
-          );
-          const output = result.output;
-          
-          await updateTodoTaskStatus(state.id, taskId, 'completed', output);
-          state.taskOutputs.set(taskId, output);
-
-          recordStep(state, {
-            step_type: 'subagent_message',
-            model_name: null,
-            message_content: output.substring(0, 500),
-            tool_name: null,
-            tool_input: null,
-            tool_output: null,
-            subagent_id: taskId,
-          });
-
-          emit(state, {
-            type: 'task_completed',
-            workflow_id: state.id,
-            task_id: taskId,
-            data: buildTaskCompletionPayload(result),
-          });
-        } catch (err) {
-          const errMsg = (err as Error).message;
-          await updateTodoTaskStatus(state.id, taskId, 'failed', errMsg);
-          state.taskOutputs.set(taskId, `[failed: ${errMsg}]`);
-          
-          recordStep(state, {
-            step_type: 'system_event',
-            model_name: null,
-            message_content: 'task_failed',
-            tool_name: null,
-            tool_input: null,
-            tool_output: { error: errMsg },
-            subagent_id: taskId,
-          });
-          emit(state, {
-            type: 'task_failed',
-            workflow_id: state.id,
-            task_id: taskId,
-            data: { error: errMsg },
-          });
-          logger.warn({ workflowId: state.id, taskId, error: errMsg }, 'Sub-agent task failed');
-        }
-      });
-
-      logger.info({ workflowId: state.id, taskCount: taskPromises.length }, 'Waiting for all tasks to complete');
-      await Promise.all(taskPromises);
-      logger.info({ workflowId: state.id }, 'All tasks completed');
-    } else if (completionOutput === null && delegateWritePrompt === null) {
-      // Nothing dispatched and no terminal action
-      if (allTasksSettled(todoList)) {
-        logger.debug({ workflowId: state.id, iteration }, 'All tasks settled, expecting orchestrator to complete next iteration');
-      } else {
-        const hasInProgress = todoList.tasks.some(t => t.status === 'running');
-        if (!hasInProgress) {
-          logger.warn(
-            { workflowId: state.id, iteration },
-            'No tasks dispatched and no terminal action — orchestrator may be stuck'
-          );
-        }
-      }
-    }
-  }
-
-  // Max iterations reached
-  if (state.status === 'executing') {
-    state.status = 'failed';
-    const msg = `Workflow exceeded maximum iteration limit (${MAX_LOOP_ITERATIONS})`;
-    updateWorkflowStatus(state.id, 'failed', { error: msg });
-    emit(state, { type: 'workflow_failed', workflow_id: state.id, data: { error: msg } });
-    logger.warn({ workflowId: state.id }, msg);
-  }
-
-  cleanupSessions(state);
-}
-
-/** Build a fallback decision when the orchestrator LLM response can't be parsed */
-function buildFallbackDecision(todoList: TodoList): OrchestratorDecision {
-  const readyTasks = getReadyTasks(todoList);
-
-  if (allTasksSettled(todoList)) {
-    const preferredOutput = [...todoList.tasks]
-      .reverse()
-      .find(task => task.status === 'completed' && task.output && task.agent_type === 'write')?.output;
-    const outputs = preferredOutput ?? todoList.tasks
-      .filter(t => t.status === 'completed' && t.output)
-      .map(t => t.output)
-      .join('\n\n---\n\n');
-    return {
-      thinking: 'Fallback: all tasks settled, producing output from completed task results.',
-      actions: [{ type: 'complete', output: outputs || 'Workflow completed.' }],
-    };
-  }
-
-  if (readyTasks.length > 0) {
-    return {
-      thinking: 'Fallback: dispatching ready tasks.',
-      actions: [{ type: 'dispatch', task_ids: readyTasks.map(t => t.task_id) }],
-    };
+  } else {
+    const toolCalls = extractToolCallsFromOutput(response.output);
+    normalizedCalls = toolCalls.map(normalizeToolCall);
   }
 
   return {
-    thinking: 'Fallback: no actions available.',
-    actions: [],
+    toolCalls: normalizedCalls,
+    responseText,
+    rawOutput: response.output,
   };
+}
+
+async function executeToolCall(
+  state: WorkflowState,
+  call: ToolCall
+): Promise<Record<string, unknown>> {
+  const normalizedCall = normalizeToolCall(call);
+  const { name, arguments: args } = normalizedCall;
+
+  switch (name) {
+    case 'write_todo': {
+      const existing = getWorkItem(state.id, args.todo_id as string);
+      if (existing) {
+        return { status: 'skipped', reason: 'todo_exists', todo_id: existing.id };
+      }
+
+      const created = createWorkItem({
+        workflowId: state.id,
+        itemId: args.todo_id as string,
+        description: args.description as string,
+        agentType: args.agent_type as AgentType,
+        dependsOn: args.depends_on as string[] | undefined,
+        metadata: {
+          origin: 'planned',
+          output_artifact: args.output_artifact as string | undefined,
+        },
+      });
+
+      emit(state, {
+        type: 'task_added',
+        workflow_id: state.id,
+        task_id: created.id,
+        data: {
+          description: created.description,
+          agent_type: created.agentType,
+          depends_on: created.dependsOn,
+          origin: created.metadata.origin,
+          output_artifact: created.metadata.output_artifact,
+        },
+      });
+
+      return { status: 'ok', todo_id: created.id };
+    }
+
+    case 'edit_todo': {
+      const existing = getWorkItem(state.id, args.todo_id as string);
+      if (!existing) {
+        return { status: 'error', error: 'todo_not_found', todo_id: args.todo_id };
+      }
+
+      const newStatus = args.status as WorkItemStatus | undefined;
+      const output = args.output ?? (newStatus === 'failed' ? `[failed: ${args.reason ?? 'unknown'}]` : newStatus === 'skipped' ? `[skipped: ${args.reason ?? 'no reason'}]` : existing.output);
+
+      updateWorkItem({
+        workflowId: state.id,
+        itemId: args.todo_id as string,
+        description: args.description as string | undefined,
+        dependsOn: args.depends_on as string[] | undefined,
+        status: newStatus,
+        output: output as string | undefined,
+        metadata: {
+          ...existing.metadata,
+          output_artifact: (args.output_artifact as string) ?? existing.metadata.output_artifact,
+          reason_generated: (args.reason as string) ?? existing.metadata.reason_generated,
+        },
+      });
+
+      // Emit appropriate event
+      if (newStatus === 'completed') {
+        emit(state, {
+          type: 'task_completed',
+          workflow_id: state.id,
+          task_id: existing.id,
+          data: { output_preview: ((output as string) ?? '').substring(0, 500) },
+        });
+      } else if (newStatus === 'failed') {
+        emit(state, {
+          type: 'task_failed',
+          workflow_id: state.id,
+          task_id: existing.id,
+          data: { error: (args.reason as string) ?? 'failed' },
+        });
+      } else if (newStatus === 'skipped') {
+        emit(state, {
+          type: 'task_skipped',
+          workflow_id: state.id,
+          task_id: existing.id,
+          data: { reason: (args.reason as string) ?? 'skipped' },
+        });
+      }
+
+      return { status: 'ok', todo_id: existing.id };
+    }
+
+    case 'list_todos': {
+      const todos = listWorkItems(state.id);
+      const filtered = todos.filter((t) => {
+        if (args.status && t.status !== args.status) return false;
+        if (args.agent_type && t.agentType !== args.agent_type) return false;
+        return true;
+      });
+
+      return {
+        status: 'ok',
+        count: filtered.length,
+        todos: filtered.map((t) => ({
+          id: t.id,
+          status: t.status,
+          agent_type: t.agentType,
+          depends_on: t.dependsOn,
+          description: t.description,
+          output: t.output,
+        })),
+      };
+    }
+
+    case 'spawn_subagent': {
+      const item = getWorkItem(state.id, args.todo_id as string);
+      if (!item) {
+        return { status: 'error', error: 'todo_not_found' };
+      }
+
+      if (item.status === 'completed' || item.status === 'skipped') {
+        return { status: 'skipped', reason: 'todo_already_settled', todo_id: item.id };
+      }
+
+      const todos = listWorkItems(state.id);
+      const depsSatisfied = item.dependsOn.every((depId) => {
+        const dep = todos.find((t) => t.id === depId);
+        return dep?.status === 'completed';
+      });
+
+      if (!depsSatisfied) {
+        return { status: 'blocked', reason: 'dependencies_not_satisfied', todo_id: item.id };
+      }
+
+      const run = await spawnSubagentRun(state, item, args.prompt_override as string | undefined);
+      return { status: 'ok', run_id: run.runId, todo_id: run.workItemId };
+    }
+
+    case 'await_subagents': {
+      const todoIds = args.todo_ids as string[] | undefined;
+      const timeout = (args.timeout_seconds as number) ?? 30;
+
+      const waited = await waitForRuns(state, todoIds, timeout);
+      return { status: 'ok', ...waited };
+    }
+
+    case 'get_subagent_result': {
+      const id = resolveWorkItemId(state.id, args.todo_id as string);
+      const run = state.subagentRuns.get(id);
+      const item = getWorkItem(state.id, id);
+
+      if (!item) {
+        return { status: 'error', error: 'todo_not_found' };
+      }
+
+      return {
+        status: run?.status ?? item.status,
+        todo_id: id,
+        output: item.output ?? null,
+        error: run?.error ?? null,
+      };
+    }
+
+    case 'enter_plan_mode': {
+      return { status: 'ok', mode: 'planning_requested' };
+    }
+
+    case 'plan_commit': {
+      return { status: 'ok', committed: true };
+    }
+
+    case 'answer_directly': {
+      return { status: 'ok', workflow_output: String(args.answer ?? '') };
+    }
+
+    case 'complete_workflow': {
+      return { status: 'ok', workflow_output: String(args.output ?? '') };
+    }
+
+    default:
+      return { status: 'error', error: 'unknown_tool', tool: name };
+  }
+}
+
+async function spawnSubagentRun(state: WorkflowState, item: WorkItem, promptOverride?: string): Promise<SubagentRun> {
+  const existingRun = state.subagentRuns.get(item.id);
+  if (existingRun && existingRun.status === 'running') {
+    return existingRun;
+  }
+
+  const runId = crypto.randomUUID();
+  const startedAt = new Date().toISOString();
+
+  updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'running' });
+
+  recordStep(state, {
+    step_type: 'subagent_spawn',
+    model_name: null,
+    message_content: item.description,
+    tool_name: null,
+    tool_input: { agent_type: item.agentType, depends_on: item.dependsOn, run_id: runId },
+    tool_output: null,
+    subagent_id: item.id,
+  });
+
+  emit(state, {
+    type: 'task_dispatched',
+    workflow_id: state.id,
+    task_id: item.id,
+    data: { run_id: runId, agent_type: item.agentType },
+  });
+
+  emit(state, {
+    type: 'task_started',
+    workflow_id: state.id,
+    task_id: item.id,
+    data: {
+      description: item.description,
+      task_type: item.agentType,
+      origin: item.metadata.origin,
+      output_artifact: item.metadata.output_artifact,
+      run_id: runId,
+    },
+  });
+
+  const prompt = promptOverride ?? buildAgentTaskPrompt(state, item, listWorkItems(state.id));
+  const agentCtx = buildAgentContext(state, item.id);
+
+  const promise = (async () => {
+    try {
+      const result = await dispatchToAgent(
+        {
+          task_id: item.id,
+          description: item.description,
+          agent_type: item.agentType,
+          depends_on: item.dependsOn,
+          status: 'running',
+          origin: item.metadata.origin,
+          semantic_key: item.metadata.semantic_key,
+          output_artifact: item.metadata.output_artifact,
+          reason_generated: item.metadata.reason_generated,
+          supersedes_task_id: item.metadata.supersedes_task_id,
+        },
+        prompt,
+        agentCtx
+      );
+
+      updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'completed', output: result.output });
+
+      const run = state.subagentRuns.get(item.id);
+      if (run) {
+        run.status = 'completed';
+        run.completedAt = new Date().toISOString();
+        run.output = result.output;
+      }
+
+      recordStep(state, {
+        step_type: 'subagent_message',
+        model_name: result.model,
+        message_content: result.output.substring(0, 500),
+        tool_name: null,
+        tool_input: { run_id: runId },
+        tool_output: null,
+        subagent_id: item.id,
+      });
+
+      emit(state, {
+        type: 'task_completed',
+        workflow_id: state.id,
+        task_id: item.id,
+        data: {
+          output_preview: result.output.substring(0, 500),
+          model: result.model,
+          usage: result.usage,
+        },
+      });
+    } catch (err) {
+      const errorMessage = (err as Error).message;
+      updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'failed', output: `[failed: ${errorMessage}]` });
+
+      const run = state.subagentRuns.get(item.id);
+      if (run) {
+        run.status = 'failed';
+        run.completedAt = new Date().toISOString();
+        run.error = errorMessage;
+      }
+
+      recordStep(state, {
+        step_type: 'system_event',
+        model_name: null,
+        message_content: 'task_failed',
+        tool_name: null,
+        tool_input: { run_id: runId },
+        tool_output: { error: errorMessage },
+        subagent_id: item.id,
+      });
+
+      emit(state, {
+        type: 'task_failed',
+        workflow_id: state.id,
+        task_id: item.id,
+        data: { error: errorMessage, run_id: runId },
+      });
+    }
+  })();
+
+  const run: SubagentRun = {
+    runId,
+    workItemId: item.id,
+    status: 'running',
+    startedAt,
+    promise,
+  };
+
+  state.subagentRuns.set(item.id, run);
+  return run;
+}
+
+async function waitForRuns(
+  state: WorkflowState,
+  todoIds?: string[],
+  timeoutSeconds = 30
+): Promise<{ completed: string[]; running: string[]; failed: Array<{ todo_id: string; error: string }> }> {
+  const ids = todoIds ?? Array.from(state.subagentRuns.keys());
+  const deadline = Date.now() + timeoutSeconds * 1000;
+
+  const completed: string[] = [];
+  const running: string[] = [];
+  const failed: Array<{ todo_id: string; error: string }> = [];
+
+  for (const id of ids) {
+    const run = state.subagentRuns.get(id);
+    if (!run) continue;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      running.push(id);
+      continue;
+    }
+
+    try {
+      await Promise.race([
+        run.promise,
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), remaining)),
+      ]);
+
+      if (run.status === 'completed') {
+        completed.push(id);
+      } else if (run.status === 'failed') {
+        failed.push({ todo_id: id, error: run.error ?? 'Unknown error' });
+      } else {
+        running.push(id);
+      }
+    } catch {
+      running.push(id);
+    }
+  }
+
+  return { completed, running, failed };
+}
+
+function buildAgentTaskPrompt(state: WorkflowState, item: WorkItem, _allItems: WorkItem[]): string {
+  const lines = [`Task: ${item.description}`];
+
+  if (item.dependsOn.length > 0) {
+    lines.push(`\nDependencies: ${item.dependsOn.join(', ')}`);
+  }
+
+  if (item.metadata.output_artifact) {
+    lines.push(`\nExpected output: ${item.metadata.output_artifact}`);
+  }
+
+  lines.push(`\nObjective context: ${state.config.objective}`);
+
+  return lines.join('\n');
 }
 
 function buildAgentContext(state: WorkflowState, taskId: string): AgentExecutionContext {
@@ -1335,105 +938,389 @@ function buildAgentContext(state: WorkflowState, taskId: string): AgentExecution
     orchestratorModel: state.orchestratorModel,
     config: state.config,
     sandboxSessionIds: state.sandboxSessionIds,
-    creditsCallback: (amount) => incrementWorkflowCredits(state, amount),
+    creditsCallback: (amount: number, description: string) => {
+      try {
+        debitCredits(state.userId, amount, description, 'subagent', state.id);
+        incrementWorkflowCredits(state, amount);
+      } catch {
+        // Non-critical
+      }
+    },
     trace: buildToolTraceHooks(state, taskId),
   };
 }
 
-function cleanupSessions(state: WorkflowState): void {
-  for (const sid of state.sandboxSessionIds) {
-    try {
-      terminateSession(sid);
-    } catch {
-      // Non-critical
-    }
-  }
-}
-
-// ── Workflow control ──
-
-export function pauseWorkflow(workflowId: string): void {
-  const state = workflows.get(workflowId);
-  if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
-  if (state.status !== 'executing') {
-    throw new WorkflowError(`Cannot pause workflow in status: ${state.status}`);
-  }
-
-  state.status = 'paused';
-  updateWorkflowStatus(workflowId, 'paused');
-}
-
-export async function resumeWorkflow(
-  workflowId: string,
-  approvals?: Array<{ task_id: string; approved: boolean; feedback?: string }>
-): Promise<void> {
-  const state = workflows.get(workflowId);
-  if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
-  if (state.status !== 'paused') {
-    throw new WorkflowError(`Cannot resume workflow in status: ${state.status}`);
-  }
-
-  if (approvals) {
-    for (const approval of approvals) {
-      if (approval.approved) {
-        await updateTodoTaskStatus(workflowId, approval.task_id, 'completed', approval.feedback ?? 'Approved');
-        state.taskOutputs.set(approval.task_id, approval.feedback ?? 'Approved');
-      } else {
-        await updateTodoTaskStatus(workflowId, approval.task_id, 'failed', approval.feedback ?? 'Rejected');
-      }
-    }
-  }
-
-  state.status = 'executing';
-  updateWorkflowStatus(workflowId, 'executing');
-
-  runWorkflow(state).catch((err) => {
-    logger.error({ workflowId, error: (err as Error).message }, 'Workflow execution failed after resume');
-  });
-}
-
-export function cancelWorkflow(workflowId: string): void {
-  const state = workflows.get(workflowId);
-  if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
-
-  state.abortController.abort();
-  state.status = 'cancelled';
-  updateWorkflowStatus(workflowId, 'cancelled');
-
-  cleanupSessions(state);
+function completeWorkflow(state: WorkflowState, output: string): void {
+  state.status = 'completed';
+  state.lastOutput = output;
 
   const db = getDb();
   db.prepare(
-    "UPDATE tasks SET status = 'cancelled' WHERE workflow_id = ? AND status IN ('pending', 'running', 'blocked')"
+    `UPDATE workflows SET status = 'completed', ended_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(state.id);
+
+  recordStep(state, {
+    step_type: 'system_event',
+    model_name: state.orchestratorModel,
+    message_content: 'workflow_completed',
+    tool_name: null,
+    tool_input: null,
+    tool_output: { output: output.substring(0, 1000), total_credits: state.creditsConsumed },
+    subagent_id: 'orchestrator',
+  });
+
+  emit(state, {
+    type: 'workflow_completed',
+    workflow_id: state.id,
+    data: { output, total_credits: state.creditsConsumed },
+  });
+
+  cleanupSessions(state);
+}
+
+async function failWorkflow(state: WorkflowState, message: string): Promise<void> {
+  state.status = 'failed';
+
+  const db = getDb();
+  db.prepare(
+    `UPDATE workflows SET status = 'failed', ended_at = datetime('now'), error = ? WHERE id = ?`
+  ).run(message, state.id);
+
+  emit(state, {
+    type: 'workflow_failed',
+    workflow_id: state.id,
+    data: { error: message },
+  });
+
+  cleanupSessions(state);
+}
+
+function cleanupSessions(state: WorkflowState): void {
+  for (const sessionId of state.sandboxSessionIds) {
+    try {
+      terminateSession(sessionId);
+    } catch {
+      // Best effort cleanup
+    }
+  }
+  state.sandboxSessionIds.length = 0;
+}
+
+// ============================================================================
+// MAIN AGENTIC LOOP
+// ============================================================================
+
+export async function runWorkflow(
+  userId: string,
+  config: WorkflowConfig,
+  workflowId?: string
+): Promise<{ workflowId: string; output: string; status: WorkflowStatus }> {
+  const isContinuing = !!workflowId && workflows.has(workflowId);
+  const id = workflowId ?? crypto.randomUUID();
+  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator);
+
+  let state: WorkflowState;
+
+  if (isContinuing) {
+    // Continue an in-memory workflow run
+    state = workflows.get(id)!;
+    state.abortController = new AbortController();
+
+    if (state.status !== 'executing') {
+      throw new WorkflowError(`Cannot run workflow in status: ${state.status}`);
+    }
+  } else {
+    // Start new workflow
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at)
+       VALUES (?, ?, ?, ?, ?, 'executing', ?, datetime('now'))`
+    ).run(id, userId, config.objective, config.objective, orchestratorModel, JSON.stringify(config));
+
+    state = {
+      id,
+      userId,
+      config,
+      orchestratorModel,
+      status: 'executing',
+      emitter: new EventEmitter(),
+      abortController: new AbortController(),
+      sandboxSessionIds: [],
+      creditsConsumed: 0,
+      messages: [{ role: 'user', content: config.objective }],
+      subagentRuns: new Map(),
+      conversationHistory: [{ role: 'user', content: config.objective, timestamp: new Date().toISOString() }],
+    };
+
+    state.emitter.setMaxListeners(100);
+    workflows.set(id, state);
+  }
+
+  try {
+    for (let iteration = 1; iteration <= MAX_TURNS; iteration++) {
+      if (state.abortController.signal.aborted) {
+        throw new WorkflowError('Workflow cancelled');
+      }
+
+      // Call LLM - it decides what to do
+      const { toolCalls, responseText } = await callOrchestrator(state, iteration);
+
+      // Add assistant response to history
+      state.messages.push({ role: 'assistant', content: responseText });
+      state.conversationHistory.push({
+        role: 'assistant',
+        content: responseText,
+        timestamp: new Date().toISOString(),
+      });
+
+      // If no tool calls, workflow is complete
+      if (toolCalls.length === 0) {
+        completeWorkflow(state, responseText);
+        return { workflowId: id, output: responseText, status: 'completed' };
+      }
+
+      // Execute tool calls
+      const toolResults: Array<Record<string, unknown>> = [];
+      let explicitOutput: string | null = null;
+      for (const call of toolCalls) {
+        const result = await executeToolCall(state, call);
+        toolResults.push({ tool: call.name, ...result });
+
+        if (typeof result.workflow_output === 'string' && result.workflow_output.length > 0) {
+          explicitOutput = result.workflow_output;
+        }
+      }
+
+      if (explicitOutput) {
+        completeWorkflow(state, explicitOutput);
+        return { workflowId: id, output: explicitOutput, status: 'completed' };
+      }
+
+      // Add tool results to conversation
+      const resultsMessage = `Tool results:\n${toolResults.map(r => `- ${r.tool}: ${JSON.stringify(r)}`).join('\n')}`;
+      state.messages.push({ role: 'user', content: resultsMessage });
+    }
+
+    // Exceeded max turns
+    await failWorkflow(state, `Workflow exceeded ${MAX_TURNS} turns`);
+    return { workflowId: id, output: 'Workflow exceeded maximum turns', status: 'failed' };
+
+  } catch (err) {
+    const errorMessage = (err as Error).message;
+    await failWorkflow(state, errorMessage);
+    throw err;
+  }
+}
+
+// ============================================================================
+// LEGACY API COMPATIBILITY
+// ============================================================================
+
+export async function planWorkflow(
+  userId: string,
+  config: WorkflowConfig
+): Promise<{ workflowId: string; tasks: OrchestratorTask[] }> {
+  const workflowId = crypto.randomUUID();
+  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator);
+
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at)
+     VALUES (?, ?, ?, ?, ?, 'executing', ?, datetime('now'))`
+  ).run(workflowId, userId, config.objective, config.objective, orchestratorModel, JSON.stringify(config));
+
+  const state: WorkflowState = {
+    id: workflowId,
+    userId,
+    config,
+    orchestratorModel,
+    status: 'executing',
+    emitter: new EventEmitter(),
+    abortController: new AbortController(),
+    sandboxSessionIds: [],
+    creditsConsumed: 0,
+    messages: [{ role: 'user', content: config.objective }],
+    subagentRuns: new Map(),
+    conversationHistory: [{ role: 'user', content: config.objective, timestamp: new Date().toISOString() }],
+  };
+
+  state.emitter.setMaxListeners(100);
+  workflows.set(workflowId, state);
+
+  recordStep(state, {
+    step_type: 'orchestrator_message',
+    model_name: orchestratorModel,
+    message_content: `Workflow created: ${config.objective}`,
+    tool_name: null,
+    tool_input: null,
+    tool_output: null,
+    subagent_id: 'orchestrator',
+  });
+
+  const todos = listWorkItems(workflowId);
+
+  return {
+    workflowId,
+    tasks: todos.map(toPublicTask),
+  };
+}
+
+export function executeWorkflow(workflowId: string): WorkflowStreamIterator {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  }
+
+  if (!state.executionPromise && state.status !== 'executing') {
+    const terminalEvents: WorkflowEvent[] = [];
+    if (state.status === 'completed') {
+      terminalEvents.push({
+        type: 'workflow_completed',
+        workflow_id: workflowId,
+        data: { output: state.lastOutput ?? '', total_credits: state.creditsConsumed },
+        timestamp: new Date().toISOString(),
+      });
+    } else if (state.status === 'failed' || state.status === 'cancelled') {
+      terminalEvents.push({
+        type: 'workflow_failed',
+        workflow_id: workflowId,
+        data: { error: state.status === 'cancelled' ? 'Workflow cancelled' : 'Workflow failed' },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const iterator: AsyncIterable<WorkflowEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next(): Promise<IteratorResult<WorkflowEvent>> {
+            if (terminalEvents.length > 0) {
+              return Promise.resolve({ value: terminalEvents.shift()!, done: false });
+            }
+            return Promise.resolve({ value: undefined as never, done: true });
+          },
+        };
+      },
+    };
+
+    return {
+      ...iterator,
+      done: Promise.resolve(),
+    };
+  }
+
+  const eventQueue: WorkflowEvent[] = [];
+  let resolveWaiter: (() => void) | null = null;
+  let streamDone = false;
+
+  const listener = (event: WorkflowEvent) => {
+    eventQueue.push(event);
+    if (resolveWaiter) {
+      resolveWaiter();
+      resolveWaiter = null;
+    }
+  };
+
+  state.emitter.on('event', listener);
+
+  const runPromise = (state.executionPromise ??= runWorkflow(state.userId, state.config, workflowId)
+    .then((result) => {
+      state.lastOutput = result.output;
+    })
+    .finally(() => {
+      state.executionPromise = undefined;
+      streamDone = true;
+      if (resolveWaiter) {
+        resolveWaiter();
+        resolveWaiter = null;
+      }
+    }));
+
+  const iterator: AsyncIterable<WorkflowEvent> = {
+    [Symbol.asyncIterator]() {
+      return {
+        async next(): Promise<IteratorResult<WorkflowEvent>> {
+          while (eventQueue.length === 0 && !streamDone) {
+            await new Promise<void>((resolve) => {
+              resolveWaiter = resolve;
+            });
+          }
+
+          if (eventQueue.length > 0) {
+            const value = eventQueue.shift()!;
+            return { value, done: false };
+          }
+
+          state.emitter.off('event', listener);
+          return { value: undefined as never, done: true };
+        },
+      };
+    },
+  };
+
+  return {
+    ...iterator,
+    done: runPromise.then(() => undefined),
+  };
+}
+
+export function executeWorkflowToCompletion(workflowId: string): Promise<void> {
+  const stream = executeWorkflow(workflowId);
+  return stream.done;
+}
+
+function toPublicTask(item: WorkItem): OrchestratorTask {
+  return {
+    task_id: item.id,
+    description: item.description,
+    agent_type: item.agentType,
+    depends_on: item.dependsOn,
+    status: item.status,
+    origin: item.metadata.origin,
+    semantic_key: item.metadata.semantic_key,
+    output_artifact: item.metadata.output_artifact,
+    reason_generated: item.metadata.reason_generated,
+    supersedes_task_id: item.metadata.supersedes_task_id,
+  };
+}
+
+// ============================================================================
+// WORKFLOW CONTROL FUNCTIONS
+// ============================================================================
+
+export function cancelWorkflow(workflowId: string): void {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  }
+
+  state.abortController.abort();
+  state.status = 'cancelled';
+
+  const db = getDb();
+  db.prepare(
+    "UPDATE workflows SET status = 'cancelled', ended_at = datetime('now') WHERE id = ?"
   ).run(workflowId);
+
+  db.prepare(
+    "UPDATE tasks SET status = 'cancelled', completed_at = datetime('now') WHERE workflow_id = ? AND status IN ('pending', 'running')"
+  ).run(workflowId);
+
+  cleanupSessions(state);
 
   emit(state, {
     type: 'workflow_failed',
     workflow_id: workflowId,
     data: { error: 'Workflow cancelled by user' },
   });
-  recordStep(state, {
-    step_type: 'system_event',
-    model_name: state.orchestratorModel,
-    message_content: 'workflow_cancelled',
-    tool_name: null,
-    tool_input: null,
-    tool_output: { error: 'Workflow cancelled by user' },
-    subagent_id: 'orchestrator',
-  });
-
-  logger.info({ workflowId }, 'Workflow cancelled');
 }
 
 export function getWorkflowState(workflowId: string): WorkflowState | null {
-  return workflows.get(workflowId) ?? null;
+  return hydrateWorkflowState(workflowId);
 }
 
 export function getWorkflowEmitter(workflowId: string): EventEmitter | null {
-  return workflows.get(workflowId)?.emitter ?? null;
+  return hydrateWorkflowState(workflowId)?.emitter ?? null;
 }
-
-// ── Query helpers ──
 
 export interface WorkflowSummary {
   id: string;
@@ -1441,111 +1328,207 @@ export interface WorkflowSummary {
   user_prompt?: string;
   orchestrator_model?: string | null;
   status: string;
-  plan: import('@orchestrator/shared').DAGPlan | null;
   credits_consumed: number;
   started_at?: string | null;
   ended_at?: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  tasks: TaskSummary[];
+  output?: string | null;
 }
 
 export interface TaskSummary {
-  id: string;
-  task_type: string;
-  description: string | null;
+  task_id: string;
+  description: string;
+  agent_type: string;
+  depends_on: string[];
   status: string;
-  output_preview: string | null;
-  started_at: string | null;
-  completed_at: string | null;
+  output?: string;
+  created_at: string;
+  completed_at?: string | null;
 }
 
-export function getWorkflowDetails(workflowId: string): WorkflowSummary | null {
+export function getWorkflowDetails(workflowId: string): { workflow: WorkflowSummary; tasks: TaskSummary[] } | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown> | undefined;
-  if (!row) return null;
+  const workflow = db
+    .prepare(
+      `SELECT id, objective, user_prompt, orchestrator_model, status,
+              credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+       FROM workflows WHERE id = ?`
+    )
+    .get(workflowId) as WorkflowSummary | undefined;
 
-  const tasks = db.prepare('SELECT * FROM tasks WHERE workflow_id = ? ORDER BY created_at').all(workflowId) as Array<Record<string, unknown>>;
+  if (!workflow) return null;
 
-  return {
-    id: row['id'] as string,
-    objective: row['objective'] as string,
-    user_prompt: (row['user_prompt'] as string) ?? (row['objective'] as string),
-    orchestrator_model: (row['orchestrator_model'] as string) ?? null,
-    status: row['status'] as string,
-    plan: row['plan'] ? JSON.parse(row['plan'] as string) : null,
-    credits_consumed: row['credits_consumed'] as number,
-    started_at: (row['started_at'] as string) ?? null,
-    ended_at: (row['ended_at'] as string) ?? null,
-    created_at: row['created_at'] as string,
-    updated_at: row['updated_at'] as string,
-    completed_at: (row['completed_at'] as string) ?? null,
-    tasks: tasks.map((t) => ({
-      id: t['id'] as string,
-      task_type: t['task_type'] as string,
-      description: (t['description'] as string) ?? null,
-      status: t['status'] as string,
-      output_preview: t['output'] ? (t['output'] as string).substring(0, 500) : null,
-      started_at: (t['started_at'] as string) ?? null,
-      completed_at: (t['completed_at'] as string) ?? null,
-    })),
-  };
-}
-
-export function listWorkflows(
-  userId: string,
-  options: { page: number; limit: number; status?: string }
-): { workflows: WorkflowSummary[]; total: number } {
-  const db = getDb();
-  const offset = (options.page - 1) * options.limit;
-
-  let whereClause = 'WHERE user_id = ?';
-  const params: unknown[] = [userId];
-  if (options.status) {
-    whereClause += ' AND status = ?';
-    params.push(options.status);
+  const inMemoryState = workflows.get(workflowId);
+  if (inMemoryState?.lastOutput) {
+    workflow.output = inMemoryState.lastOutput;
   }
 
-  const total = (
-    db.prepare(`SELECT COUNT(*) as count FROM workflows ${whereClause}`).get(...params) as { count: number }
-  ).count;
+  const taskRows = db
+    .prepare(
+      `SELECT
+          id AS task_id,
+          description,
+          task_type AS agent_type,
+          parent_task_ids,
+          status,
+          output,
+          created_at,
+          completed_at
+       FROM tasks
+       WHERE workflow_id = ?
+       ORDER BY created_at`
+    )
+    .all(workflowId) as Array<{
+      task_id: string;
+      description: string | null;
+      agent_type: string;
+      parent_task_ids: string | null;
+      status: string;
+      output: string | null;
+      created_at: string;
+      completed_at: string | null;
+    }>;
 
-  const rows = db
-    .prepare(`SELECT * FROM workflows ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, options.limit, offset) as Array<Record<string, unknown>>;
-
-  const workflowSummaries = rows.map((row) => {
-    const tasks = db.prepare('SELECT * FROM tasks WHERE workflow_id = ? ORDER BY created_at').all(row['id']) as Array<Record<string, unknown>>;
+  const tasks: TaskSummary[] = taskRows.map((row) => {
+    let dependsOn: string[] = [];
+    try {
+      dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[];
+    } catch {
+      dependsOn = [];
+    }
 
     return {
-      id: row['id'] as string,
-      objective: row['objective'] as string,
-      user_prompt: (row['user_prompt'] as string) ?? (row['objective'] as string),
-      orchestrator_model: (row['orchestrator_model'] as string) ?? null,
-      status: row['status'] as string,
-      plan: row['plan'] ? JSON.parse(row['plan'] as string) : null,
-      credits_consumed: row['credits_consumed'] as number,
-      started_at: (row['started_at'] as string) ?? null,
-      ended_at: (row['ended_at'] as string) ?? null,
-      created_at: row['created_at'] as string,
-      updated_at: row['updated_at'] as string,
-      completed_at: (row['completed_at'] as string) ?? null,
-      tasks: tasks.map((t) => ({
-        id: t['id'] as string,
-        task_type: t['status'] as string,
-        description: (t['description'] as string) ?? null,
-        status: t['status'] as string,
-        output_preview: t['output'] ? (t['output'] as string).substring(0, 500) : null,
-        started_at: (t['started_at'] as string) ?? null,
-        completed_at: (t['completed_at'] as string) ?? null,
-      })),
+      task_id: row.task_id,
+      description: row.description ?? '',
+      agent_type: row.agent_type,
+      depends_on: dependsOn,
+      status: row.status,
+      output: row.output ?? undefined,
+      created_at: row.created_at,
+      completed_at: row.completed_at,
     };
   });
 
-  return { workflows: workflowSummaries, total };
+  return { workflow, tasks };
+}
+
+export function listWorkflows(userId: string): WorkflowSummary[] {
+  const db = getDb();
+  const workflowsFromDb = db
+    .prepare(
+      `SELECT id, objective, user_prompt, orchestrator_model, status,
+              credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+       FROM workflows WHERE user_id = ? ORDER BY created_at DESC`
+    )
+    .all(userId) as WorkflowSummary[];
+
+  return workflowsFromDb.map((workflow) => {
+    const inMemory = workflows.get(workflow.id);
+    return inMemory?.lastOutput ? { ...workflow, output: inMemory.lastOutput } : workflow;
+  });
 }
 
 export function getWorkflowTrace(workflowId: string): WorkflowTraceStep[] {
   return readWorkflowTrace(workflowId);
+}
+
+export async function continueWorkflow(
+  workflowId: string,
+  followUpQuery: string
+): Promise<{ workflowId: string; status: WorkflowStatus }> {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  }
+
+  state.config = {
+    ...state.config,
+    objective: followUpQuery,
+  };
+  state.status = 'executing';
+  state.abortController = new AbortController();
+
+  state.messages.push({ role: 'user', content: followUpQuery });
+  state.conversationHistory.push({
+    role: 'user',
+    content: followUpQuery,
+    timestamp: new Date().toISOString(),
+  });
+
+  const db = getDb();
+  db.prepare(`UPDATE workflows SET status = 'executing', objective = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(followUpQuery, workflowId);
+
+  state.executionPromise = undefined;
+  return { workflowId, status: 'executing' };
+}
+
+export function getWorkflowSummaryById(
+  workflowId: string
+): { workflowId: string; status: WorkflowStatus; output?: string | null } | null {
+  const state = hydrateWorkflowState(workflowId);
+  if (state) {
+    return {
+      workflowId,
+      status: state.status,
+      output: state.lastOutput ?? null,
+    };
+  }
+
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT id, status FROM workflows WHERE id = ?`)
+    .get(workflowId) as { id: string; status: WorkflowStatus } | undefined;
+
+  if (!row) return null;
+
+  return {
+    workflowId: row.id,
+    status: row.status,
+    output: null,
+  };
+}
+
+export function pauseWorkflow(workflowId: string): void {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  }
+  if (state.status !== 'executing') {
+    throw new WorkflowError(`Cannot pause workflow in status: ${state.status}`);
+  }
+
+  state.status = 'paused';
+  const db = getDb();
+  db.prepare(`UPDATE workflows SET status = 'paused', updated_at = datetime('now') WHERE id = ?`).run(workflowId);
+}
+
+export async function resumeWorkflow(
+  workflowId: string,
+  _approvals?: Array<{ task_id: string; approved: boolean; feedback?: string }>
+): Promise<void> {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  }
+  if (state.status !== 'paused' && state.status !== 'completed' && state.status !== 'failed') {
+    throw new WorkflowError(`Cannot resume workflow in status: ${state.status}`);
+  }
+
+  state.status = 'executing';
+  state.abortController = new AbortController();
+  const db = getDb();
+  db.prepare(`UPDATE workflows SET status = 'executing', updated_at = datetime('now') WHERE id = ?`).run(workflowId);
+
+  if (!state.executionPromise) {
+    state.executionPromise = runWorkflow(state.userId, state.config, workflowId)
+      .then((result) => {
+        state.lastOutput = result.output;
+      })
+      .finally(() => {
+        state.executionPromise = undefined;
+      });
+  }
 }

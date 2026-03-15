@@ -107,53 +107,77 @@ export const WorkflowConfigSchema = z.object({
 // ── Agent type ──
 export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file']);
 
-// ── Orchestrator task (new architecture) ──
-export const OrchestratorTaskSchema = z.object({
-  task_id: z.string().min(1),
-  description: z.string().min(1),
-  agent_type: AgentTypeSchema,
-  depends_on: z.array(z.string()).default([]),
+const EditTodoArgsSchema = z.object({
+  todo_id: z.string().min(1),
+  description: z.string().min(1).optional(),
+  depends_on: z.array(z.string()).optional(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'blocked', 'skipped', 'cancelled']).optional(),
   output_artifact: z.string().min(1).optional(),
+  output: z.string().optional(),
+  reason: z.string().optional(),
 });
 
-export const OrchestratorTaskListSchema = z.object({
-  tasks: z.array(OrchestratorTaskSchema).min(1),
-});
-
-// ── Orchestrator loop decision ──
-const OrchestratorActionSchema = z.discriminatedUnion('type', [
+export const PlanModeToolCallSchema = z.discriminatedUnion('name', [
   z.object({
-    type: z.literal('dispatch'),
-    task_ids: z.array(z.string()).min(1),
+    name: z.literal('write_todo'),
+    arguments: z.object({
+      todo_id: z.string().min(1),
+      description: z.string().min(1),
+      agent_type: AgentTypeSchema,
+      depends_on: z.array(z.string()).optional(),
+      output_artifact: z.string().min(1).optional(),
+    }),
   }),
   z.object({
-    type: z.literal('add_task'),
-    task_id: z.string().min(1),
-    description: z.string().min(1),
-    agent_type: AgentTypeSchema,
-    depends_on: z.array(z.string()).default([]),
-    reason_generated: z.string().min(1).optional(),
-    output_artifact: z.string().min(1).optional(),
-    supersedes_task_id: z.string().min(1).optional(),
-  }),
-  z.object({
-    type: z.literal('skip'),
-    task_id: z.string().min(1),
-    reason: z.string(),
-  }),
-  z.object({
-    type: z.literal('complete'),
-    output: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('delegate_write'),
-    prompt: z.string().min(1),
+    name: z.literal('edit_todo'),
+    arguments: EditTodoArgsSchema,
   }),
 ]);
 
-export const OrchestratorDecisionSchema = z.object({
-  thinking: z.string(),
-  actions: z.array(OrchestratorActionSchema).min(1),
+export const ExecutionModeToolCallSchema = z.discriminatedUnion('name', [
+  z.object({
+    name: z.literal('list_todos'),
+    arguments: z.object({
+      status: z.enum(['pending', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'skipped']).optional(),
+      agent_type: AgentTypeSchema.optional(),
+    }),
+  }),
+  z.object({
+    name: z.literal('spawn_subagent'),
+    arguments: z.object({
+      todo_id: z.string().min(1),
+      prompt_override: z.string().optional(),
+    }),
+  }),
+  z.object({
+    name: z.literal('await_subagents'),
+    arguments: z.object({
+      todo_ids: z.array(z.string()).optional(),
+      timeout_seconds: z.number().int().positive().max(120).optional(),
+    }),
+  }),
+  z.object({
+    name: z.literal('get_subagent_result'),
+    arguments: z.object({
+      todo_id: z.string().min(1),
+    }),
+  }),
+  z.object({
+    name: z.literal('edit_todo'),
+    arguments: EditTodoArgsSchema,
+  }),
+]);
+
+export const PlanModeEnvelopeSchema = z.object({
+  thinking: z.string().min(1),
+  tool_calls: z.array(PlanModeToolCallSchema),
+  final_output: z.string().optional(),
+});
+
+export const ExecutionModeEnvelopeSchema = z.object({
+  thinking: z.string().min(1),
+  tool_calls: z.array(ExecutionModeToolCallSchema),
+  final_output: z.string().optional(),
 });
 
 // ── Legacy DAG Task (kept for backward compat) ──

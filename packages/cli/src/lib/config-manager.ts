@@ -14,6 +14,7 @@ import {
   getAgentModel as getModelRouterAgentModel,
   getAllAgentModels as getModelRouterAllAgentModels,
   updateAgentModels as updateModelRouterAgentModels,
+  getAllModels,
 } from '@orchestrator/model-router';
 
 // ── Types ──
@@ -201,6 +202,117 @@ export function getAgentModel(agentType: string): string | undefined {
 
 export function getAllAgentModels(): AgentModels {
   return getModelRouterAllAgentModels() as AgentModels;
+}
+
+// ── Model ID Normalization ──
+
+/**
+ * Normalize a model ID to match the registry format.
+ * 
+ * Rules:
+ * - Add 'litellm/' prefix if not present
+ * - Convert model name to lowercase
+ * - Replace '/' with '-' in the model name part (e.g., 'ali/MiniMax' -> 'ali-minimax')
+ * 
+ * Examples:
+ * - 'ali/MiniMax-M2.5' -> 'litellm/ali-minimax-m2.5'
+ * - 'gemini-3-flash-preview' -> 'litellm/gemini-3-flash-preview'
+ * - 'litellm/ali/MiniMax-M2.5' -> 'litellm/ali-minimax-m2.5'
+ */
+export function normalizeModelId(modelId: string): string {
+  // Remove litellm/ prefix temporarily if present
+  let normalized = modelId;
+  if (normalized.startsWith('litellm/')) {
+    normalized = normalized.slice(8);
+  }
+
+  // Normalize the model name: lowercase and replace / with -
+  normalized = normalized.toLowerCase().replace(/\//g, '-');
+
+  // Add litellm/ prefix
+  return `litellm/${normalized}`;
+}
+
+/**
+ * Get all valid model IDs from the registry.
+ */
+export function getValidModelIds(): string[] {
+  try {
+    const models = getAllModels();
+    return models.map(m => m.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if a model ID needs normalization (doesn't match registry format).
+ */
+export function needsNormalization(modelId: string): boolean {
+  const normalized = normalizeModelId(modelId);
+  const validIds = getValidModelIds();
+  
+  // If the original ID is already valid, no normalization needed
+  if (validIds.includes(modelId)) {
+    return false;
+  }
+  
+  // If the normalized version is valid, normalization is needed
+  return validIds.includes(normalized);
+}
+
+/**
+ * Try to normalize a model ID to a valid registry ID.
+ * Returns the normalized ID if valid, null if cannot be normalized to a valid ID.
+ */
+export function tryNormalizeModelId(modelId: string): string | null {
+  const normalized = normalizeModelId(modelId);
+  const validIds = getValidModelIds();
+  
+  if (validIds.includes(normalized)) {
+    return normalized;
+  }
+  
+  // Try exact match first
+  if (validIds.includes(modelId)) {
+    return modelId;
+  }
+  
+  return null;
+}
+
+/**
+ * Validate and normalize a list of model IDs.
+ * Returns the normalized list and reports any invalid models.
+ */
+export function validateAndNormalizeModels(models: string[]): {
+  valid: string[];
+  invalid: string[];
+  normalized: Map<string, string>; // original -> normalized
+} {
+  const validIds = getValidModelIds();
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  const normalized = new Map<string, string>();
+
+  for (const modelId of models) {
+    // Check if already valid
+    if (validIds.includes(modelId)) {
+      valid.push(modelId);
+      continue;
+    }
+
+    // Try to normalize
+    const normalizedId = normalizeModelId(modelId);
+    if (validIds.includes(normalizedId)) {
+      valid.push(normalizedId);
+      normalized.set(modelId, normalizedId);
+    } else {
+      invalid.push(modelId);
+    }
+  }
+
+  return { valid, invalid, normalized };
 }
 
 // ── Key mapping for config command ──

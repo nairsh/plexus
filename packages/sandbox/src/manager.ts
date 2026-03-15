@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { getDb, logger, SandboxError } from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession, ExecutionResult } from '@orchestrator/shared';
 import { debitCredits } from '@orchestrator/billing';
-import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspaceInfo } from './workspaces.js';
+import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspaceInfo, getWorkspacePaths } from './workspaces.js';
 import {
   executeInOpenTerminal,
   listOpenTerminalFiles,
@@ -90,6 +90,11 @@ export async function createSession(
 
   sessions.set(sessionId, state);
 
+  // Ensure workspace exists BEFORE inserting session (foreign key constraint)
+  if (chatId) {
+    ensureWorkspace(userId, chatId, config.language);
+  }
+
   // Persist to DB
   const db = getDb();
   db.prepare(
@@ -99,12 +104,20 @@ export async function createSession(
 
   try {
     if (chatId) {
-      const workspace = ensureWorkspace(userId, chatId, config.language);
-      const openTerminal = await startOpenTerminal(chatId, workspace.filesPath);
-      state.openTerminal = openTerminal;
       activateWorkspace(userId, chatId, sessionId, config.language, workspaceDir);
-      db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ? WHERE id = ?').run(openTerminal.baseUrl, sessionId);
       state.environmentStatus = 'running';
+
+      try {
+        const workspace = getWorkspacePaths(chatId);
+        const openTerminal = await startOpenTerminal(chatId, workspace.filesPath);
+        state.openTerminal = openTerminal;
+        db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ? WHERE id = ?').run(openTerminal.baseUrl, sessionId);
+      } catch (err) {
+        logger.warn(
+          { chatId, sessionId, error: (err as Error).message },
+          'Open Terminal unavailable, falling back to local workspace mode'
+        );
+      }
     }
 
     // Install packages if requested

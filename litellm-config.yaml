@@ -1,0 +1,45 @@
+# LiteLLM Proxy Configuration
+# Start with: litellm --config litellm-config.yaml
+
+model_list:
+  # Google/Gemini models
+  - model_name: gemini-3.1-flash-lite-preview
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite-preview
+      api_key: os.environ/GEMINI_API_KEY
+  
+  - model_name: gemini-3-flash-preview
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GEMINI_API_KEY
+  
+  - model_name: gemini-3.1-pro-preview
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+  # OpenRouter models (ali/)
+  - model_name: ali-kimi-k2.5
+    litellm_params:
+      model: openrouter/ali/kimi-k2.5
+      api_key: os.environ/OPENROUTER_API_KEY
+  
+  - model_name: ali-qwen3.5-plus
+    litellm_params:
+      model: openrouter/ali/qwen3.5-plus
+      api_key: os.environ/OPENROUTER_API_KEY
+
+# General settings
+litellm_settings:
+  drop_params: true
+  success_callback: []
+  failure_callback: []
+
+# Server settings
+server:
+  port: 4000
+  host: 0.0.0.0
+
+# Rate limiting
+router_settings:
+  routing_strategy: simple-shuffle

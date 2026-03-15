@@ -149,6 +149,24 @@ export async function dispatchToAgent(
   // Use the getAgentModel function which checks config first, then falls back to hardcoded
   const model = getAgentModel(task.agent_type, ctx.config.model_overrides);
 
+  // Dry-run mode: return mock result without calling LLM
+  if (process.env.DRY_RUN === '1') {
+    logger.info(
+      { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type },
+      '[DRY RUN] Skipping agent dispatch'
+    );
+    return {
+      output: `[DRY RUN] ${task.agent_type} agent would process: ${task.description}`,
+      model,
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150,
+        cost: { currency: 'USD' as const, input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
+      },
+    };
+  }
+
   logger.info(
     { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type, model, promptLength: prompt.length },
     'Dispatching to sub-agent'

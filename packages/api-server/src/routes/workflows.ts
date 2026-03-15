@@ -11,8 +11,10 @@ import type { WorkflowEvent } from '@orchestrator/shared';
 import {
   planWorkflow,
   executeWorkflow,
+  executeWorkflowToCompletion,
   cancelWorkflow,
   resumeWorkflow,
+  continueWorkflow,
   getWorkflowDetails,
   getWorkflowEmitter,
   getWorkflowTrace,
@@ -54,17 +56,13 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         // Non-critical
       }
 
-      const { workflowId, plan } = await planWorkflow(userId, config);
+      const { workflowId, tasks } = await planWorkflow(userId, config);
 
-      // If not background, start execution immediately (fire and forget)
+      // Start execution in background — events will be emitted via SSE
       if (!config.background) {
-        // Start execution in background — events will be emitted
         (async () => {
           try {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for await (const _event of executeWorkflow(workflowId)) {
-              // Events are emitted — SSE consumers will pick them up
-            }
+            await executeWorkflowToCompletion(workflowId);
           } catch (err) {
             logger.error({ workflowId, error: (err as Error).message }, 'Background workflow execution failed');
           }
@@ -76,15 +74,37 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         workflow_id: workflowId,
         status: 'executing',
         created_at: new Date().toISOString(),
-        plan: {
-          task_count: plan.tasks.length,
-          tasks: plan.tasks.map((t) => ({
-            id: t.task_id,
-            type: t.task_type,
-            description: t.description,
-            depends_on: t.parent_task_ids,
-          })),
-        },
+        task_count: tasks.length,
+        tasks: tasks.map((t) => ({
+          id: t.task_id,
+          type: t.agent_type,
+          description: t.description,
+          agent_type: t.agent_type,
+          depends_on: t.depends_on,
+        })),
+      };
+    }
+  );
+
+  fastify.post(
+    '/v1/workflows/:id/continue',
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { objective?: string } }>) => {
+      const { id } = request.params;
+      const objective = request.body?.objective?.trim();
+
+      if (!objective) {
+        throw new InvalidRequestError('objective is required');
+      }
+
+      const result = await continueWorkflow(id, objective);
+      const stream = executeWorkflow(id);
+      void stream.done.catch((error) => {
+        logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow continuation execution failed');
+      });
+
+      return {
+        workflow_id: result.workflowId,
+        status: 'executing',
       };
     }
   );
@@ -101,17 +121,20 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         throw new InvalidRequestError('Invalid pagination parameters');
       }
 
-      const result = listWorkflows(userId, {
-        page: query.data.page,
-        limit: query.data.limit,
-        status: query.data.status,
-      });
+      const all = listWorkflows(userId);
+      const page = query.data.page;
+      const limit = query.data.limit;
+      const status = query.data.status;
+
+      const filtered = status ? all.filter((workflow) => workflow.status === status) : all;
+      const start = (page - 1) * limit;
+      const workflows = filtered.slice(start, start + limit);
 
       return {
-        workflows: result.workflows,
-        total: result.total,
-        page: query.data.page,
-        limit: query.data.limit,
+        workflows,
+        total: filtered.length,
+        page,
+        limit,
       };
     }
   );
@@ -164,12 +187,13 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': request.headers.origin ?? '*',
+        Vary: 'Origin',
       });
 
       const listener = (event: WorkflowEvent) => {
         reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 
-        // Close connection on terminal events
         if (event.type === 'workflow_completed' || event.type === 'workflow_failed') {
           setTimeout(() => {
             reply.raw.end();
@@ -179,12 +203,10 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
       emitter.on('event', listener);
 
-      // Clean up on client disconnect
       request.raw.on('close', () => {
         emitter.off('event', listener);
       });
 
-      // Keep connection alive with heartbeat
       const heartbeat = setInterval(() => {
         try {
           reply.raw.write(': heartbeat\n\n');
@@ -215,17 +237,10 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
       await resumeWorkflow(id, [{ task_id, approved, feedback }]);
 
-      // If approved, restart execution
       if (approved) {
-        (async () => {
-          try {
-            for await (const _event of executeWorkflow(id)) {
-              // Events are emitted
-            }
-          } catch (err) {
-            logger.error({ workflowId: id, error: (err as Error).message }, 'Workflow execution failed after approval');
-          }
-        })();
+        void executeWorkflowToCompletion(id).catch((error) => {
+          logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow execution failed after approval');
+        });
       }
 
       return {

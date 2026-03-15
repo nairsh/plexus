@@ -25,11 +25,32 @@ vi.mock('@orchestrator/sandbox', () => ({
 }));
 
 import { closeDb, getDb, runMigrations } from '@orchestrator/shared';
-import { executeWorkflow, planWorkflow } from '@orchestrator/orchestrator';
+import { continueWorkflow, executeWorkflow, planWorkflow } from '@orchestrator/orchestrator';
 import { routeRequest } from '@orchestrator/model-router';
 import { dispatchToAgent } from '../packages/orchestrator/src/agents.js';
 
 let tempDir: string;
+
+const zeroCostUsage = {
+  input_tokens: 1,
+  output_tokens: 1,
+  total_tokens: 2,
+  cost: { currency: 'USD' as const, input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
+};
+
+function modelResponse(outputText: string) {
+  return {
+    id: crypto.randomUUID(),
+    model: 'test-orchestrator-model',
+    status: 'completed' as const,
+    output: [],
+    output_text: outputText,
+    usage: zeroCostUsage,
+    tools: [],
+    created_at: Date.now(),
+    completed_at: Date.now(),
+  };
+}
 
 describe('orchestrator behavior', () => {
   beforeEach(() => {
@@ -55,248 +76,184 @@ describe('orchestrator behavior', () => {
     vi.clearAllMocks();
   });
 
-  test('reuses planned write task instead of adding duplicate runtime write task', async () => {
+  test('runs unified tool loop with todo planning and subagent execution', async () => {
     vi.mocked(routeRequest)
-      .mockResolvedValueOnce({
-        id: 'plan-1',
-        model: 'test-orchestrator-model',
-        status: 'completed',
-        output: [],
-        output_text: JSON.stringify({
-          tasks: [
-            {
-              task_id: 'research_constraints',
-              description: 'Research Tauri runtime constraints relevant to TanStack libraries',
-              agent_type: 'research',
-              depends_on: [],
-              output_artifact: 'research_brief',
-            },
-            {
-              task_id: 'analyze_fit',
-              description: 'Analyze whether the research shows fundamental or configuration-related disadvantages',
-              agent_type: 'analyze',
-              depends_on: ['research_constraints'],
-              output_artifact: 'analysis',
-            },
-            {
-              task_id: 'write_summary_report',
-              description: 'Write the final scoped recommendation with evidence strength and uncertainty',
-              agent_type: 'write',
-              depends_on: ['analyze_fit'],
-              output_artifact: 'final_output',
-            },
-          ],
-        }),
-        usage: {
-          input_tokens: 10,
-          output_tokens: 10,
-          total_tokens: 20,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-        tools: [],
-        created_at: Date.now(),
-        completed_at: Date.now(),
-      })
-      .mockResolvedValueOnce({
-        id: 'loop-1',
-        model: 'test-orchestrator-model',
-        status: 'completed',
-        output: [],
-        output_text: JSON.stringify({
-          thinking: 'Research is ready to run.',
-          actions: [{ type: 'dispatch', task_ids: ['research_constraints'] }],
-        }),
-        usage: {
-          input_tokens: 5,
-          output_tokens: 5,
-          total_tokens: 10,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-        tools: [],
-        created_at: Date.now(),
-        completed_at: Date.now(),
-      })
-      .mockResolvedValueOnce({
-        id: 'loop-2',
-        model: 'test-orchestrator-model',
-        status: 'completed',
-        output: [],
-        output_text: JSON.stringify({
-          thinking: 'Analysis is next.',
-          actions: [{ type: 'dispatch', task_ids: ['analyze_fit'] }],
-        }),
-        usage: {
-          input_tokens: 5,
-          output_tokens: 5,
-          total_tokens: 10,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-        tools: [],
-        created_at: Date.now(),
-        completed_at: Date.now(),
-      })
-      .mockResolvedValueOnce({
-        id: 'loop-3',
-        model: 'test-orchestrator-model',
-        status: 'completed',
-        output: [],
-        output_text: JSON.stringify({
-          thinking: 'Delegate the final writing to the writer.',
-          actions: [{ type: 'delegate_write', prompt: 'Use the completed analysis to write the final output.' }],
-        }),
-        usage: {
-          input_tokens: 5,
-          output_tokens: 5,
-          total_tokens: 10,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-        tools: [],
-        created_at: Date.now(),
-        completed_at: Date.now(),
-      });
+      .mockResolvedValueOnce(
+        modelResponse(
+          JSON.stringify({
+            thinking: 'Create the initial work breakdown and commit the plan.',
+            tool_calls: [
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'research_constraints',
+                  description: 'Research runtime constraints relevant to TanStack with Tauri',
+                  agent_type: 'research',
+                  depends_on: [],
+                  output_artifact: 'research_brief',
+                },
+              },
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'analyze_fit',
+                  description: 'Analyze whether constraints are fundamental or mostly configuration-related',
+                  agent_type: 'analyze',
+                  depends_on: ['research_constraints'],
+                  output_artifact: 'analysis',
+                },
+              },
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'write_summary',
+                  description: 'Write final recommendation with confidence and uncertainty',
+                  agent_type: 'write',
+                  depends_on: ['analyze_fit'],
+                  output_artifact: 'final_output',
+                },
+              },
+            ],
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        modelResponse(
+          JSON.stringify({
+            thinking: 'Start with research and wait for it to complete.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'research_constraints' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['research_constraints'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        modelResponse(
+          JSON.stringify({
+            thinking: 'Research is done, move to analysis.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'analyze_fit' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['analyze_fit'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        modelResponse(
+          JSON.stringify({
+            thinking: 'Now run writing and wait for the final synthesis.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'write_summary' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['write_summary'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        modelResponse('Written final answer')
+      );
 
     vi.mocked(dispatchToAgent)
       .mockResolvedValueOnce({
-        output: 'Research output',
+        output: 'Research findings',
         model: 'research-model',
-        usage: {
-          input_tokens: 20,
-          output_tokens: 30,
-          total_tokens: 50,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
+        usage: zeroCostUsage,
       })
       .mockResolvedValueOnce({
-        output: 'Analysis output',
+        output: 'Analysis findings',
         model: 'analysis-model',
-        usage: {
-          input_tokens: 15,
-          output_tokens: 20,
-          total_tokens: 35,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
+        usage: zeroCostUsage,
       })
       .mockResolvedValueOnce({
-        output: 'Final write output',
+        output: 'Written final answer',
         model: 'writer-model',
-        usage: {
-          input_tokens: 50,
-          output_tokens: 60,
-          total_tokens: 110,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
+        usage: zeroCostUsage,
       });
 
-    const { workflowId } = await planWorkflow('user-1', {
-      objective: 'Research if TanStack is a disadvantage for Tauri apps',
+    const { workflowId, tasks } = await planWorkflow('user-1', {
+      objective: 'Assess whether TanStack meaningfully disadvantages Tauri applications',
       orchestrator_model: 'test-orchestrator-model',
       max_credits: 5,
     });
 
-    const events = [] as Array<{ type: string; task_id?: string; data: unknown }>;
-    for await (const event of executeWorkflow(workflowId)) {
+    expect(tasks).toHaveLength(0);
+
+    const events: Array<{ type: string; task_id?: string; data: unknown }> = [];
+    const stream = executeWorkflow(workflowId);
+    for await (const event of stream) {
       events.push({ type: event.type, task_id: event.task_id, data: event.data });
     }
+    await stream.done;
+
+    const started = events.filter((event) => event.type === 'task_started');
+    expect(started).toHaveLength(3);
+
+    const completedEvent = events.find((event) => event.type === 'workflow_completed');
+    expect(completedEvent).toBeTruthy();
+    expect((completedEvent?.data as { output?: string }).output).toBe('Written final answer');
 
     const db = getDb();
-    const taskIds = (db.prepare('SELECT id FROM tasks WHERE workflow_id = ? ORDER BY created_at').all(workflowId) as Array<{ id: string }>).map(row => row.id);
+    const taskRows = db.prepare('SELECT id, status FROM tasks WHERE workflow_id = ? ORDER BY created_at').all(workflowId) as Array<{ id: string; status: string }>;
+    expect(taskRows).toHaveLength(3);
+    expect(taskRows.every((row) => row.status === 'completed')).toBe(true);
 
-    expect(taskIds).toHaveLength(3);
-    expect(taskIds.some(id => id.endsWith('write_final_output'))).toBe(false);
-
-    const writeStartedEvent = events.find(event => event.type === 'task_started' && event.task_id === `${workflowId}_write_summary_report`);
-    expect(writeStartedEvent).toBeTruthy();
-
-    const writeCompletionEvent = events.find(event => event.type === 'task_completed' && event.task_id === `${workflowId}_write_summary_report`);
-    expect(writeCompletionEvent).toBeTruthy();
-    expect((writeCompletionEvent?.data as { usage?: { total_tokens?: number } }).usage?.total_tokens).toBe(110);
+    expect(vi.mocked(routeRequest)).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(dispatchToAgent)).toHaveBeenCalledTimes(3);
   });
 
-  test('skips orchestrator loop for obvious direct dispatch on simple workflow', async () => {
-    vi.mocked(routeRequest).mockResolvedValueOnce({
-      id: 'plan-simple',
-      model: 'test-orchestrator-model',
-      status: 'completed',
-      output: [],
-      output_text: JSON.stringify({
-        tasks: [
-          {
-            task_id: 'research_topic',
-            description: 'Research the topic from multiple angles',
-            agent_type: 'research',
-            depends_on: [],
-            output_artifact: 'research_brief',
-          },
-          {
-            task_id: 'analyze_topic',
-            description: 'Analyze the research findings',
-            agent_type: 'analyze',
-            depends_on: ['research_topic'],
-            output_artifact: 'analysis',
-          },
-          {
-            task_id: 'write_topic',
-            description: 'Write the final answer',
-            agent_type: 'write',
-            depends_on: ['analyze_topic'],
-            output_artifact: 'final_output',
-          },
-        ],
-      }),
-      usage: {
-        input_tokens: 5,
-        output_tokens: 5,
-        total_tokens: 10,
-        cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-      },
-      tools: [],
-      created_at: Date.now(),
-      completed_at: Date.now(),
-    });
-
-    vi.mocked(dispatchToAgent)
-      .mockResolvedValueOnce({
-        output: 'Research output',
-        model: 'research-model',
-        usage: {
-          input_tokens: 10,
-          output_tokens: 10,
-          total_tokens: 20,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-      })
-      .mockResolvedValueOnce({
-        output: 'Analysis output',
-        model: 'analysis-model',
-        usage: {
-          input_tokens: 10,
-          output_tokens: 10,
-          total_tokens: 20,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-      })
-      .mockResolvedValueOnce({
-        output: 'Final output',
-        model: 'writer-model',
-        usage: {
-          input_tokens: 10,
-          output_tokens: 10,
-          total_tokens: 20,
-          cost: { currency: 'USD', input_cost: 0, output_cost: 0, tool_calls_cost: 0, total_cost: 0 },
-        },
-      });
+  test('allows direct final output without subagent dispatch', async () => {
+    vi.mocked(routeRequest)
+      .mockResolvedValueOnce(modelResponse('Direct orchestrator output'));
 
     const { workflowId } = await planWorkflow('user-1', {
-      objective: 'Simple research question',
+      objective: 'Give me a short direct answer',
       orchestrator_model: 'test-orchestrator-model',
       max_credits: 5,
     });
 
-    for await (const _event of executeWorkflow(workflowId)) {
-      // drain events
+    const events: Array<{ type: string; data: unknown }> = [];
+    const stream = executeWorkflow(workflowId);
+    for await (const event of stream) {
+      events.push({ type: event.type, data: event.data });
     }
+    await stream.done;
 
-    expect(vi.mocked(routeRequest)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(dispatchToAgent)).toHaveBeenCalledTimes(3);
+    const workflowCompleted = events.find((event) => event.type === 'workflow_completed');
+    expect(workflowCompleted).toBeTruthy();
+    expect((workflowCompleted?.data as { output?: string }).output).toBe('Direct orchestrator output');
+    expect(vi.mocked(dispatchToAgent)).toHaveBeenCalledTimes(0);
+  });
+
+  test('continues same workflow id for follow-up turns', async () => {
+    vi.mocked(routeRequest)
+      .mockResolvedValueOnce(modelResponse('First turn output'))
+      .mockResolvedValueOnce(modelResponse('Second turn output'));
+
+    const { workflowId } = await planWorkflow('user-1', {
+      objective: 'First question',
+      orchestrator_model: 'test-orchestrator-model',
+      max_credits: 5,
+    });
+
+    const firstStream = executeWorkflow(workflowId);
+    for await (const _event of firstStream) {
+      // consume
+    }
+    await firstStream.done;
+
+    await continueWorkflow(workflowId, 'Follow-up question');
+
+    const secondEvents: Array<{ type: string; data: unknown }> = [];
+    const secondStream = executeWorkflow(workflowId);
+    for await (const event of secondStream) {
+      secondEvents.push({ type: event.type, data: event.data });
+    }
+    await secondStream.done;
+
+    const completed = secondEvents.find((event) => event.type === 'workflow_completed');
+    expect(completed).toBeTruthy();
+    expect((completed?.data as { output?: string }).output).toBe('Second turn output');
+    expect(vi.mocked(routeRequest)).toHaveBeenCalledTimes(2);
   });
 });

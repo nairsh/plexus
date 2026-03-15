@@ -4,6 +4,7 @@ export interface AgentRequest {
   input: string | ConversationMessage[];
   instructions?: string;
   tools?: Tool[];
+  tool_execution?: 'auto' | 'manual';
   max_output_tokens?: number;
   temperature?: number;
   stream?: boolean;
@@ -85,7 +86,17 @@ export interface SubagentExecutionResult {
 }
 
 export interface OutputBlock {
-  type: 'search_results' | 'fetch_url_results' | 'message' | 'file_read_result' | 'file_write_result' | 'file_edit_result' | 'bash_result' | 'grep_result' | 'glob_result';
+  type:
+    | 'search_results'
+    | 'fetch_url_results'
+    | 'message'
+    | 'tool_use'
+    | 'file_read_result'
+    | 'file_write_result'
+    | 'file_edit_result'
+    | 'bash_result'
+    | 'grep_result'
+    | 'glob_result';
   [key: string]: unknown;
 }
 
@@ -177,29 +188,6 @@ export interface OrchestratorTask {
   supersedes_task_id?: string | null;
 }
 
-/** Action types the orchestrator LLM can take each loop iteration */
-export type OrchestratorAction =
-  | { type: 'dispatch'; task_ids: string[] }
-  | {
-      type: 'add_task';
-      task_id: string;
-      description: string;
-      agent_type: AgentType;
-      depends_on: string[];
-      reason_generated?: string;
-      output_artifact?: string;
-      supersedes_task_id?: string;
-    }
-  | { type: 'skip'; task_id: string; reason: string }
-  | { type: 'complete'; output: string }
-  | { type: 'delegate_write'; prompt: string };
-
-/** The structured decision the orchestrator LLM returns each iteration */
-export interface OrchestratorDecision {
-  thinking: string;
-  actions: OrchestratorAction[];
-}
-
 export interface WorkflowConfig {
   objective: string;
   orchestrator_model?: string;
@@ -256,7 +244,7 @@ export interface WorkflowEvent {
 export interface OrchestratorThinkingData {
   thinking: string;
   iteration: number;
-  mode?: 'llm' | 'direct_dispatch' | 'direct_completion' | 'fallback';
+  mode?: 'llm';
 }
 
 export interface WorkflowTaskPlanEntry {
@@ -269,6 +257,77 @@ export interface WorkflowTaskPlanEntry {
   output_artifact?: string | null;
   reason_generated?: string | null;
   supersedes_task_id?: string | null;
+}
+
+export type PlanModeToolCall =
+  | {
+      name: 'write_todo';
+      arguments: {
+        todo_id: string;
+        description: string;
+        agent_type: AgentType;
+        depends_on?: string[];
+        output_artifact?: string;
+      };
+    }
+  | {
+      name: 'edit_todo';
+      arguments: {
+        todo_id: string;
+        description?: string;
+        depends_on?: string[];
+        status?: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
+        output_artifact?: string;
+        output?: string;
+        reason?: string;
+      };
+    };
+
+export type ExecutionModeToolCall =
+  | {
+      name: 'list_todos';
+      arguments: {
+        status?: OrchestratorTask['status'];
+        agent_type?: AgentType;
+      };
+    }
+  | {
+      name: 'spawn_subagent';
+      arguments: {
+        todo_id: string;
+        prompt_override?: string;
+      };
+    }
+  | {
+      name: 'await_subagents';
+      arguments: {
+        todo_ids?: string[];
+        timeout_seconds?: number;
+      };
+    }
+  | {
+      name: 'get_subagent_result';
+      arguments: {
+        todo_id: string;
+      };
+    }
+  | {
+      name: 'edit_todo';
+      arguments: {
+        todo_id: string;
+        description?: string;
+        depends_on?: string[];
+        status?: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
+        output_artifact?: string;
+        output?: string;
+        reason?: string;
+      };
+    };
+
+export interface OrchestratorLoopEnvelope<TToolCall> {
+  thinking: string;
+  tool_calls: TToolCall[];
+  final_output?: string;
 }
 
 export type WorkflowStepType =

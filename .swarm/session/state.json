@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "writtenAt": 1773442537199,
+  "writtenAt": 1773442571983,
   "toolAggregates": {
     "todowrite": {
       "tool": "todowrite",
@@ -11,10 +11,10 @@
     },
     "bash": {
       "tool": "bash",
-      "count": 156,
-      "successCount": 156,
+      "count": 159,
+      "successCount": 159,
       "failureCount": 0,
-      "totalDuration": 437379
+      "totalDuration": 453528
     },
     "write": {
       "tool": "write",
@@ -628,7 +628,9 @@
       "gateLog": {},
       "reviewerCallCount": {},
       "lastGateFailure": null,
-      "partialGateWarningsIssuedForTask": [],
+      "partialGateWarningsIssuedForTask": [
+        "ses_31696a52dffeR1eHny02BnwGEO:unknown"
+      ],
       "selfFixAttempted": false,
       "selfCodingWarnedAtCount": 0,
       "catastrophicPhaseWarnings": [],

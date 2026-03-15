@@ -41,14 +41,3 @@ export {
   type GlobResult,
 } from './tools/fileOperations.js';
 export { getOpenTerminalSessionForChat, invalidateSessionCache } from './tools/workspaceAccess.js';
-export {
-  getTodoList,
-  addTodoTask,
-  updateTodoTaskStatus,
-  skipTodoTask,
-  formatTodoListForPrompt,
-  getReadyTasks,
-  allTasksSettled,
-  type TodoList,
-  type TodoTask,
-} from './tools/todo.js';

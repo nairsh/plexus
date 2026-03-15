@@ -62,9 +62,9 @@ function seed() {
   console.log(`  API Key:    ${rawKey}`);
   console.log(`  Key Prefix: ${keyPrefix}`);
   console.log('\n  Use this API key in requests:');
-  console.log(`  curl -H "Authorization: Bearer ${rawKey}" http://localhost:3000/v1/billing/balance`);
+  console.log(`  curl -H "Authorization: Bearer ${rawKey}" http://localhost:8080/v1/billing/balance`);
   console.log('\n  Example Agent API call:');
-  console.log(`  curl -X POST http://localhost:3000/v1/responses \\`);
+  console.log(`  curl -X POST http://localhost:8080/v1/responses \\`);
   console.log(`    -H "Authorization: Bearer ${rawKey}" \\`);
   console.log(`    -H "Content-Type: application/json" \\`);
   console.log(`    -d '{"model":"openai/gpt-4o","input":"Hello, world!"}'`);

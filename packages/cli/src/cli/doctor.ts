@@ -18,7 +18,15 @@ import {
 } from '../ui/components.js';
 import { envFileExists, getEnvVar, ENV_KEYS } from '../lib/env-manager.js';
 import { testLiteLLMConnection, testTavilyConnection, testDatabaseConnection } from '../lib/connection-tester.js';
-import { getModelConfig, isOnboardingComplete } from '../lib/config-manager.js';
+import {
+  getModelConfig,
+  isOnboardingComplete,
+  validateAndNormalizeModels,
+  tryNormalizeModelId,
+  updateOrchestratorModels,
+  setAgentModel,
+  getAllAgentModels,
+} from '../lib/config-manager.js';
 
 // ── Types ──
 
@@ -237,9 +245,59 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
       : 'No models configured',
   });
 
+  // Check for model ID mismatches
+  const { valid, invalid, normalized } = validateAndNormalizeModels(orchestratorModels);
+  const hasMismatches = normalized.size > 0 || invalid.length > 0;
+
+  if (hasMismatches) {
+    const mismatchDetails: string[] = [];
+
+    if (normalized.size > 0) {
+      mismatchDetails.push(`${normalized.size} models need normalization`);
+    }
+    if (invalid.length > 0) {
+      mismatchDetails.push(`${invalid.length} models are invalid`);
+    }
+
+    results.push({
+      category: 'Models',
+      name: 'Model ID validation',
+      status: 'error',
+      message: mismatchDetails.join(', '),
+      hint: options.fix ? 'Attempting to fix...' : 'Run with --fix to normalize model IDs',
+    });
+
+    // Attempt fix if requested
+    if (options.fix) {
+      const fixed = await fixModelIdMismatches(modelConfig, valid, normalized, invalid);
+      if (fixed) {
+        results.push({
+          category: 'Models',
+          name: 'Auto-fix',
+          status: 'success',
+          message: 'Fixed model ID mismatches',
+        });
+      }
+    }
+  } else {
+    results.push({
+      category: 'Models',
+      name: 'Model ID validation',
+      status: 'success',
+      message: 'All model IDs valid',
+    });
+  }
+
+  // Reload config after potential fixes
+  const refreshedConfig = getModelConfig();
+  const currentOrchestratorModels = refreshedConfig?.orchestrator_models ?? [];
+
   // Default model in allowed
-  const defaultModel = modelConfig.default_orchestrator_model;
-  const defaultInAllowed = orchestratorModels.includes(defaultModel);
+  const defaultModel = refreshedConfig?.default_orchestrator_model ?? '';
+  const normalizedDefault = tryNormalizeModelId(defaultModel);
+  const defaultInAllowed = currentOrchestratorModels.includes(defaultModel) ||
+    (normalizedDefault && currentOrchestratorModels.includes(normalizedDefault));
+
   results.push({
     category: 'Models',
     name: 'Default model',
@@ -249,9 +307,33 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
   });
 
   // Agent models
-  const agentModels = modelConfig.agent_models ?? {};
+  const agentModels = refreshedConfig?.agent_models ?? {};
   const agentTypes = ['research', 'analyze', 'write', 'code', 'file'] as const;
   const configuredAgents = agentTypes.filter((t) => agentModels[t]);
+
+  // Check agent model IDs for mismatches
+  const agentMismatches: { agent: string; original: string; normalized: string }[] = [];
+  for (const agent of agentTypes) {
+    const model = agentModels[agent];
+    if (model) {
+      const normalized = tryNormalizeModelId(model);
+      if (normalized && normalized !== model) {
+        agentMismatches.push({ agent, original: model, normalized });
+      }
+    }
+  }
+
+  if (agentMismatches.length > 0 && options.fix) {
+    for (const { agent, normalized } of agentMismatches) {
+      setAgentModel(agent, normalized);
+    }
+    results.push({
+      category: 'Models',
+      name: 'Agent model fixes',
+      status: 'success',
+      message: `Fixed ${agentMismatches.length} agent model IDs`,
+    });
+  }
 
   results.push({
     category: 'Models',
@@ -266,6 +348,54 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
   });
 
   return results;
+}
+
+/**
+ * Fix model ID mismatches in the configuration.
+ */
+async function fixModelIdMismatches(
+  modelConfig: NonNullable<ReturnType<typeof getModelConfig>>,
+  validModels: string[],
+  normalized: Map<string, string>,
+  invalid: string[]
+): Promise<boolean> {
+  try {
+    // Fix orchestrator models
+    const newModels = [...validModels];
+
+    // Fix default model if needed
+    let newDefault = modelConfig.default_orchestrator_model;
+    const normalizedDefault = tryNormalizeModelId(newDefault);
+    if (normalizedDefault && !newModels.includes(normalizedDefault)) {
+      newDefault = normalizedDefault;
+    }
+
+    // Ensure default is in the list
+    if (!newModels.includes(newDefault) && newModels.length > 0) {
+      newDefault = newModels[0];
+    }
+
+    updateOrchestratorModels(newModels, newDefault);
+
+    console.log(chalk.green('\n✓ Fixed model configuration:'));
+    if (normalized.size > 0) {
+      console.log(chalk.dim('  Normalized:'));
+      for (const [original, normalizedId] of normalized) {
+        console.log(chalk.dim(`    ${original} → ${normalizedId}`));
+      }
+    }
+    if (invalid.length > 0) {
+      console.log(chalk.yellow('  Removed invalid:'));
+      for (const model of invalid) {
+        console.log(chalk.dim(`    • ${model}`));
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error(chalk.red('\n✗ Failed to fix model configuration:'), error);
+    return false;
+  }
 }
 
 // ── Result printing ──

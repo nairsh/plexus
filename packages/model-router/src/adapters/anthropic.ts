@@ -13,6 +13,15 @@ import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
 import { executeWebSearch } from '../tools/webSearch.js';
 import { executeFetchUrl } from '../tools/fetchUrl.js';
+import {
+  executeReadFile,
+  executeWriteFile,
+  executeEditFile,
+  executeBash,
+  executeGrep,
+  executeGlob,
+} from '../tools/fileOperations.js';
+import { getOpenTerminalSessionForChat } from '../tools/workspaceAccess.js';
 
 export class AnthropicAdapter extends BaseAdapter {
   readonly provider = 'anthropic';
@@ -253,8 +262,7 @@ export class AnthropicAdapter extends BaseAdapter {
       } else if (tool.type === 'code_execution') {
         anthropicTools.push({
           name: 'code_execution',
-          description:
-            'Execute code in a sandboxed environment. Specify the language and code.',
+          description: 'Execute code in a sandboxed environment',
           input_schema: {
             type: 'object' as const,
             properties: {
@@ -266,6 +274,87 @@ export class AnthropicAdapter extends BaseAdapter {
               code: { type: 'string', description: 'The code to execute' },
             },
             required: ['language', 'code'],
+          },
+        });
+      } else if (tool.type === 'file_read') {
+        anthropicTools.push({
+          name: 'file_read',
+          description: 'Read the contents of a file or list directory contents',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              filePath: { type: 'string', description: 'Absolute path to the file or directory' },
+              limit: { type: 'number', description: 'Maximum lines to read' },
+              offset: { type: 'number', description: 'Line to start from (1-indexed)' },
+            },
+            required: ['filePath'],
+          },
+        });
+      } else if (tool.type === 'file_write') {
+        anthropicTools.push({
+          name: 'file_write',
+          description: 'Write content to a file',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              filePath: { type: 'string', description: 'Absolute path to the file' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['filePath', 'content'],
+          },
+        });
+      } else if (tool.type === 'file_edit') {
+        anthropicTools.push({
+          name: 'file_edit',
+          description: 'Edit a file by replacing old string with new string',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              filePath: { type: 'string', description: 'Absolute path to the file' },
+              oldString: { type: 'string', description: 'String to replace' },
+              newString: { type: 'string', description: 'Replacement string' },
+            },
+            required: ['filePath', 'oldString', 'newString'],
+          },
+        });
+      } else if (tool.type === 'bash') {
+        anthropicTools.push({
+          name: 'bash',
+          description: 'Execute bash commands for git operations and file manipulation',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              command: { type: 'string', description: 'Bash command to execute' },
+              timeoutSeconds: { type: 'number', description: 'Timeout in seconds' },
+            },
+            required: ['command'],
+          },
+        });
+      } else if (tool.type === 'grep') {
+        anthropicTools.push({
+          name: 'grep',
+          description: 'Search file contents for a pattern',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              pattern: { type: 'string', description: 'Search pattern' },
+              path: { type: 'string', description: 'Directory or file to search' },
+              include: { type: 'string', description: 'File pattern like *.ts' },
+            },
+            required: ['pattern'],
+          },
+        });
+      } else if (tool.type === 'glob') {
+        anthropicTools.push({
+          name: 'glob',
+          description: 'Find files matching a glob pattern',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              pattern: { type: 'string', description: 'Glob pattern like **/*.ts' },
+              path: { type: 'string', description: 'Directory to search' },
+            },
+            required: ['pattern'],
           },
         });
       } else if (tool.type === 'function' && tool.function) {
@@ -343,6 +432,156 @@ export class AnthropicAdapter extends BaseAdapter {
           }),
           cost: 0,
         };
+      }
+
+      // File operations - require chat_id context for workspace access
+      if (name === 'file_read' || name === 'file_write' || name === 'file_edit' || 
+          name === 'bash' || name === 'grep' || name === 'glob') {
+        const chatId = (request as unknown as { chat_id?: string }).chat_id;
+        if (!chatId) {
+          return { 
+            output: JSON.stringify({ 
+              error: 'File operations require a chat context. Please create a workflow with a chat_id.' 
+            }), 
+            cost: 0 
+          };
+        }
+
+        const session = await getOpenTerminalSessionForChat(chatId);
+        if (!session) {
+          return { 
+            output: JSON.stringify({ 
+              error: 'No active workspace found for this chat. Please initialize a sandbox session first.' 
+            }), 
+            cost: 0 
+          };
+        }
+
+        if (name === 'file_read') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args['filePath'], limit: args['limit'], offset: args['offset'] },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeReadFile(session, args['filePath'] as string, args['limit'] as number | undefined, args['offset'] as number | undefined);
+          outputBlocks.push({ type: 'file_read_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args['filePath'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'file_write') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args['filePath'], contentLength: (args['content'] as string)?.length },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeWriteFile(session, args['filePath'] as string, args['content'] as string);
+          outputBlocks.push({ type: 'file_write_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args['filePath'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'file_edit') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args['filePath'], oldStringLength: (args['oldString'] as string)?.length, newStringLength: (args['newString'] as string)?.length },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeEditFile(session, args['filePath'] as string, args['oldString'] as string, args['newString'] as string);
+          outputBlocks.push({ type: 'file_edit_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args['filePath'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'bash') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { command: args['command'], timeoutSeconds: args['timeoutSeconds'] },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeBash(session, args['command'] as string, args['timeoutSeconds'] as number | undefined);
+          outputBlocks.push({ type: 'bash_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { command: args['command'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'grep') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { pattern: args['pattern'], path: args['path'], include: args['include'] },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeGrep(session, args['pattern'] as string, args['path'] as string | undefined, args['include'] as string | undefined);
+          outputBlocks.push({ type: 'grep_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { pattern: args['pattern'], path: args['path'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'glob') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { pattern: args['pattern'], path: args['path'] },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeGlob(session, args['pattern'] as string, args['path'] as string | undefined);
+          outputBlocks.push({ type: 'glob_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { pattern: args['pattern'], path: args['path'] },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
       }
 
       return { output: JSON.stringify({ error: `Unknown tool: ${name}` }), cost: 0 };

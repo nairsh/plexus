@@ -37,6 +37,8 @@ import {
   getDefaultModelConfig,
   updateOrchestratorModels,
   updateAgentModels,
+  normalizeModelId,
+  validateAndNormalizeModels,
 } from '../lib/config-manager.js';
 import {
   promptText,
@@ -256,7 +258,25 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
       return;
     }
 
-    availableModels = models.map(m => `litellm/${m}`);
+    // Normalize models to match registry format
+    const normalizedModels = models.map(m => normalizeModelId(m));
+    const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
+
+    if (normalized.size > 0) {
+      console.log(chalk.dim('\nNormalized model IDs:'));
+      for (const [original, normalizedId] of normalized) {
+        console.log(chalk.dim(`  ${original} → ${normalizedId}`));
+      }
+    }
+
+    if (invalid.length > 0) {
+      console.log(chalk.yellow(`\n⚠ Skipped ${invalid.length} unrecognized models:`));
+      for (const model of invalid) {
+        console.log(chalk.dim(`  • ${model}`));
+      }
+    }
+
+    availableModels = valid;
   } catch (error) {
     spinner.fail(chalk.yellow('Could not fetch models from LiteLLM'));
     printWarning('Using default model configuration.');

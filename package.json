@@ -8,7 +8,9 @@
     "build": "tsc --build",
     "seed": "tsx scripts/seed.ts",
     "test": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "orchestrate": "LOG_LEVEL=warn tsx packages/cli/src/orchestrate.ts",
+    "test-web-search": "tsx packages/cli/src/test-web-search.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

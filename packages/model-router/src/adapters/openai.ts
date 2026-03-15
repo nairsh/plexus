@@ -13,6 +13,21 @@ import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
 import { executeWebSearch } from '../tools/webSearch.js';
 import { executeFetchUrl } from '../tools/fetchUrl.js';
+import {
+  executeReadFile,
+  executeWriteFile,
+  executeEditFile,
+  executeBash,
+  executeGrep,
+  executeGlob,
+  type FileReadResult,
+  type FileWriteResult,
+  type FileEditResult,
+  type BashResult,
+  type GrepResult,
+  type GlobResult,
+} from '../tools/fileOperations.js';
+import { getOpenTerminalSessionForChat } from '../tools/workspaceAccess.js';
 
 export class OpenAIAdapter extends BaseAdapter {
   readonly provider = 'openai';
@@ -70,6 +85,48 @@ export class OpenAIAdapter extends BaseAdapter {
 
       // Check for tool calls
       if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+        if (request.tool_execution === 'manual') {
+          const assistantText = choice.message.content ?? '';
+          if (assistantText) {
+            outputBlocks.push({ type: 'message', content: assistantText });
+          }
+
+          for (const toolCall of choice.message.tool_calls) {
+            outputBlocks.push({
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments,
+            });
+          }
+
+          const costInfo = computeCost(request.model!, totalInputTokens, totalOutputTokens);
+          const usage: UsageInfo = {
+            input_tokens: totalInputTokens,
+            output_tokens: totalOutputTokens,
+            total_tokens: totalInputTokens + totalOutputTokens,
+            cost: {
+              currency: 'USD',
+              input_cost: costInfo.input_cost,
+              output_cost: costInfo.output_cost,
+              tool_calls_cost: toolCallsCost,
+              total_cost: costInfo.total_cost + toolCallsCost,
+            },
+          };
+
+          return {
+            id: this.generateId(),
+            model: request.model!,
+            status: 'completed',
+            output: outputBlocks,
+            output_text: assistantText,
+            usage,
+            tools: request.tools ?? [],
+            created_at: startTime,
+            completed_at: Date.now(),
+          };
+        }
+
         currentMessages.push({
           role: 'assistant',
           content: choice.message.content ?? '',
@@ -265,6 +322,105 @@ export class OpenAIAdapter extends BaseAdapter {
             },
           },
         });
+      } else if (tool.type === 'file_read') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'file_read',
+            description: 'Read the contents of a file or list directory contents. Use limit/offset for large files.',
+            parameters: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Absolute path to the file or directory to read' },
+                limit: { type: 'number', description: 'Maximum number of lines to read (optional)' },
+                offset: { type: 'number', description: 'Line number to start reading from (1-indexed, optional)' },
+              },
+              required: ['filePath'],
+            },
+          },
+        });
+      } else if (tool.type === 'file_write') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'file_write',
+            description: 'Write content to a file. Creates the file if it does not exist, overwrites if it does.',
+            parameters: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Absolute path to the file to write' },
+                content: { type: 'string', description: 'The content to write to the file' },
+              },
+              required: ['filePath', 'content'],
+            },
+          },
+        });
+      } else if (tool.type === 'file_edit') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'file_edit',
+            description: 'Edit a file by replacing an old string with a new string. The oldString must match exactly.',
+            parameters: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Absolute path to the file to edit' },
+                oldString: { type: 'string', description: 'The exact string to replace' },
+                newString: { type: 'string', description: 'The new string to replace it with' },
+              },
+              required: ['filePath', 'oldString', 'newString'],
+            },
+          },
+        });
+      } else if (tool.type === 'bash') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'bash',
+            description: 'Execute a bash command in the workspace. Use for git operations, file manipulation, and system commands.',
+            parameters: {
+              type: 'object',
+              properties: {
+                command: { type: 'string', description: 'The bash command to execute' },
+                timeoutSeconds: { type: 'number', description: 'Timeout in seconds (default: 60, max: 300)' },
+              },
+              required: ['command'],
+            },
+          },
+        });
+      } else if (tool.type === 'grep') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'grep',
+            description: 'Search file contents for a pattern using grep. Returns matching lines with file paths and line numbers.',
+            parameters: {
+              type: 'object',
+              properties: {
+                pattern: { type: 'string', description: 'The search pattern (regex supported)' },
+                path: { type: 'string', description: 'Directory or file path to search (default: current directory)' },
+                include: { type: 'string', description: 'File pattern to include, e.g., "*.ts" (optional)' },
+              },
+              required: ['pattern'],
+            },
+          },
+        });
+      } else if (tool.type === 'glob') {
+        openaiTools.push({
+          type: 'function',
+          function: {
+            name: 'glob',
+            description: 'Find files matching a glob pattern. Returns a list of file paths.',
+            parameters: {
+              type: 'object',
+              properties: {
+                pattern: { type: 'string', description: 'The glob pattern, e.g., "**/*.ts" or "*.json"' },
+                path: { type: 'string', description: 'Directory to search in (default: current directory)' },
+              },
+              required: ['pattern'],
+            },
+          },
+        });
       } else if (tool.type === 'function' && tool.function) {
         openaiTools.push({
           type: 'function',
@@ -341,6 +497,156 @@ export class OpenAIAdapter extends BaseAdapter {
           }),
           cost: 0,
         };
+      }
+
+      // File operations - require chat_id context for workspace access
+      if (name === 'file_read' || name === 'file_write' || name === 'file_edit' || 
+          name === 'bash' || name === 'grep' || name === 'glob') {
+        const chatId = (request as unknown as { chat_id?: string }).chat_id;
+        if (!chatId) {
+          return { 
+            output: JSON.stringify({ 
+              error: 'File operations require a chat context. Please create a workflow with a chat_id.' 
+            }), 
+            cost: 0 
+          };
+        }
+
+        const session = await getOpenTerminalSessionForChat(chatId);
+        if (!session) {
+          return { 
+            output: JSON.stringify({ 
+              error: 'No active workspace found for this chat. Please initialize a sandbox session first.' 
+            }), 
+            cost: 0 
+          };
+        }
+
+        if (name === 'file_read') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args.filePath, limit: args.limit, offset: args.offset },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeReadFile(session, args.filePath, args.limit, args.offset);
+          outputBlocks.push({ type: 'file_read_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args.filePath },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'file_write') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args.filePath, contentLength: args.content?.length },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeWriteFile(session, args.filePath, args.content);
+          outputBlocks.push({ type: 'file_write_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args.filePath },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'file_edit') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { filePath: args.filePath, oldStringLength: args.oldString?.length, newStringLength: args.newString?.length },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeEditFile(session, args.filePath, args.oldString, args.newString);
+          outputBlocks.push({ type: 'file_edit_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { filePath: args.filePath },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'bash') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { command: args.command, timeoutSeconds: args.timeoutSeconds },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeBash(session, args.command, args.timeoutSeconds);
+          outputBlocks.push({ type: 'bash_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { command: args.command },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'grep') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { pattern: args.pattern, path: args.path, include: args.include },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeGrep(session, args.pattern, args.path, args.include);
+          outputBlocks.push({ type: 'grep_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { pattern: args.pattern, path: args.path },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
+
+        if (name === 'glob') {
+          await request.trace?.onToolCall?.({
+            name,
+            input: { pattern: args.pattern, path: args.path },
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          const result = await executeGlob(session, args.pattern, args.path);
+          outputBlocks.push({ type: 'glob_result', result });
+          await request.trace?.onToolResult?.({
+            name,
+            input: { pattern: args.pattern, path: args.path },
+            output: result,
+            model: request.trace.model,
+            workflow_id: request.trace.workflow_id,
+            subagent_id: request.trace.subagent_id,
+          });
+          return { output: JSON.stringify(result), cost: 0.001 };
+        }
       }
 
       return { output: JSON.stringify({ error: `Unknown tool: ${name}` }), cost: 0 };

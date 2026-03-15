@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:8080';
 let API_KEY = '';
 
 /**
@@ -458,15 +458,14 @@ describe.skipIf(skipLLM)('Agent API (real LLM calls)', () => {
 // ── Workflow API (requires real LLM keys) ──
 
 describe.skipIf(skipLLM)('Workflow API (real LLM calls)', () => {
-  test('POST /v1/workflows creates and plans a workflow', async () => {
+  test('POST /v1/workflows creates and starts a workflow', async () => {
     const { status, data } = await api('POST', '/v1/workflows', {
       objective: 'Calculate the first 10 Fibonacci numbers and format them as a JSON array',
     });
     expect(status).toBe(201);
     expect(data).toHaveProperty('workflow_id');
-    expect(data).toHaveProperty('plan');
-    const plan = data['plan'] as Record<string, unknown>;
-    expect((plan['task_count'] as number)).toBeGreaterThan(0);
+    expect(data).toHaveProperty('task_count');
+    expect(Array.isArray(data['tasks'])).toBe(true);
   }, 60_000);
 
   test('GET /v1/workflows lists workflows', async () => {
