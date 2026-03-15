@@ -349,10 +349,13 @@ async function configureAgentModels(): Promise<void> {
   const agent = await select({
     message: 'Select agent to configure',
     choices: [
-      ...agentTypes.map((a) => ({
-        value: a,
-        name: `${a.padEnd(10)} (${agentDescriptions[a]})`,
-      })),
+      ...agentTypes.map((a) => {
+        const currentModel = currentModels[a] ?? modelConfig.default_orchestrator_model;
+        return {
+          value: a,
+          name: `${a.padEnd(10)} (${agentDescriptions[a]}) ${chalk.dim(`• ${currentModel}`)}`,
+        };
+      }),
       { value: 'all', name: 'Set same model for all agents' },
       { value: 'back', name: '← Back' },
     ],
@@ -362,9 +365,14 @@ async function configureAgentModels(): Promise<void> {
     return;
   }
 
+  // Get current model for the selected agent
+  const currentAgentModel = agent === 'all'
+    ? modelConfig.default_orchestrator_model
+    : (currentModels[agent as keyof typeof currentModels] ?? modelConfig.default_orchestrator_model);
+
   const choices = modelConfig.orchestrator_models.map((model) => ({
     value: model,
-    name: model,
+    name: model === currentAgentModel ? `${model} ${chalk.dim('(current)')}` : model,
   }));
 
   // Add "use default" option
