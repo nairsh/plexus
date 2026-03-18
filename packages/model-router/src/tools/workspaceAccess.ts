@@ -1,15 +1,5 @@
-import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
+import { getDb, logger, parseRowOrNull, SandboxSessionRowSchema } from '@orchestrator/shared';
 import type { WorkspaceSession } from './fileOperations.js';
-
-interface SandboxSessionRow {
-  id: string;
-  open_terminal_url: string | null;
-  open_terminal_api_key: string | null;
-  chat_id: string;
-  status: string;
-  environment_status: string;
-  workspace_path: string | null;
-}
 
 const activeSessions = new Map<string, WorkspaceSession>();
 
@@ -33,15 +23,18 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
 
   // Look up active session from DB
   const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT s.id, s.open_terminal_url, s.open_terminal_api_key, s.chat_id, s.status, s.environment_status, w.workspace_path
-     FROM sandbox_sessions s
-     LEFT JOIN sandbox_workspaces w ON w.chat_id = s.chat_id
-     WHERE s.chat_id = ? AND s.status IN ('ready', 'executing')
-     ORDER BY s.created_at DESC LIMIT 1`
-    )
-    .get(chatId) as SandboxSessionRow | undefined;
+  const row = parseRowOrNull(
+    SandboxSessionRowSchema,
+    db
+      .prepare(
+        `SELECT s.id, s.open_terminal_url, s.open_terminal_api_key, s.chat_id, s.status, s.environment_status, w.workspace_path
+       FROM sandbox_sessions s
+       LEFT JOIN sandbox_workspaces w ON w.chat_id = s.chat_id
+       WHERE s.chat_id = ? AND s.status IN ('ready', 'executing')
+       ORDER BY s.created_at DESC LIMIT 1`
+      )
+      .get(chatId)
+  );
 
   if (!row) {
     return null;

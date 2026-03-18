@@ -1,5 +1,5 @@
-import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
-import type { AgentType, TaskMetadata } from '@orchestrator/shared';
+import { getDb, getErrorMessage, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
+import type { AgentType, TaskMetadata, TaskRow } from '@orchestrator/shared';
 
 export type WorkItemStatus =
   | 'pending'
@@ -26,21 +26,6 @@ export interface WorkItem {
   completedAt?: string | null;
 }
 
-interface TaskRow {
-  id: string;
-  workflow_id: string;
-  description: string | null;
-  task_type: string;
-  parent_task_ids: string;
-  status: string;
-  output: string | null;
-  model: string | null;
-  tools: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
 
 const DEFAULT_METADATA: TaskMetadata = { origin: 'planned' };
 
@@ -104,9 +89,9 @@ export function listWorkItems(workflowId: string): WorkItem[] {
        WHERE workflow_id = ?
        ORDER BY created_at ASC`
     )
-    .all(workflowId) as TaskRow[];
+    .all(workflowId);
 
-  return rows.map(toWorkItem);
+  return rows.map((r) => toWorkItem(parseRow(TaskRowSchema, r)));
 }
 
 export function getWorkItem(workflowId: string, itemId: string): WorkItem | null {
@@ -119,9 +104,9 @@ export function getWorkItem(workflowId: string, itemId: string): WorkItem | null
        FROM tasks
        WHERE workflow_id = ? AND id = ?`
     )
-    .get(workflowId, fullId) as TaskRow | undefined;
+    .get(workflowId, fullId);
 
-  return row ? toWorkItem(row) : null;
+  return row ? toWorkItem(parseRow(TaskRowSchema, row)) : null;
 }
 
 export function createWorkItem(input: {
