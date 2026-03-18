@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx packages/api-server/src/index.ts",
-    "build": "tsc --build",
+    "build": "tsc --noEmit",
     "seed": "tsx scripts/seed.ts",
     "test": "vitest",
     "lint": "tsc --noEmit",
