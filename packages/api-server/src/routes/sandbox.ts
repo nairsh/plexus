@@ -4,6 +4,7 @@ import {
   ExecuteCodeSchema,
   InvalidRequestError,
   SandboxError,
+  getErrorMessage,
   logger,
 } from '@orchestrator/shared';
 import {
@@ -50,8 +51,8 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
           'sandbox_create',
           JSON.stringify({ session_id: session.id, language: session.language })
         );
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(201);
@@ -91,8 +92,8 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
             execution_time_ms: result.execution_time_ms,
           })
         );
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       return result;
@@ -238,8 +239,8 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
           'sandbox_terminate',
           JSON.stringify({ session_id: id })
         );
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(200);

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { AgentRequestSchema, InvalidRequestError, logger } from '@orchestrator/shared';
+import { AgentRequestSchema, InvalidRequestError, getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest } from '@orchestrator/shared';
 import { routeRequest, routeStreamingRequest } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
@@ -39,7 +39,7 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
           }
         } catch (err) {
           reply.raw.write(
-            `event: error\ndata: ${JSON.stringify({ type: 'error', data: { message: (err as Error).message } })}\n\n`
+            `event: error\ndata: ${JSON.stringify({ type: 'error', data: { message: getErrorMessage(err) } })}\n\n`
           );
         }
 
@@ -69,7 +69,7 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
         } catch (err) {
           // Log but don't fail the request if billing fails
           logger.error(
-            { userId, error: (err as Error).message },
+            { userId, error: getErrorMessage(err) },
             'Failed to debit credits'
           );
         }
@@ -91,8 +91,8 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
             cost: response.usage.cost.total_cost,
           })
         );
-      } catch {
-        // Audit logging failure is non-critical
+      } catch (err) {
+        logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       return response;

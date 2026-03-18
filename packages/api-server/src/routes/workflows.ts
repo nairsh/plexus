@@ -5,6 +5,7 @@ import {
   PaginationSchema,
   InvalidRequestError,
   WorkflowError,
+  getErrorMessage,
   logger,
 } from '@orchestrator/shared';
 import type { WorkflowEvent } from '@orchestrator/shared';
@@ -52,8 +53,8 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           'workflow_create',
           JSON.stringify({ objective: config.objective.substring(0, 200) })
         );
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       const { workflowId, tasks } = await planWorkflow(userId, config);
@@ -64,7 +65,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           try {
             await executeWorkflowToCompletion(workflowId);
           } catch (err) {
-            logger.error({ workflowId, error: (err as Error).message }, 'Background workflow execution failed');
+            logger.error({ workflowId, error: getErrorMessage(err) }, 'Background workflow execution failed');
           }
         })();
       }
@@ -99,7 +100,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const result = await continueWorkflow(id, objective);
       const stream = executeWorkflow(id);
       void stream.done.catch((error) => {
-        logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow continuation execution failed');
+        logger.error({ workflowId: id, error: getErrorMessage(error) }, 'Workflow continuation execution failed');
       });
 
       return {
@@ -210,7 +211,8 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const heartbeat = setInterval(() => {
         try {
           reply.raw.write(': heartbeat\n\n');
-        } catch {
+        } catch (_err) {
+          // Client disconnected; stop heartbeat
           clearInterval(heartbeat);
         }
       }, 15_000);
@@ -239,7 +241,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (approved) {
         void executeWorkflowToCompletion(id).catch((error) => {
-          logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow execution failed after approval');
+          logger.error({ workflowId: id, error: getErrorMessage(error) }, 'Workflow execution failed after approval');
         });
       }
 
@@ -272,8 +274,8 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           'workflow_cancel',
           JSON.stringify({ workflow_id: id })
         );
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(200);

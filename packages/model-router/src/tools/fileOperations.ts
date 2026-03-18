@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { logger, SandboxError } from '@orchestrator/shared';
+import { getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 
 export interface WorkspaceSession {
   containerName: string;
@@ -33,6 +33,7 @@ export interface BashResult {
   stderr: string;
   exit_code: number;
   command: string;
+  interrupted?: boolean;
 }
 
 export interface GrepResult {
@@ -210,7 +211,7 @@ export async function executeReadFile(
 
     throw new SandboxError(`Failed to read ${filePath}: ${response.statusText}`, 'file_read_failed');
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to read file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to read file');
     throw err;
   }
 }
@@ -242,7 +243,7 @@ export async function executeWriteFile(
       bytes_written: Buffer.byteLength(content, 'utf-8'),
     };
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to write file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to write file');
     throw err;
   }
 }
@@ -285,7 +286,7 @@ export async function executeEditFile(
       newString,
     };
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to edit file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to edit file');
     throw err;
   }
 }
@@ -293,14 +294,15 @@ export async function executeEditFile(
 export async function executeBash(
   session: WorkspaceSession,
   command: string,
-  timeoutSeconds: number = 60
+  timeoutSeconds: number = 60,
+  signal?: AbortSignal,
 ): Promise<BashResult> {
   try {
     if (useLocalWorkspace(session)) {
       const { execFile } = await import('node:child_process');
 
       const result = await new Promise<BashResult>((resolvePromise) => {
-        execFile('bash', ['-lc', command], {
+        const child = execFile('bash', ['-lc', command], {
           cwd: session.workspacePath,
           timeout: Math.max(1, timeoutSeconds) * 1000,
         }, (error, stdout, stderr) => {
@@ -313,8 +315,18 @@ export async function executeBash(
                 ? 1
                 : 0,
             command,
+            interrupted: signal?.aborted === true,
           });
         });
+
+        if (signal) {
+          const abortHandler = () => child.kill('SIGTERM');
+          if (signal.aborted) {
+            abortHandler();
+          } else {
+            signal.addEventListener('abort', abortHandler, { once: true });
+          }
+        }
       });
 
       return result;
@@ -328,6 +340,7 @@ export async function executeBash(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command }),
+      signal,
     });
 
     const stdout = response.output
@@ -344,9 +357,10 @@ export async function executeBash(
       stderr,
       exit_code: response.exit_code ?? (response.status === 'done' ? 0 : 1),
       command,
+      interrupted: signal?.aborted === true,
     };
   } catch (err) {
-    logger.error({ command, error: (err as Error).message }, 'Failed to execute bash command');
+    logger.error({ command, error: getErrorMessage(err) }, 'Failed to execute bash command');
     throw err;
   }
 }
@@ -409,13 +423,13 @@ export async function executeGrep(
     };
   } catch (err) {
     // Grep returns exit code 1 when no matches found, which is not an error
-    if ((err as Error).message?.includes('exit code 1')) {
+    if (getErrorMessage(err).includes('exit code 1')) {
       return {
         pattern,
         matches: [],
       };
     }
-    logger.error({ pattern, path, error: (err as Error).message }, 'Failed to execute grep');
+    logger.error({ pattern, path, error: getErrorMessage(err) }, 'Failed to execute grep');
     throw err;
   }
 }
@@ -460,7 +474,7 @@ export async function executeGlob(
       matches,
     };
   } catch (err) {
-    logger.error({ pattern, path, error: (err as Error).message }, 'Failed to execute glob');
+    logger.error({ pattern, path, error: getErrorMessage(err) }, 'Failed to execute glob');
     throw err;
   }
 }

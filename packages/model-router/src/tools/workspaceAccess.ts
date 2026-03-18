@@ -1,4 +1,4 @@
-import { getDb, logger, SandboxError } from '@orchestrator/shared';
+import { getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 import type { WorkspaceSession } from './fileOperations.js';
 
 interface SandboxSessionRow {
@@ -116,7 +116,7 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
     
     return session;
   } catch (err) {
-    logger.error({ chatId, error: (err as Error).message }, 'Failed to reconstruct OpenTerminal session');
+    logger.error({ chatId, error: getErrorMessage(err) }, 'Failed to reconstruct OpenTerminal session');
     return null;
   }
 }
