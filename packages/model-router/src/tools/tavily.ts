@@ -1,7 +1,7 @@
-import { ModelError, logger } from '@orchestrator/shared';
+import { ModelError, getEnv, logger } from '@orchestrator/shared';
 
-const TAVILY_BASE_URL = process.env['TAVILY_BASE_URL'] || 'https://api.tavily.com';
-const RATE_LIMIT_MS = parseInt(process.env['TAVILY_RATE_LIMIT_MS'] || '300', 10);
+const getTavilyBaseUrl = () => getEnv().TAVILY_BASE_URL;
+const getRateLimitMs = () => getEnv().TAVILY_RATE_LIMIT_MS;
 
 let nextAvailableAt = 0;
 
@@ -13,17 +13,17 @@ const waitForRateLimit = async () => {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
-  nextAvailableAt = Date.now() + RATE_LIMIT_MS;
+  nextAvailableAt = Date.now() + getRateLimitMs();
 };
 
-const getTavilyApiKey = () => process.env['TAVILY_API_KEY'];
+const getTavilyApiKey = () => getEnv().TAVILY_API_KEY;
 
 const hasBrave = () => {
-  const key = process.env['BRAVE_SEARCH_API_KEY'];
+  const key = getEnv().BRAVE_SEARCH_API_KEY;
   return Boolean(key && key !== '...');
 };
 
-const getBraveSearchApiKey = () => process.env['BRAVE_SEARCH_API_KEY'];
+const getBraveSearchApiKey = () => getEnv().BRAVE_SEARCH_API_KEY;
 
 const ensureConfigured = () => {
   const key = getTavilyApiKey();
@@ -50,7 +50,7 @@ const postTavily = async <T>(path: string, payload: Record<string, unknown>): Pr
   await waitForRateLimit();
 
   const apiKey = getTavilyApiKey();
-  const response = await fetch(`${TAVILY_BASE_URL}${path}`, {
+  const response = await fetch(`${getTavilyBaseUrl()}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

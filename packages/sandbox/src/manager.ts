@@ -2,7 +2,7 @@ import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DEFAULT_CREDIT_BALANCE, getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
+import { DEFAULT_CREDIT_BALANCE, getDb, getEnv, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession, ExecutionResult } from '@orchestrator/shared';
 import { debitCredits } from '@orchestrator/billing';
 import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspaceInfo, getWorkspacePaths } from './workspaces.js';
@@ -218,8 +218,8 @@ export async function execute(
     throw new SandboxError('Session is already executing code', 'session_busy');
   }
 
-  const maxTimeout = parseInt(process.env['SANDBOX_MAX_TIMEOUT'] || '3600', 10);
-  const defaultTimeout = parseInt(process.env['SANDBOX_DEFAULT_TIMEOUT'] || '300', 10);
+  const maxTimeout = getEnv().SANDBOX_MAX_TIMEOUT;
+  const defaultTimeout = getEnv().SANDBOX_DEFAULT_TIMEOUT;
   const timeout = Math.min(timeoutSeconds ?? defaultTimeout, maxTimeout);
   const timeoutMs = timeout * 1000;
 
@@ -272,11 +272,11 @@ export async function execute(
   return new Promise<ExecutionResult>((resolvePromise) => {
     // Explicit env allowlist — do not pass host secrets (API keys, DATABASE_PATH, etc.)
     const env: Record<string, string> = {
-      PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
-      HOME: process.env['HOME'] ?? '/home/user',
-      LANG: process.env['LANG'] ?? 'en_US.UTF-8',
-      TERM: process.env['TERM'] ?? 'xterm',
-      NODE_ENV: process.env['NODE_ENV'] ?? 'production',
+      PATH: getEnv().PATH,
+      HOME: getEnv().HOME,
+      LANG: getEnv().LANG,
+      TERM: getEnv().TERM,
+      NODE_ENV: getEnv().NODE_ENV,
     };
 
     // For Python, set PYTHONPATH to .packages dir
@@ -508,7 +508,7 @@ export function getSessionInfo(sessionId: string): SandboxSession | null {
 
 export function startSessionReaper(): NodeJS.Timeout {
   const REAPER_INTERVAL = 5 * 60 * 1000; // 5 minutes
-  const MAX_SESSION_AGE = parseInt(process.env['SANDBOX_MAX_TIMEOUT'] || '3600', 10) * 1000;
+  const MAX_SESSION_AGE = getEnv().SANDBOX_MAX_TIMEOUT * 1000;
 
   return setInterval(() => {
     const now = Date.now();

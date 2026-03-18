@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { SandboxError, logger } from '@orchestrator/shared';
+import { SandboxError, getEnv, logger } from '@orchestrator/shared';
 import type { ExecutionResult } from '@orchestrator/shared';
 
-const OPEN_TERMINAL_IMAGE = process.env['OPEN_TERMINAL_IMAGE'] || 'ghcr.io/open-webui/open-terminal:slim';
-const OPEN_TERMINAL_HOST = process.env['OPEN_TERMINAL_HOST'] || '127.0.0.1';
-const OPEN_TERMINAL_START_TIMEOUT_MS = parseInt(process.env['OPEN_TERMINAL_START_TIMEOUT_MS'] || '30000', 10);
+const getOpenTerminalImage = () => getEnv().OPEN_TERMINAL_IMAGE;
+const getOpenTerminalHost = () => getEnv().OPEN_TERMINAL_HOST;
+const getOpenTerminalStartTimeoutMs = () => getEnv().OPEN_TERMINAL_START_TIMEOUT_MS;
 
 export interface OpenTerminalSession {
   containerName: string;
@@ -26,7 +26,7 @@ const runDocker = (args: string[]): string => {
 const sanitizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 40);
 
 const waitForHealth = async (baseUrl: string) => {
-  const deadline = Date.now() + OPEN_TERMINAL_START_TIMEOUT_MS;
+  const deadline = Date.now() + getOpenTerminalStartTimeoutMs();
 
   while (Date.now() < deadline) {
     try {
@@ -54,14 +54,14 @@ export const startOpenTerminal = async (chatId: string, workspacePath: string): 
     '--name',
     containerName,
     '-p',
-    `${OPEN_TERMINAL_HOST}::8000`,
+    `${getOpenTerminalHost()}::8000`,
     '-v',
     `${workspacePath}:/home/user`,
     '-e',
     `OPEN_TERMINAL_API_KEY=${apiKey}`,
     '-e',
     `OPEN_TERMINAL_INFO=Persistent workspace for chat ${chatId}`,
-    OPEN_TERMINAL_IMAGE,
+    getOpenTerminalImage(),
   ]);
 
   const portInfo = runDocker(['port', containerName, '8000/tcp']);
@@ -70,7 +70,7 @@ export const startOpenTerminal = async (chatId: string, workspacePath: string): 
     throw new SandboxError(`Failed to determine mapped port for container ${containerName}`, 'open_terminal_port_error');
   }
 
-  const baseUrl = `http://${OPEN_TERMINAL_HOST}:${port}`;
+  const baseUrl = `http://${getOpenTerminalHost()}:${port}`;
   await waitForHealth(baseUrl);
 
   logger.info({ chatId, containerName, baseUrl }, 'Open Terminal environment started');

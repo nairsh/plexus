@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, type GenerateContentResult, type Part } from '@google/generative-ai';
-import { getErrorMessage } from '@orchestrator/shared';
+import { getEnv, getErrorMessage } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
@@ -11,7 +11,7 @@ export class GoogleAdapter extends BaseAdapter {
 
   constructor() {
     super();
-    this.client = new GoogleGenerativeAI(process.env['GOOGLE_AI_API_KEY'] || '');
+    this.client = new GoogleGenerativeAI(getEnv().GOOGLE_AI_API_KEY ?? '');
   }
 
   async createResponse(request: AgentRequest): Promise<AgentResponse> {

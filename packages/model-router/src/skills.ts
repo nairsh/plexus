@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getErrorMessage, logger } from '@orchestrator/shared';
+import { getEnv, getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, Skill, Tool } from '@orchestrator/shared';
 
 const RESERVED_NAMES = new Set(['anthropic', 'claude']);
@@ -16,7 +16,8 @@ interface FrontmatterResult {
 }
 
 export function getSkillsRoot(): string {
-  return process.env['CLAUDE_SKILLS_PATH'] || DEFAULT_SKILLS_DIR;
+  // Read directly (not via cached getEnv()) so tests can override CLAUDE_SKILLS_PATH at runtime.
+  return process.env['CLAUDE_SKILLS_PATH'] ?? DEFAULT_SKILLS_DIR;
 }
 
 export function refreshSkillsCache(): void {

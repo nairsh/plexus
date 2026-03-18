@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { logger, runMigrations, AppError, InternalError } from '@orchestrator/shared';
+import { logger, runMigrations, AppError, InternalError, getEnv } from '@orchestrator/shared';
 import { seedModelRegistry } from '@orchestrator/model-router';
 import { startSessionReaper, startCreditMeter } from '@orchestrator/sandbox';
 import { authMiddleware } from './middleware/auth.js';
@@ -158,7 +158,7 @@ export async function startServer() {
 
   // Create and start server
   const server = await createServer();
-  const port = parseInt(process.env['PORT'] || '8080', 10);
+  const port = getEnv().PORT;
 
   // Start background services
   const cleanerInterval = startRateLimitCleaner();

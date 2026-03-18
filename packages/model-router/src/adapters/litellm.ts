@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getErrorMessage, logger } from '@orchestrator/shared';
+import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getEnv, getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import {
@@ -39,8 +39,8 @@ export class LiteLLMAdapter extends BaseAdapter {
   constructor(config?: LiteLLMConfig) {
     super();
     this.config = config ?? {
-      baseURL: process.env['LITELLM_BASE_URL'] || 'http://localhost:4000',
-      apiKey: process.env['LITELLM_API_KEY'] || 'sk-litellm',
+      baseURL: getEnv().LITELLM_BASE_URL,
+      apiKey: getEnv().LITELLM_API_KEY,
     };
 
     this.client = new OpenAI({

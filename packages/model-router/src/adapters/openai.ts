@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getErrorMessage } from '@orchestrator/shared';
+import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getEnv, getErrorMessage } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import {
@@ -17,7 +17,7 @@ export class OpenAIAdapter extends BaseAdapter {
   constructor() {
     super();
     this.client = new OpenAI({
-      apiKey: process.env['OPENAI_API_KEY'],
+      apiKey: getEnv().OPENAI_API_KEY,
       timeout: DEFAULT_LLM_TIMEOUT_MS,
     });
   }

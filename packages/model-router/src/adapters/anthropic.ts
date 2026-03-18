@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getErrorMessage } from '@orchestrator/shared';
+import { getEnv, getErrorMessage } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
@@ -12,7 +12,7 @@ export class AnthropicAdapter extends BaseAdapter {
   constructor() {
     super();
     this.client = new Anthropic({
-      apiKey: process.env['ANTHROPIC_API_KEY'],
+      apiKey: getEnv().ANTHROPIC_API_KEY,
       timeout: 120_000,
     });
   }
