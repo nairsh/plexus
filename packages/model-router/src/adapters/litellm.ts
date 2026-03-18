@@ -1,14 +1,13 @@
 import OpenAI from 'openai';
 import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getErrorMessage, logger } from '@orchestrator/shared';
-import type {
-  AgentRequest,
-  AgentResponse,
-  ModelInfo,
-  OutputBlock,
-  StreamChunk,
-} from '@orchestrator/shared';
+import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
-import { appendReasoningBlock, buildUsageInfo, extractReasoningText, OpenAIToolCallAccumulator } from './openai-compatible.js';
+import {
+  appendReasoningBlock,
+  buildUsageInfo,
+  extractReasoningText,
+  OpenAIToolCallAccumulator,
+} from './openai-compatible.js';
 import { buildOpenAITools, executeToolCall } from '../tools/registry.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -43,17 +42,20 @@ export class LiteLLMAdapter extends BaseAdapter {
       baseURL: process.env['LITELLM_BASE_URL'] || 'http://localhost:4000',
       apiKey: process.env['LITELLM_API_KEY'] || 'sk-litellm',
     };
-    
+
     this.client = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.baseURL,
       timeout: DEFAULT_LLM_TIMEOUT_MS,
     });
 
-    logger.info({ 
-      baseURL: this.config.baseURL,
-      provider: this.provider 
-    }, 'LiteLLM adapter initialized');
+    logger.info(
+      {
+        baseURL: this.config.baseURL,
+        provider: this.provider,
+      },
+      'LiteLLM adapter initialized'
+    );
   }
 
   /**
@@ -80,11 +82,14 @@ export class LiteLLMAdapter extends BaseAdapter {
     let totalOutputTokens = 0;
     let toolCallsCost = 0;
 
-    logger.debug({
-      requestedModel: request.model,
-      litellmModel: modelName,
-      baseURL: this.config.baseURL,
-    }, 'Calling LiteLLM');
+    logger.debug(
+      {
+        requestedModel: request.model,
+        litellmModel: modelName,
+        baseURL: this.config.baseURL,
+      },
+      'Calling LiteLLM'
+    );
 
     // Tool use loop
     let currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
@@ -141,7 +146,13 @@ export class LiteLLMAdapter extends BaseAdapter {
               });
             }
 
-            const usage = buildUsageInfo(request.model!, totalInputTokens, totalOutputTokens, toolCallsCost, completion.usage);
+            const usage = buildUsageInfo(
+              request.model!,
+              totalInputTokens,
+              totalOutputTokens,
+              toolCallsCost,
+              completion.usage
+            );
 
             return {
               id: this.generateId(),
@@ -191,15 +202,24 @@ export class LiteLLMAdapter extends BaseAdapter {
         appendReasoningBlock(outputBlocks, extractReasoningText(choice.message));
         outputBlocks.push({ type: 'message', content: text });
 
-        const usage = buildUsageInfo(request.model!, totalInputTokens, totalOutputTokens, toolCallsCost, completion.usage);
+        const usage = buildUsageInfo(
+          request.model!,
+          totalInputTokens,
+          totalOutputTokens,
+          toolCallsCost,
+          completion.usage
+        );
 
-        logger.info({
-          requestedModel: request.model,
-          litellmModel: modelName,
-          inputTokens: totalInputTokens,
-          outputTokens: totalOutputTokens,
-          totalCost: usage.cost.total_cost,
-        }, 'LiteLLM request completed');
+        logger.info(
+          {
+            requestedModel: request.model,
+            litellmModel: modelName,
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalCost: usage.cost.total_cost,
+          },
+          'LiteLLM request completed'
+        );
 
         return {
           id: this.generateId(),
@@ -213,12 +233,15 @@ export class LiteLLMAdapter extends BaseAdapter {
           completed_at: Date.now(),
         };
       } catch (err) {
-        logger.error({
-          requestedModel: request.model,
-          litellmModel: modelName,
-          error: getErrorMessage(err),
-          baseURL: this.config.baseURL,
-        }, 'LiteLLM request failed');
+        logger.error(
+          {
+            requestedModel: request.model,
+            litellmModel: modelName,
+            error: getErrorMessage(err),
+            baseURL: this.config.baseURL,
+          },
+          'LiteLLM request failed'
+        );
         throw err;
       }
     }
@@ -246,11 +269,14 @@ export class LiteLLMAdapter extends BaseAdapter {
     const messages = this.buildMessages(request);
     const tools = buildOpenAITools(request.tools);
 
-    logger.debug({
-      requestedModel: request.model,
-      litellmModel: modelName,
-      baseURL: this.config.baseURL,
-    }, 'Streaming from LiteLLM');
+    logger.debug(
+      {
+        requestedModel: request.model,
+        litellmModel: modelName,
+        baseURL: this.config.baseURL,
+      },
+      'Streaming from LiteLLM'
+    );
 
     const params: OpenAI.ChatCompletionCreateParamsStreaming = {
       model: modelName,
@@ -301,11 +327,14 @@ export class LiteLLMAdapter extends BaseAdapter {
 
       yield { type: 'done' };
     } catch (err) {
-      logger.error({
-        requestedModel: request.model,
-        litellmModel: modelName,
-        error: getErrorMessage(err),
-      }, 'LiteLLM streaming failed');
+      logger.error(
+        {
+          requestedModel: request.model,
+          litellmModel: modelName,
+          error: getErrorMessage(err),
+        },
+        'LiteLLM streaming failed'
+      );
       yield { type: 'error', data: { message: getErrorMessage(err) } };
     }
   }
@@ -328,5 +357,4 @@ export class LiteLLMAdapter extends BaseAdapter {
       return [];
     }
   }
-
 }

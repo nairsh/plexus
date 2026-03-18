@@ -1,13 +1,6 @@
 import { GoogleGenerativeAI, type GenerateContentResult, type Part } from '@google/generative-ai';
 import { getErrorMessage } from '@orchestrator/shared';
-import type {
-  AgentRequest,
-  AgentResponse,
-  ModelInfo,
-  OutputBlock,
-  StreamChunk,
-  UsageInfo,
-} from '@orchestrator/shared';
+import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
 import { buildGoogleTools, executeToolCall } from '../tools/registry.js';
@@ -38,21 +31,22 @@ export class GoogleAdapter extends BaseAdapter {
       const tools = buildGoogleTools(request.tools);
       const model = this.client.getGenerativeModel({
         model: modelName,
-        ...(request.instructions
-          ? { systemInstruction: request.instructions }
-          : {}),
+        ...(request.instructions ? { systemInstruction: request.instructions } : {}),
         ...(tools ? { tools } : {}),
       });
 
-      const result: GenerateContentResult = await model.generateContent({
-        contents: currentContents,
-        generationConfig: {
-          maxOutputTokens: request.max_output_tokens,
-          temperature: request.temperature,
+      const result: GenerateContentResult = await model.generateContent(
+        {
+          contents: currentContents,
+          generationConfig: {
+            maxOutputTokens: request.max_output_tokens,
+            temperature: request.temperature,
+          },
         },
-      }, {
-        signal: request.signal,
-      });
+        {
+          signal: request.signal,
+        }
+      );
 
       const response = result.response;
       const usageMeta = response.usageMetadata;
@@ -87,12 +81,7 @@ export class GoogleAdapter extends BaseAdapter {
         // Execute tools and add results
         const functionResponses: Part[] = [];
         for (const fc of functionCalls) {
-          const toolResult = await executeToolCall(
-            fc.name,
-            fc.args,
-            request,
-            outputBlocks
-          );
+          const toolResult = await executeToolCall(fc.name, fc.args, request, outputBlocks);
           toolCallsCost += toolResult.cost;
           functionResponses.push({
             functionResponse: {
@@ -174,24 +163,25 @@ export class GoogleAdapter extends BaseAdapter {
 
     const model = this.client.getGenerativeModel({
       model: modelName,
-      ...(request.instructions
-        ? { systemInstruction: request.instructions }
-        : {}),
+      ...(request.instructions ? { systemInstruction: request.instructions } : {}),
       ...(tools ? { tools } : {}),
     });
 
     const contents = this.buildGoogleContents(request);
 
     try {
-      const result = await model.generateContentStream({
-        contents,
-        generationConfig: {
-          maxOutputTokens: request.max_output_tokens,
-          temperature: request.temperature,
+      const result = await model.generateContentStream(
+        {
+          contents,
+          generationConfig: {
+            maxOutputTokens: request.max_output_tokens,
+            temperature: request.temperature,
+          },
         },
-      }, {
-        signal: request.signal,
-      });
+        {
+          signal: request.signal,
+        }
+      );
 
       for await (const chunk of result.stream) {
         const text = chunk.text();
@@ -210,9 +200,7 @@ export class GoogleAdapter extends BaseAdapter {
     return [];
   }
 
-  private buildGoogleContents(
-    request: AgentRequest
-  ): Array<{ role: string; parts: Part[] }> {
+  private buildGoogleContents(request: AgentRequest): Array<{ role: string; parts: Part[] }> {
     if (typeof request.input === 'string') {
       return [{ role: 'user', parts: [{ text: request.input }] }];
     }
@@ -234,5 +222,4 @@ export class GoogleAdapter extends BaseAdapter {
         ],
       }));
   }
-
 }

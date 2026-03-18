@@ -17,10 +17,7 @@ const TIER_LIMITS: Record<string, number> = {
 
 const REFILL_INTERVAL_MS = 60_000; // 1 minute
 
-export async function rateLimitMiddleware(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+export async function rateLimitMiddleware(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const user = request.user;
   if (!user) return; // Auth middleware should have run first
 
@@ -44,14 +41,9 @@ export async function rateLimitMiddleware(
   }
 
   if (bucket.tokens <= 0) {
-    const retryAfter = Math.ceil(
-      (REFILL_INTERVAL_MS - (now - bucket.lastRefill)) / 1000
-    );
+    const retryAfter = Math.ceil((REFILL_INTERVAL_MS - (now - bucket.lastRefill)) / 1000);
     const err = new RateLimitError(retryAfter);
-    reply
-      .status(429)
-      .header('Retry-After', String(retryAfter))
-      .send(err.toJSON());
+    reply.status(429).header('Retry-After', String(retryAfter)).send(err.toJSON());
     return;
   }
 

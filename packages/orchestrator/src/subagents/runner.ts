@@ -11,7 +11,7 @@ import { buildToolTraceHooks, recordStep } from '../orchestrator/tracing.js';
 export const waitForRuns = async (
   state: WorkflowState,
   todoIds?: string[],
-  timeoutSeconds = 30,
+  timeoutSeconds = 30
 ): Promise<{
   completed: string[];
   running: string[];
@@ -54,7 +54,10 @@ export const waitForRuns = async (
         running.push(id);
       }
     } catch (err) {
-      logger.warn({ workflowId: state.id, todoId: id, error: getErrorMessage(err) }, 'Subagent wait timed out or failed');
+      logger.warn(
+        { workflowId: state.id, todoId: id, error: getErrorMessage(err) },
+        'Subagent wait timed out or failed'
+      );
       running.push(id);
     }
   }
@@ -90,7 +93,10 @@ export const buildAgentContext = (state: WorkflowState, taskId: string): AgentEx
       debitCredits(state.userId, amount, description, 'subagent', state.id);
       incrementWorkflowCredits(state, amount);
     } catch (err) {
-      logger.warn({ workflowId: state.id, error: getErrorMessage(err) }, 'Failed to debit credits for subagent (non-critical)');
+      logger.warn(
+        { workflowId: state.id, error: getErrorMessage(err) },
+        'Failed to debit credits for subagent (non-critical)'
+      );
     }
   },
   trace: buildToolTraceHooks(state, taskId),
@@ -100,7 +106,7 @@ export const spawnSubagentRun = async (
   state: WorkflowState,
   item: WorkItem,
   promptOverride?: string,
-  displayDescription?: string,
+  displayDescription?: string
 ): Promise<SubagentRun> => {
   const existingRun = state.subagentRuns.get(item.id);
   if (existingRun && existingRun.status === 'running') {
@@ -164,7 +170,7 @@ export const spawnSubagentRun = async (
           supersedes_task_id: item.metadata.supersedes_task_id,
         },
         prompt,
-        agentCtx,
+        agentCtx
       );
 
       updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'completed', output: result.output });

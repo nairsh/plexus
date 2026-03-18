@@ -14,9 +14,7 @@ export abstract class BaseAdapter implements ModelAdapter {
     return slash === -1 ? modelId : modelId.substring(slash + 1);
   }
 
-  protected buildMessages(
-    request: AgentRequest
-  ): Array<{ role: string; content: string }> {
+  protected buildMessages(request: AgentRequest): Array<{ role: string; content: string }> {
     const messages: Array<{ role: string; content: string }> = [];
 
     if (request.instructions) {

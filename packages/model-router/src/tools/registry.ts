@@ -1,9 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import {
-  SchemaType,
-  type FunctionDeclaration,
-  type Tool as GoogleTool,
-} from '@google/generative-ai';
+import { SchemaType, type FunctionDeclaration, type Tool as GoogleTool } from '@google/generative-ai';
 import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, OutputBlock, Tool } from '@orchestrator/shared';
 import type OpenAI from 'openai';
@@ -36,7 +32,8 @@ export interface ToolCallResult {
   systemMessage?: string;
 }
 
-const trivialCommandPattern = /^\s*(pwd|ls|la|ll|dir|which|whereis|whoami|git status|git diff|git log|node -v|npm -v|pnpm -v)(\s+.*)?$/i;
+const trivialCommandPattern =
+  /^\s*(pwd|ls|la|ll|dir|which|whereis|whoami|git status|git diff|git log|node -v|npm -v|pnpm -v)(\s+.*)?$/i;
 
 const normalizeCommandKey = (command: string): string => command.trim().split(/\s+/)[0]?.toLowerCase() ?? 'bash';
 
@@ -88,7 +85,8 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     'web_search',
     {
       name: 'web_search',
-      description: 'Search the web for current information on a topic. Use basic depth by default; request advanced depth only when necessary. Use fetch_url for full page content.',
+      description:
+        'Search the web for current information on a topic. Use basic depth by default; request advanced depth only when necessary. Use fetch_url for full page content.',
       parameters: {
         type: 'object',
         properties: {
@@ -193,7 +191,8 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     'bash',
     {
       name: 'bash',
-      description: 'Execute a bash command in the workspace. Use for git operations, file manipulation, and system commands.',
+      description:
+        'Execute a bash command in the workspace. Use for git operations, file manipulation, and system commands.',
       parameters: {
         type: 'object',
         properties: {
@@ -209,7 +208,8 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     'grep',
     {
       name: 'grep',
-      description: 'Search file contents for a pattern using grep. Returns matching lines with file paths and line numbers.',
+      description:
+        'Search file contents for a pattern using grep. Returns matching lines with file paths and line numbers.',
       parameters: {
         type: 'object',
         properties: {
@@ -286,7 +286,7 @@ const traceToolResult = async (
   request: AgentRequest,
   name: string,
   input: Record<string, unknown>,
-  output: unknown,
+  output: unknown
 ): Promise<void> => {
   await request.trace?.onToolResult?.({
     name,
@@ -365,7 +365,7 @@ const toGoogleSchema = (schema: unknown): unknown => {
 
   if (isRecord(schema['properties'])) {
     converted['properties'] = Object.fromEntries(
-      Object.entries(schema['properties']).map(([key, value]) => [key, toGoogleSchema(value)]),
+      Object.entries(schema['properties']).map(([key, value]) => [key, toGoogleSchema(value)])
     );
   }
 
@@ -387,20 +387,24 @@ const collectToolSpecs = (tools?: Tool[]): Array<{ name: string; description: st
 
   return tools.flatMap((tool) => {
     if (tool.type === 'function' && tool.function) {
-      return [{
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters as ToolParameters,
-      }];
+      return [
+        {
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters as ToolParameters,
+        },
+      ];
     }
 
     const definition = getToolDefinition(tool);
     return definition
-      ? [{
-          name: definition.name,
-          description: definition.description,
-          parameters: definition.parameters,
-        }]
+      ? [
+          {
+            name: definition.name,
+            description: definition.description,
+            parameters: definition.parameters,
+          },
+        ]
       : [];
   });
 };
@@ -420,14 +424,16 @@ export const buildAnthropicTools = (tools?: Tool[]): Anthropic.Tool[] | undefine
 export const buildGoogleTools = (tools?: Tool[]): GoogleTool[] | undefined => {
   const specs = collectToolSpecs(tools);
   if (specs.length === 0) return undefined;
-  return [{ functionDeclarations: specs.map((spec) => toGoogleDeclaration(spec.name, spec.description, spec.parameters)) }];
+  return [
+    { functionDeclarations: specs.map((spec) => toGoogleDeclaration(spec.name, spec.description, spec.parameters)) },
+  ];
 };
 
 export const executeToolCall = async (
   name: string,
   rawArgs: unknown,
   request: AgentRequest,
-  outputBlocks: OutputBlock[],
+  outputBlocks: OutputBlock[]
 ): Promise<ToolCallResult> => {
   try {
     const args = parseToolArgs(rawArgs);
@@ -449,7 +455,7 @@ export const executeToolCall = async (
       const { systemMessage } = applySkillToRequest(
         request,
         skill,
-        typeof args['input'] === 'string' ? args['input'] : undefined,
+        typeof args['input'] === 'string' ? args['input'] : undefined
       );
 
       return {
@@ -507,7 +513,7 @@ export const executeToolCall = async (
           session,
           String(args['filePath'] ?? ''),
           typeof args['limit'] === 'number' ? args['limit'] : undefined,
-          typeof args['offset'] === 'number' ? args['offset'] : undefined,
+          typeof args['offset'] === 'number' ? args['offset'] : undefined
         );
         outputBlocks.push({ type: 'file_read_result', result });
         await traceToolResult(request, name, { filePath: args['filePath'] }, result);
@@ -537,7 +543,7 @@ export const executeToolCall = async (
           session,
           String(args['filePath'] ?? ''),
           String(args['oldString'] ?? ''),
-          String(args['newString'] ?? ''),
+          String(args['newString'] ?? '')
         );
         outputBlocks.push({ type: 'file_edit_result', result });
         await traceToolResult(request, name, { filePath: args['filePath'] }, result);
@@ -564,7 +570,7 @@ export const executeToolCall = async (
           session,
           String(args['command'] ?? ''),
           typeof args['timeoutSeconds'] === 'number' ? args['timeoutSeconds'] : undefined,
-          request.signal,
+          request.signal
         );
         outputBlocks.push({ type: 'bash_result', result });
         await traceToolResult(request, name, { command: args['command'] }, result);
@@ -578,7 +584,7 @@ export const executeToolCall = async (
           session,
           String(args['pattern'] ?? ''),
           typeof args['path'] === 'string' ? args['path'] : undefined,
-          typeof args['include'] === 'string' ? args['include'] : undefined,
+          typeof args['include'] === 'string' ? args['include'] : undefined
         );
         outputBlocks.push({ type: 'grep_result', result });
         await traceToolResult(request, name, { pattern: args['pattern'], path: args['path'] }, result);
@@ -591,7 +597,7 @@ export const executeToolCall = async (
         const result = await executeGlob(
           session,
           String(args['pattern'] ?? ''),
-          typeof args['path'] === 'string' ? args['path'] : undefined,
+          typeof args['path'] === 'string' ? args['path'] : undefined
         );
         outputBlocks.push({ type: 'glob_result', result });
         await traceToolResult(request, name, input, result);

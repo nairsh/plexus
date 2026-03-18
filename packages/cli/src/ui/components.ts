@@ -48,10 +48,17 @@ export const icons = {
 // ── Banner ──
 
 export function printBanner(): void {
+  // Block-style ASCII logo (white)
   console.log('');
-  console.log(chalk.bold.cyan('╔═══════════════════════════════════════════╗'));
-  console.log(chalk.bold.cyan('║') + chalk.bold.white('     🎭 Orchestrator Platform CLI         ') + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('╚═══════════════════════════════════════════╝'));
+  console.log(chalk.white('   ▄██████████████████▄'));
+  console.log(chalk.white('   ██                ██'));
+  console.log(chalk.white('   ██    ██    ██    ██'));
+  console.log(chalk.white('   ██    ██    ██    ██'));
+  console.log(chalk.white('   ██                ██'));
+  console.log(chalk.white('   ▀██████████████████▀'));
+  console.log(chalk.white('   ████████████████████'));
+  console.log('');
+  console.log(chalk.white.bold('   Orchestrator CLI'));
   console.log('');
 }
 
@@ -89,14 +96,32 @@ export function printInfo(message: string): void {
 // ── Key-value display ──
 
 export function printKeyValue(key: string, value: string | undefined, status?: 'success' | 'warning' | 'error'): void {
-  const icon = status === 'success' ? icons.success : status === 'warning' ? icons.warning : status === 'error' ? icons.error : '  ';
+  const icon =
+    status === 'success'
+      ? icons.success
+      : status === 'warning'
+        ? icons.warning
+        : status === 'error'
+          ? icons.error
+          : '  ';
   const displayValue = value ?? chalk.dim('(not set)');
   console.log(`  ${icon} ${chalk.dim(key)}: ${displayValue}`);
 }
 
-export function printConfigItem(key: string, value: string | undefined, options?: { sensitive?: boolean; status?: 'success' | 'warning' | 'error' }): void {
+export function printConfigItem(
+  key: string,
+  value: string | undefined,
+  options?: { sensitive?: boolean; status?: 'success' | 'warning' | 'error' }
+): void {
   const { sensitive = false, status } = options ?? {};
-  const icon = status === 'success' ? icons.success : status === 'warning' ? icons.warning : status === 'error' ? icons.error : colors.muted('•');
+  const icon =
+    status === 'success'
+      ? icons.success
+      : status === 'warning'
+        ? icons.warning
+        : status === 'error'
+          ? icons.error
+          : colors.muted('•');
 
   let displayValue: string;
   if (value === undefined || value === '') {

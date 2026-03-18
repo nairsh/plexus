@@ -1,13 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getErrorMessage } from '@orchestrator/shared';
-import type {
-  AgentRequest,
-  AgentResponse,
-  ModelInfo,
-  OutputBlock,
-  StreamChunk,
-  UsageInfo,
-} from '@orchestrator/shared';
+import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
 import { buildAnthropicTools, executeToolCall } from '../tools/registry.js';
@@ -83,12 +76,7 @@ export class AnthropicAdapter extends BaseAdapter {
         // Execute tools and add results
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const tu of toolUseBlocks) {
-          const result = await executeToolCall(
-            tu.name,
-            tu.input,
-            request,
-            outputBlocks
-          );
+          const result = await executeToolCall(tu.name, tu.input, request, outputBlocks);
           toolCallsCost += result.cost;
           if (result.systemMessage) {
             currentMessages.push({
@@ -184,27 +172,24 @@ export class AnthropicAdapter extends BaseAdapter {
     const tools = buildAnthropicTools(request.tools);
 
     try {
-      const stream = this.client.messages.stream({
-        model: modelName,
-        max_tokens: request.max_output_tokens ?? 8192,
-        messages,
-        ...(system ? { system } : {}),
-        ...(tools && tools.length > 0 ? { tools } : {}),
-        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-      }, {
-        signal: request.signal,
-      });
+      const stream = this.client.messages.stream(
+        {
+          model: modelName,
+          max_tokens: request.max_output_tokens ?? 8192,
+          messages,
+          ...(system ? { system } : {}),
+          ...(tools && tools.length > 0 ? { tools } : {}),
+          ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        },
+        {
+          signal: request.signal,
+        }
+      );
 
       for await (const event of stream) {
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'text_delta'
-        ) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           yield { type: 'text_delta', text: event.delta.text };
-        } else if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'thinking_delta'
-        ) {
+        } else if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') {
           yield { type: 'reasoning_delta', text: event.delta.thinking };
         }
       }
@@ -219,9 +204,7 @@ export class AnthropicAdapter extends BaseAdapter {
     return [];
   }
 
-  private buildAnthropicMessages(
-    request: AgentRequest
-  ): Anthropic.MessageParam[] {
+  private buildAnthropicMessages(request: AgentRequest): Anthropic.MessageParam[] {
     if (typeof request.input === 'string') {
       return [{ role: 'user', content: request.input }];
     }
@@ -239,5 +222,4 @@ export class AnthropicAdapter extends BaseAdapter {
                 .join('\n'),
       }));
   }
-
 }

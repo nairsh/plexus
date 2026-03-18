@@ -126,3 +126,33 @@ export class InternalError extends AppError {
     });
   }
 }
+
+export const getErrorMessage = (error: unknown, fallback = 'Unknown error'): string => {
+  if (error instanceof AppError) {
+    return error.message || fallback;
+  }
+
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+
+  if (typeof error === 'string') {
+    const trimmed = error.trim();
+    return trimmed || fallback;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim().length > 0) {
+      return maybeMessage.trim();
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};

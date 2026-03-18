@@ -1,14 +1,13 @@
 import OpenAI from 'openai';
-import { getErrorMessage } from '@orchestrator/shared';
-import type {
-  AgentRequest,
-  AgentResponse,
-  ModelInfo,
-  OutputBlock,
-  StreamChunk,
-} from '@orchestrator/shared';
+import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getErrorMessage } from '@orchestrator/shared';
+import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
-import { appendReasoningBlock, buildUsageInfo, extractReasoningText, OpenAIToolCallAccumulator } from './openai-compatible.js';
+import {
+  appendReasoningBlock,
+  buildUsageInfo,
+  extractReasoningText,
+  OpenAIToolCallAccumulator,
+} from './openai-compatible.js';
 import { buildOpenAITools, executeToolCall } from '../tools/registry.js';
 
 export class OpenAIAdapter extends BaseAdapter {
@@ -19,7 +18,7 @@ export class OpenAIAdapter extends BaseAdapter {
     super();
     this.client = new OpenAI({
       apiKey: process.env['OPENAI_API_KEY'],
-      timeout: 120_000,
+      timeout: DEFAULT_LLM_TIMEOUT_MS,
     });
   }
 
@@ -34,7 +33,7 @@ export class OpenAIAdapter extends BaseAdapter {
 
     // Tool use loop
     let currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
-    let maxIterations = 10;
+    let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {
       maxIterations--;
@@ -53,7 +52,15 @@ export class OpenAIAdapter extends BaseAdapter {
       }
 
       if (request.text?.format?.type === 'json_schema' && request.text.format.json_schema) {
-        params.response_format = { type: 'json_object' };
+        // Use strict json_schema mode when a schema is provided; fall back to json_object otherwise
+        params.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: 'response',
+            schema: request.text.format.json_schema as Record<string, unknown>,
+            strict: true,
+          },
+        };
       }
 
       const completion = await this.client.chat.completions.create(params, {
@@ -86,7 +93,13 @@ export class OpenAIAdapter extends BaseAdapter {
             });
           }
 
-          const usage = buildUsageInfo(request.model!, totalInputTokens, totalOutputTokens, toolCallsCost, completion.usage);
+          const usage = buildUsageInfo(
+            request.model!,
+            totalInputTokens,
+            totalOutputTokens,
+            toolCallsCost,
+            completion.usage
+          );
 
           return {
             id: this.generateId(),
@@ -108,10 +121,10 @@ export class OpenAIAdapter extends BaseAdapter {
         } as OpenAI.ChatCompletionAssistantMessageParam);
 
         for (const toolCall of choice.message.tool_calls) {
-            const result = await executeToolCall(
-              toolCall.function.name,
-              toolCall.function.arguments,
-              request,
+          const result = await executeToolCall(
+            toolCall.function.name,
+            toolCall.function.arguments,
+            request,
             outputBlocks
           );
           toolCallsCost += result.cost;
@@ -136,7 +149,13 @@ export class OpenAIAdapter extends BaseAdapter {
       appendReasoningBlock(outputBlocks, extractReasoningText(choice.message));
       outputBlocks.push({ type: 'message', content: text });
 
-      const usage = buildUsageInfo(request.model!, totalInputTokens, totalOutputTokens, toolCallsCost, completion.usage);
+      const usage = buildUsageInfo(
+        request.model!,
+        totalInputTokens,
+        totalOutputTokens,
+        toolCallsCost,
+        completion.usage
+      );
 
       return {
         id: this.generateId(),
@@ -230,5 +249,4 @@ export class OpenAIAdapter extends BaseAdapter {
   async listModels(): Promise<ModelInfo[]> {
     return [];
   }
-
 }

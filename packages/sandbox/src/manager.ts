@@ -119,7 +119,7 @@ export async function createSession(
         const workspace = getWorkspacePaths(chatId);
         const openTerminal = await startOpenTerminal(chatId, workspace.filesPath);
         state.openTerminal = openTerminal;
-        db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ? WHERE id = ?').run(openTerminal.baseUrl, sessionId);
+        db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ?, open_terminal_api_key = ? WHERE id = ?').run(openTerminal.baseUrl, openTerminal.apiKey, sessionId);
       } catch (err) {
         logger.warn(
           { chatId, sessionId, error: getErrorMessage(err) },
@@ -270,13 +270,20 @@ export async function execute(
   const startTime = process.hrtime.bigint();
 
   return new Promise<ExecutionResult>((resolvePromise) => {
-    const env: Record<string, string> = { ...process.env as Record<string, string> };
+    // Explicit env allowlist — do not pass host secrets (API keys, DATABASE_PATH, etc.)
+    const env: Record<string, string> = {
+      PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
+      HOME: process.env['HOME'] ?? '/home/user',
+      LANG: process.env['LANG'] ?? 'en_US.UTF-8',
+      TERM: process.env['TERM'] ?? 'xterm',
+      NODE_ENV: process.env['NODE_ENV'] ?? 'production',
+    };
 
     // For Python, set PYTHONPATH to .packages dir
     if (session.language === 'python') {
       const packagesDir = join(session.workingDir, '.packages');
       if (existsSync(packagesDir)) {
-        env['PYTHONPATH'] = packagesDir + (env['PYTHONPATH'] ? `:${env['PYTHONPATH']}` : '');
+        env['PYTHONPATH'] = packagesDir;
       }
     }
 

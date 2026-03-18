@@ -1,4 +1,4 @@
-import { getDb, logger } from '@orchestrator/shared';
+import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentType, TaskMetadata } from '@orchestrator/shared';
 
 export type WorkItemStatus =
@@ -58,7 +58,8 @@ function parseMetadata(rawValue: string | null): TaskMetadata {
       reason_generated: typeof parsed.reason_generated === 'string' ? parsed.reason_generated : undefined,
       supersedes_task_id: typeof parsed.supersedes_task_id === 'string' ? parsed.supersedes_task_id : undefined,
     };
-  } catch {
+  } catch (error) {
+    logger.warn({ error: getErrorMessage(error), rawValue }, 'Failed to parse task metadata');
     return DEFAULT_METADATA;
   }
 }
@@ -86,6 +87,11 @@ export function resolveWorkItemId(workflowId: string, itemId: string): string {
     return itemId;
   }
   return `${workflowId}_${itemId}`;
+}
+
+export function getWorkItemDisplayId(workflowId: string, itemId: string): string {
+  const prefix = `${workflowId}_`;
+  return itemId.startsWith(prefix) ? itemId.slice(prefix.length) : itemId;
 }
 
 export function listWorkItems(workflowId: string): WorkItem[] {
@@ -266,8 +272,10 @@ export function formatWorkItemsForPrompt(workItems: WorkItem[], maxOutputLength 
   lines.push('');
 
   for (const item of workItems) {
-    const deps = item.dependsOn.length > 0 ? ` [depends_on: ${item.dependsOn.join(', ')}]` : '';
-    lines.push(`- ${item.id} (${item.agentType}) [${item.status}]${deps}: ${item.description}`);
+    const displayId = getWorkItemDisplayId(item.workflowId, item.id);
+    const displayDeps = item.dependsOn.map((depId) => getWorkItemDisplayId(item.workflowId, depId));
+    const deps = displayDeps.length > 0 ? ` [depends_on: ${displayDeps.join(', ')}]` : '';
+    lines.push(`- ${displayId} (${item.agentType}) [${item.status}]${deps}: ${item.description}`);
     if (item.metadata.output_artifact) {
       lines.push(`  artifact: ${item.metadata.output_artifact}`);
     }

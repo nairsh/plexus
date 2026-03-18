@@ -23,8 +23,6 @@ export {
   type RuntimeModelConfig,
   type AgentModels,
 } from './config.js';
-export { executeWebSearch } from './tools/webSearch.js';
-export { executeFetchUrl } from './tools/fetchUrl.js';
 export { searchWeb, fetchUrl, type TavilySearchResponse, type TavilySearchResult, type TavilyFetchResponse } from './tools/tavily.js';
 export {
   executeReadFile,
@@ -41,3 +39,19 @@ export {
   type GlobResult,
 } from './tools/fileOperations.js';
 export { getOpenTerminalSessionForChat, invalidateSessionCache } from './tools/workspaceAccess.js';
+export {
+  CANONICAL_TOOL_DEFS,
+  buildOpenAITools,
+  buildAnthropicTools,
+  buildGoogleTools,
+  executeToolCall,
+  type ToolCallResult,
+} from './tools/registry.js';
+export {
+  getAllSkills,
+  getSkillById,
+  getSkillsRoot,
+  refreshSkillsCache,
+  applySkillToRequest,
+  ensureRunSkillTool,
+} from './skills.js';

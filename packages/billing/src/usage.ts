@@ -48,33 +48,30 @@ export function getUsageSummary(
     cost: number;
   }>;
 
-  // By model (from metadata JSON)
-  const byModel: Record<string, { requests: number; cost: number; tokens: number }> = {};
-  const txns = db
+  // By model — use SQL json_extract() instead of loading all rows into JS
+  const byModelRows = db
     .prepare(
-      `SELECT metadata, amount
+      `SELECT
+        json_extract(metadata, '$.model') as model,
+        COUNT(*) as requests,
+        COALESCE(SUM(ABS(amount)), 0) as cost,
+        COALESCE(SUM(json_extract(metadata, '$.total_tokens')), 0) as tokens
        FROM credit_transactions
-       WHERE user_id = ? AND amount < 0 AND created_at >= ? AND created_at <= ? AND metadata IS NOT NULL`
+       WHERE user_id = ? AND amount < 0 AND created_at >= ? AND created_at <= ?
+         AND metadata IS NOT NULL
+         AND json_extract(metadata, '$.model') IS NOT NULL
+       GROUP BY json_extract(metadata, '$.model')`
     )
-    .all(userId, startDate, endDate) as Array<{ metadata: string; amount: number }>;
+    .all(userId, startDate, endDate) as Array<{
+    model: string;
+    requests: number;
+    cost: number;
+    tokens: number;
+  }>;
 
-  for (const txn of txns) {
-    try {
-      const meta = JSON.parse(txn.metadata) as {
-        model?: string;
-        total_tokens?: number;
-      };
-      if (meta.model) {
-        if (!byModel[meta.model]) {
-          byModel[meta.model] = { requests: 0, cost: 0, tokens: 0 };
-        }
-        byModel[meta.model].requests++;
-        byModel[meta.model].cost += Math.abs(txn.amount);
-        byModel[meta.model].tokens += meta.total_tokens ?? 0;
-      }
-    } catch {
-      // Skip invalid metadata
-    }
+  const byModel: Record<string, { requests: number; cost: number; tokens: number }> = {};
+  for (const row of byModelRows) {
+    byModel[row.model] = { requests: row.requests, cost: row.cost, tokens: row.tokens };
   }
 
   const byRefType: Record<string, { count: number; cost: number }> = {};

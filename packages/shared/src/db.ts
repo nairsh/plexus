@@ -193,6 +193,7 @@ export function runMigrations(): void {
   // Note: updated_at column will be added via table recreation below
   addColumnIfMissing('sandbox_sessions', 'chat_id', 'TEXT REFERENCES sandbox_workspaces(chat_id)');
   addColumnIfMissing('sandbox_sessions', 'open_terminal_url', 'TEXT');
+  addColumnIfMissing('sandbox_sessions', 'open_terminal_api_key', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'environment_status', "TEXT NOT NULL DEFAULT 'running'");
 
   // Update task_type CHECK constraint to include new agent types

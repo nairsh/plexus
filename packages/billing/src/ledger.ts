@@ -80,7 +80,8 @@ export function creditBalance(
   amount: number,
   description: string,
   referenceType?: string,
-  referenceId?: string
+  referenceId?: string,
+  metadata?: Record<string, unknown>
 ): number {
   const db = getDb();
   const absAmount = Math.abs(amount);
@@ -109,7 +110,7 @@ export function creditBalance(
       description,
       referenceType ?? null,
       referenceId ?? null,
-      null
+      metadata ? JSON.stringify(metadata) : null
     );
 
     return newBalance;

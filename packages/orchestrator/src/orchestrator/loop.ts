@@ -1,6 +1,11 @@
 import { debitCredits } from '@orchestrator/billing';
 import { computeCost, resolveOrchestratorModel, routeStreamingRequest } from '@orchestrator/model-router';
-import { DEFAULT_TEMPERATURE, ORCHESTRATOR_MAX_OUTPUT_TOKENS, WorkflowError, getErrorMessage } from '@orchestrator/shared';
+import {
+  DEFAULT_TEMPERATURE,
+  ORCHESTRATOR_MAX_OUTPUT_TOKENS,
+  WorkflowError,
+  getErrorMessage,
+} from '@orchestrator/shared';
 import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
 import { getWorkItemDisplayId, listWorkItems } from '../workItems.js';
@@ -9,7 +14,13 @@ import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { extractToolCallsFromOutput, normalizeToolCall, ORCHESTRATOR_TOOLS, type ToolCall } from './tools.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
-import { createWorkflowState, MAX_TURNS, type WorkflowState, type WorkflowStatus, workflows } from '../workflow/state.js';
+import {
+  createWorkflowState,
+  MAX_TURNS,
+  type WorkflowState,
+  type WorkflowStatus,
+  workflows,
+} from '../workflow/state.js';
 import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow } from '../workflow/persistence.js';
 
 const buildTodoContext = (state: WorkflowState): string => {
@@ -19,19 +30,19 @@ const buildTodoContext = (state: WorkflowState): string => {
   }
 
   return `Current todos:\n${todos
-      .map(
-        (todo) =>
-          `- ${getWorkItemDisplayId(state.id, todo.id)}: [${todo.status}] ${todo.description} (${todo.agentType})${
-            todo.dependsOn.length > 0
-              ? ` (depends on: ${todo.dependsOn.map((depId) => getWorkItemDisplayId(state.id, depId)).join(', ')})`
-              : ''
-          }`,
-      )
-      .join('\n')}`;
+    .map(
+      (todo) =>
+        `- ${getWorkItemDisplayId(state.id, todo.id)}: [${todo.status}] ${todo.description} (${todo.agentType})${
+          todo.dependsOn.length > 0
+            ? ` (depends on: ${todo.dependsOn.map((depId) => getWorkItemDisplayId(state.id, depId)).join(', ')})`
+            : ''
+        }`
+    )
+    .join('\n')}`;
 };
 
 const parseStructuredOutputText = (
-  text: string,
+  text: string
 ): { thinking?: string; toolCalls: ToolCall[]; finalText?: string } | null => {
   try {
     const parsed = JSON.parse(text) as {
@@ -54,11 +65,7 @@ const parseStructuredOutputText = (
       : [];
 
     const finalText =
-      typeof parsed.answer === 'string'
-        ? parsed.answer
-        : typeof parsed.output === 'string'
-          ? parsed.output
-          : undefined;
+      typeof parsed.answer === 'string' ? parsed.answer : typeof parsed.output === 'string' ? parsed.output : undefined;
 
     return {
       thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
@@ -72,7 +79,7 @@ const parseStructuredOutputText = (
 
 export const callOrchestrator = async (
   state: WorkflowState,
-  iteration: number,
+  iteration: number
 ): Promise<{ toolCalls: ToolCall[]; responseText: string; rawOutput: OutputBlock[] }> => {
   const runtimeContext = getPromptRuntimeContext();
   const instructions = loadPrompt('orchestrator.md', {
@@ -131,9 +138,10 @@ export const callOrchestrator = async (
         prompt_tokens?: number;
         completion_tokens?: number;
       };
-      const usageCost = usage.prompt_tokens || usage.completion_tokens
-        ? computeCost(state.orchestratorModel, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
-        : null;
+      const usageCost =
+        usage.prompt_tokens || usage.completion_tokens
+          ? computeCost(state.orchestratorModel, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+          : null;
 
       if (usageCost && usageCost.total_cost > 0) {
         try {
@@ -142,11 +150,14 @@ export const callOrchestrator = async (
             usageCost.total_cost,
             `Orchestrator iteration ${iteration}: ${state.id}`,
             'workflow',
-            state.id,
+            state.id
           );
           incrementWorkflowCredits(state, usageCost.total_cost);
         } catch (err) {
-          logger.warn({ workflowId: state.id, iteration, error: getErrorMessage(err) }, 'Failed to debit credits for orchestrator iteration (non-critical)');
+          logger.warn(
+            { workflowId: state.id, iteration, error: getErrorMessage(err) },
+            'Failed to debit credits for orchestrator iteration (non-critical)'
+          );
         }
       }
       continue;
@@ -218,7 +229,7 @@ export const callOrchestrator = async (
 export const runWorkflow = async (
   userId: string,
   config: WorkflowConfig,
-  workflowId?: string,
+  workflowId?: string
 ): Promise<{ workflowId: string; output: string; status: WorkflowStatus }> => {
   const isContinuing = !!workflowId && workflows.has(workflowId);
   const id = workflowId ?? crypto.randomUUID();

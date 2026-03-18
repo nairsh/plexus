@@ -4,6 +4,7 @@ export interface AgentRequest {
   input: string | ConversationMessage[];
   instructions?: string;
   tools?: Tool[];
+  allowed_skills?: string[];
   tool_execution?: 'auto' | 'manual';
   max_output_tokens?: number;
   temperature?: number;
@@ -15,6 +16,7 @@ export interface AgentRequest {
   preset?: string;
   trace?: ToolTraceHooks;
   chat_id?: string;
+  signal?: AbortSignal;
 }
 
 export interface ToolTraceHooks {
@@ -23,6 +25,7 @@ export interface ToolTraceHooks {
   subagent_id?: string;
   onToolCall?: (event: ToolTraceEvent) => void | Promise<void>;
   onToolResult?: (event: ToolTraceResultEvent) => void | Promise<void>;
+  onToolApprovalRequest?: (event: ToolApprovalRequestEvent) => Promise<ToolApprovalDecision> | ToolApprovalDecision;
 }
 
 export interface ToolTraceEvent {
@@ -36,6 +39,17 @@ export interface ToolTraceEvent {
 export interface ToolTraceResultEvent extends ToolTraceEvent {
   output: unknown;
 }
+
+export interface ToolApprovalRequestEvent extends ToolTraceEvent {
+  reason: string;
+  command_key?: string;
+}
+
+export type ToolApprovalDecision =
+  | 'approve'
+  | 'approve_command_session'
+  | 'approve_all_session'
+  | 'deny';
 
 export interface AgentResponse {
   id: string;
@@ -53,6 +67,8 @@ export interface UsageInfo {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  reasoning_tokens?: number;
+  cached_input_tokens?: number;
   cost: {
     currency: 'USD';
     input_cost: number;
@@ -90,6 +106,7 @@ export interface OutputBlock {
     | 'search_results'
     | 'fetch_url_results'
     | 'message'
+    | 'reasoning'
     | 'tool_use'
     | 'file_read_result'
     | 'file_write_result'
@@ -101,8 +118,27 @@ export interface OutputBlock {
 }
 
 export interface Tool {
-  type: 'web_search' | 'fetch_url' | 'function' | 'code_execution' | 'file_read' | 'file_write' | 'file_edit' | 'bash' | 'grep' | 'glob';
+  type:
+    | 'web_search'
+    | 'fetch_url'
+    | 'function'
+    | 'code_execution'
+    | 'file_read'
+    | 'file_write'
+    | 'file_edit'
+    | 'bash'
+    | 'grep'
+    | 'glob'
+    | 'run_skill';
   function?: { name: string; description: string; parameters: object };
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  prompt_addendum: string;
+  tools?: Tool[];
 }
 
 export interface ConversationMessage {
@@ -125,7 +161,7 @@ export interface ModelAdapter {
 }
 
 export interface StreamChunk {
-  type: 'text_delta' | 'tool_use' | 'search_results' | 'done' | 'error';
+  type: 'text_delta' | 'reasoning_delta' | 'usage' | 'tool_use' | 'search_results' | 'done' | 'error';
   text?: string;
   data?: unknown;
 }
@@ -222,6 +258,8 @@ export interface WorkflowEvent {
     | 'planning_complete'
     | 'tasks_initialized'
     | 'orchestrator_thinking'
+    | 'tool_call'
+    | 'tool_result'
     | 'task_started'
     | 'task_dispatched'
     | 'task_completed'
@@ -234,7 +272,8 @@ export interface WorkflowEvent {
     | 'workflow_failed'
     | 'credit_update'
     | 'subagent_tool_call'
-    | 'subagent_tool_result';
+    | 'subagent_tool_result'
+    | 'bash_approval_requested';
   workflow_id: string;
   task_id?: string;
   data: unknown;
@@ -244,7 +283,7 @@ export interface WorkflowEvent {
 export interface OrchestratorThinkingData {
   thinking: string;
   iteration: number;
-  mode?: 'llm';
+  mode?: 'llm' | 'stream' | 'response';
 }
 
 export interface WorkflowTaskPlanEntry {
@@ -257,77 +296,6 @@ export interface WorkflowTaskPlanEntry {
   output_artifact?: string | null;
   reason_generated?: string | null;
   supersedes_task_id?: string | null;
-}
-
-export type PlanModeToolCall =
-  | {
-      name: 'write_todo';
-      arguments: {
-        todo_id: string;
-        description: string;
-        agent_type: AgentType;
-        depends_on?: string[];
-        output_artifact?: string;
-      };
-    }
-  | {
-      name: 'edit_todo';
-      arguments: {
-        todo_id: string;
-        description?: string;
-        depends_on?: string[];
-        status?: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
-        output_artifact?: string;
-        output?: string;
-        reason?: string;
-      };
-    };
-
-export type ExecutionModeToolCall =
-  | {
-      name: 'list_todos';
-      arguments: {
-        status?: OrchestratorTask['status'];
-        agent_type?: AgentType;
-      };
-    }
-  | {
-      name: 'spawn_subagent';
-      arguments: {
-        todo_id: string;
-        prompt_override?: string;
-      };
-    }
-  | {
-      name: 'await_subagents';
-      arguments: {
-        todo_ids?: string[];
-        timeout_seconds?: number;
-      };
-    }
-  | {
-      name: 'get_subagent_result';
-      arguments: {
-        todo_id: string;
-      };
-    }
-  | {
-      name: 'edit_todo';
-      arguments: {
-        todo_id: string;
-        description?: string;
-        depends_on?: string[];
-        status?: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
-        output_artifact?: string;
-        output?: string;
-        reason?: string;
-      };
-    };
-
-export interface OrchestratorLoopEnvelope<TToolCall> {
-  thinking: string;
-  tool_calls: TToolCall[];
-  final_output?: string;
 }
 
 export type WorkflowStepType =

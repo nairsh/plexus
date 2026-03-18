@@ -7,20 +7,17 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /v1/billing/balance
    */
-  fastify.get(
-    '/v1/billing/balance',
-    async (request: FastifyRequest) => {
-      const user = request.user!;
-      const balance = getBalance(user.id);
-      const periodUsage = getCurrentPeriodUsage(user.id);
+  fastify.get('/v1/billing/balance', async (request: FastifyRequest) => {
+    const user = request.user!;
+    const balance = getBalance(user.id);
+    const periodUsage = getCurrentPeriodUsage(user.id);
 
-      return {
-        credits_balance: balance,
-        tier: user.tier,
-        usage_this_period: periodUsage,
-      };
-    }
-  );
+    return {
+      credits_balance: balance,
+      tier: user.tier,
+      usage_this_period: periodUsage,
+    };
+  });
 
   /**
    * GET /v1/billing/usage
@@ -42,29 +39,21 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /v1/billing/top-up
    */
-  fastify.post(
-    '/v1/billing/top-up',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const parseResult = TopUpSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        throw new InvalidRequestError('Invalid top-up amount. Provide { amount: number }');
-      }
-
-      const user = request.user!;
-      const newBalance = creditBalance(
-        user.id,
-        parseResult.data.amount,
-        'Manual top-up',
-        'topup'
-      );
-
-      reply.status(200);
-      return {
-        credits_balance: newBalance,
-        amount_added: parseResult.data.amount,
-      };
+  fastify.post('/v1/billing/top-up', async (request: FastifyRequest, reply: FastifyReply) => {
+    const parseResult = TopUpSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new InvalidRequestError('Invalid top-up amount. Provide { amount: number }');
     }
-  );
+
+    const user = request.user!;
+    const newBalance = creditBalance(user.id, parseResult.data.amount, 'Manual top-up', 'topup');
+
+    reply.status(200);
+    return {
+      credits_balance: newBalance,
+      amount_added: parseResult.data.amount,
+    };
+  });
 
   /**
    * GET /v1/billing/transactions

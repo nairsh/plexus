@@ -2,13 +2,7 @@
  * Interactive prompt utilities using @inquirer/prompts.
  */
 
-import {
-  input,
-  password,
-  select,
-  checkbox,
-  confirm,
-} from '@inquirer/prompts';
+import { input, password, select, checkbox, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 
 // ── Types ──
@@ -27,10 +21,7 @@ export interface SelectOption<T = string> {
 
 // ── Basic prompts ──
 
-export async function promptText(
-  message: string,
-  options?: PromptOptions
-): Promise<string> {
+export async function promptText(message: string, options?: PromptOptions): Promise<string> {
   return input({
     message: chalk.white(message),
     default: options?.default,
@@ -38,30 +29,21 @@ export async function promptText(
   });
 }
 
-export async function promptPassword(
-  message: string,
-  options?: Omit<PromptOptions, 'default'>
-): Promise<string> {
+export async function promptPassword(message: string, options?: Omit<PromptOptions, 'default'>): Promise<string> {
   return password({
     message: chalk.white(message),
     validate: options?.validate,
   });
 }
 
-export async function promptConfirm(
-  message: string,
-  options?: { default?: boolean }
-): Promise<boolean> {
+export async function promptConfirm(message: string, options?: { default?: boolean }): Promise<boolean> {
   return confirm({
     message: chalk.white(message),
     default: options?.default ?? false,
   });
 }
 
-export async function promptSelect<T = string>(
-  message: string,
-  choices: SelectOption<T>[]
-): Promise<T> {
+export async function promptSelect<T = string>(message: string, choices: SelectOption<T>[]): Promise<T> {
   return select({
     message: chalk.white(message),
     choices: choices.map((c) => ({
@@ -99,10 +81,7 @@ export async function promptMultiSelect<T = string>(
 
 // ── Specialized prompts ──
 
-export async function promptUrl(
-  message: string,
-  options?: { default?: string }
-): Promise<string> {
+export async function promptUrl(message: string, options?: { default?: string }): Promise<string> {
   return promptText(message, {
     default: options?.default,
     validate: (value) => {
@@ -117,10 +96,7 @@ export async function promptUrl(
   });
 }
 
-export async function promptApiKey(
-  message: string,
-  options?: { required?: boolean }
-): Promise<string> {
+export async function promptApiKey(message: string, options?: { required?: boolean }): Promise<string> {
   return promptPassword(message, {
     validate: (value) => {
       if (options?.required !== false && !value) {
@@ -131,11 +107,7 @@ export async function promptApiKey(
   });
 }
 
-export async function promptModel(
-  message: string,
-  models: string[],
-  options?: { default?: string }
-): Promise<string> {
+export async function promptModel(message: string, models: string[], options?: { default?: string }): Promise<string> {
   const choices: SelectOption[] = models.map((model) => ({
     value: model,
     name: model,
@@ -169,10 +141,7 @@ export async function promptModels(
 
 // ── Retry prompt ──
 
-export async function promptRetry(
-  message: string,
-  error: string
-): Promise<'retry' | 'skip' | 'abort'> {
+export async function promptRetry(message: string, error: string): Promise<'retry' | 'skip' | 'abort'> {
   return promptSelect(`${message} ${chalk.red(error)}`, [
     { value: 'retry', name: 'Try again' },
     { value: 'skip', name: 'Skip this step' },
@@ -200,13 +169,14 @@ export async function promptAgentModel(
   models: string[],
   currentModel?: string
 ): Promise<string> {
-  const displayName = {
-    research: 'Research',
-    analyze: 'Analysis',
-    write: 'Writing',
-    code: 'Code',
-    file: 'File Operations',
-  }[agentType] ?? agentType;
+  const displayName =
+    {
+      research: 'Research',
+      analyze: 'Analysis',
+      write: 'Writing',
+      code: 'Code',
+      file: 'File Operations',
+    }[agentType] ?? agentType;
 
   const message = `Select model for ${chalk.cyan(displayName)} agent ${chalk.dim(`(${agentDescription})`)}`;
 
