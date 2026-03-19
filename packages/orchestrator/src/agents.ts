@@ -13,6 +13,7 @@ import {
   RESEARCH_TEMPERATURE,
   WRITE_TEMPERATURE,
   getErrorMessage,
+  getDb,
   logger,
 } from '@orchestrator/shared';
 import type {
@@ -24,6 +25,42 @@ import type {
   Tool,
 } from '@orchestrator/shared';
 import { getPromptRuntimeContext, loadPrompt } from './promptLoader.js';
+
+// ── Agent health recording ──
+
+function recordHealth(agentType: AgentType, model: string, success: boolean, latencyMs?: number): void {
+  try {
+    const db = getDb();
+    if (success && latencyMs !== undefined) {
+      db.prepare(`
+        INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
+        VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
+        ON CONFLICT(agent_type, model) DO UPDATE SET
+          status = 'healthy',
+          last_success_at = datetime('now'),
+          success_count_1h = success_count_1h + 1,
+          total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
+          updated_at = datetime('now')
+      `).run(crypto.randomUUID(), agentType, model, latencyMs);
+    } else if (!success) {
+      db.prepare(`
+        INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
+        VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
+        ON CONFLICT(agent_type, model) DO UPDATE SET
+          last_failure_at = datetime('now'),
+          failure_count_1h = failure_count_1h + 1,
+          status = CASE
+            WHEN failure_count_1h + 1 >= 5 THEN 'unavailable'
+            WHEN failure_count_1h + 1 >= 2 THEN 'degraded'
+            ELSE 'healthy'
+          END,
+          updated_at = datetime('now')
+      `).run(crypto.randomUUID(), agentType, model);
+    }
+  } catch {
+    // Health recording is non-critical; never let it break agent dispatch
+  }
+}
 
 // ── Agent configuration ──
 
@@ -192,18 +229,27 @@ export async function dispatchToAgent(
     'Calling routeRequest for sub-agent'
   );
 
-  const response = await routeRequest({
-    model,
-    input: prompt,
-    instructions: buildAgentInstructions(task.agent_type),
-    tools: config.tools.length > 0 ? config.tools : undefined,
-    allowed_skills: config.skills,
-    max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
-    temperature: task.agent_type === 'write' ? WRITE_TEMPERATURE : RESEARCH_TEMPERATURE,
-    trace: ctx.trace,
-    chat_id: chatId,
-    signal: ctx.abortSignal,
-  });
+  const startMs = Date.now();
+  let response: Awaited<ReturnType<typeof routeRequest>>;
+  try {
+    response = await routeRequest({
+      model,
+      input: prompt,
+      instructions: buildAgentInstructions(task.agent_type),
+      tools: config.tools.length > 0 ? config.tools : undefined,
+      allowed_skills: config.skills,
+      max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      temperature: task.agent_type === 'write' ? WRITE_TEMPERATURE : RESEARCH_TEMPERATURE,
+      trace: ctx.trace,
+      chat_id: chatId,
+      signal: ctx.abortSignal,
+    });
+  } catch (err) {
+    recordHealth(task.agent_type, model, false);
+    throw err;
+  }
+
+  recordHealth(task.agent_type, response.model, true, Date.now() - startMs);
 
   // Track cost
   if (response.usage.cost.total_cost > 0) {

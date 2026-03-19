@@ -27,3 +27,24 @@ export const DEFAULT_CREDIT_BALANCE = 10_000;
 
 // ── Event emitter ──
 export const MAX_EVENT_LISTENERS = 100;
+
+// ── Subagent harness ──
+export const SUBAGENT_DEFAULT_TIMEOUT_S = 300;
+export const SUBAGENT_LONG_RUNNING_TIMEOUT_S = 1800;
+export const SUBAGENT_MAX_RETRIES = 2;
+export const SUBAGENT_MAX_ITERATIONS = 20;
+export const SUBAGENT_PROGRESS_INTERVAL_MS = 30_000;
+
+// ── LSP / Lint ──
+export const LINT_CHECK_TIMEOUT_MS = 15_000;
+export const LINT_SUPPORTED_LANGUAGES = ['typescript', 'javascript', 'python'] as const;
+export type LintLanguage = (typeof LINT_SUPPORTED_LANGUAGES)[number];
+
+// ── Agent best practices ──
+export const READ_BEFORE_WRITE_ENABLED = true;
+export const MAX_FILE_READ_CACHE_SIZE = 50;
+
+// ── Teams (beta) ──
+export const TEAMS_FEATURE_FLAG = 'teams_beta';
+export const MAX_TEAM_MEMBERS = 50;
+export const MAX_TEAM_SHARED_CONTEXTS = 100;

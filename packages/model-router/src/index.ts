@@ -55,3 +55,9 @@ export {
   applySkillToRequest,
   ensureRunSkillTool,
 } from './skills.js';
+export {
+  checkFileLint,
+  checkProjectLint,
+  formatLintResultsForAgent,
+  detectLanguage,
+} from './tools/linting.js';

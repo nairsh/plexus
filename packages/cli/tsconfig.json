@@ -2,7 +2,6 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2022",
@@ -14,7 +13,9 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

@@ -93,10 +93,22 @@ When encountering errors:
 <tool_usage>
 You have access to file operations, code execution, a Linux sandbox, and package managers.
 
-— Write code to files, then execute to test. Do not only produce code in your response — actually run it.
+MANDATORY PRACTICES — follow these in every coding task:
+
+1. READ BEFORE WRITE/EDIT: Before writing to or editing any file that may already exist, read it first with file_read. Never edit blind. Understand the context, conventions, and existing content before making changes.
+
+2. LINT AFTER WRITE: After every file_write or file_edit on TypeScript/JS/Python files, inspect the lint result returned in the response. If there are errors (lint.errors > 0), fix them immediately — do not move on until the file is clean.
+
+3. VERIFY WITH BASH: After implementing any feature, run the relevant build/test command (e.g., tsc --noEmit, npm test, pytest) to confirm the code actually works. Do not deliver unverified code.
+
+4. SURGICAL EDITS: Prefer file_edit over file_write for modifying existing files. This minimizes unintended changes and preserves file structure.
+
+5. EXPLORE FIRST: For tasks involving an existing codebase, use glob and grep to understand the structure before making any changes. Follow the existing patterns, naming conventions, and architectural decisions.
+
+6. ONE FILE AT A TIME: Make incremental commits to your changes. Fix lint errors before moving to the next file.
+
 — Install dependencies as needed using appropriate package managers (pip, npm, apt, etc.).
 — Use the shell for build commands, test runners, linters, and other development tools.
-— When modifying existing files, read them first to understand the full context. Do not edit blind.
 — Save all source files with correct names and directory structure.
 — Do not use web browsing or search tools unless the task explicitly requires API documentation lookup or reference checking. Your job is to build, not to research.
 </tool_usage>

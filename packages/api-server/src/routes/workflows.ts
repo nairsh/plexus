@@ -10,6 +10,11 @@ import {
 } from '@orchestrator/shared';
 import type { WorkflowEvent } from '@orchestrator/shared';
 import {
+  rollbackGitSandbox,
+  getGitSandboxDiff,
+  listGitSandboxes,
+} from '@orchestrator/sandbox';
+import {
   planWorkflow,
   executeWorkflow,
   executeWorkflowToCompletion,
@@ -240,6 +245,44 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       task_id,
     };
   });
+
+  /**
+   * GET /v1/workflows/:id/git-sandboxes — list git sandboxes for a workflow
+   */
+  fastify.get(
+    '/v1/workflows/:id/git-sandboxes',
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const { id } = request.params;
+      const sandboxes = listGitSandboxes(id);
+      return { sandboxes };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/git-sandboxes/:sandboxId/diff — get diff for a sandbox
+   */
+  fastify.get(
+    '/v1/workflows/:id/git-sandboxes/:sandboxId/diff',
+    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>, _reply: FastifyReply) => {
+      const { sandboxId } = request.params;
+      return getGitSandboxDiff(sandboxId);
+    }
+  );
+
+  /**
+   * POST /v1/workflows/:id/git-sandboxes/:sandboxId/rollback — roll back agent changes
+   */
+  fastify.post(
+    '/v1/workflows/:id/git-sandboxes/:sandboxId/rollback',
+    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>, reply: FastifyReply) => {
+      const { sandboxId } = request.params;
+      const result = await rollbackGitSandbox(sandboxId);
+      if (!result.success) {
+        throw new InvalidRequestError(result.error ?? 'Rollback failed', 'rollback_failed');
+      }
+      return reply.status(200).send({ success: true, sandbox_id: sandboxId });
+    }
+  );
 
   /**
    * DELETE /v1/workflows/:id — Cancel a workflow.

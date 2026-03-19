@@ -101,21 +101,19 @@ export interface SubagentExecutionResult {
   usage: UsageInfo;
 }
 
-export interface OutputBlock {
-  type:
-    | 'search_results'
-    | 'fetch_url_results'
-    | 'message'
-    | 'reasoning'
-    | 'tool_use'
-    | 'file_read_result'
-    | 'file_write_result'
-    | 'file_edit_result'
-    | 'bash_result'
-    | 'grep_result'
-    | 'glob_result';
-  [key: string]: unknown;
-}
+/** Discriminated union of all output block shapes produced by tools and model adapters. */
+export type OutputBlock =
+  | { type: 'message'; content: string }
+  | { type: 'reasoning'; content: string }
+  | { type: 'tool_use'; id?: string; name: string; arguments: string | Record<string, unknown> }
+  | { type: 'search_results'; [key: string]: unknown }
+  | { type: 'fetch_url_results'; [key: string]: unknown }
+  | { type: 'file_read_result'; [key: string]: unknown }
+  | { type: 'file_write_result'; [key: string]: unknown }
+  | { type: 'file_edit_result'; [key: string]: unknown }
+  | { type: 'bash_result'; [key: string]: unknown }
+  | { type: 'grep_result'; [key: string]: unknown }
+  | { type: 'glob_result'; [key: string]: unknown };
 
 export interface Tool {
   type:
@@ -374,3 +372,136 @@ export interface Preset {
   max_output_tokens: number;
   instructions: string;
 }
+
+// ── Enhanced Subagent Types ──
+
+export interface SubagentProgress {
+  iteration: number;
+  maxIterations: number;
+  phase: 'analyzing' | 'implementing' | 'testing' | 'fixing' | 'complete';
+  summary: string;
+  filesModified: string[];
+  errorsFound: number;
+  errorsFixed: number;
+}
+
+export interface LintResult {
+  language: string;
+  filePath: string;
+  errors: LintError[];
+  warnings: LintError[];
+}
+
+export interface LintError {
+  line: number;
+  column: number;
+  severity: 'error' | 'warning';
+  message: string;
+  rule?: string;
+}
+
+export interface FileReadCache {
+  path: string;
+  content: string;
+  readAt: number;
+}
+
+// ── Teams (beta) ──
+
+export interface Team {
+  id: string;
+  name: string;
+  owner_id: string;
+  settings: TeamSettings;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMember {
+  team_id: string;
+  user_id: string;
+  role: 'owner' | 'admin' | 'member';
+  joined_at: string;
+}
+
+export interface TeamSettings {
+  shared_model_overrides?: Record<string, string>;
+  shared_tools?: string[];
+  shared_instructions?: string;
+  max_credits_per_workflow?: number;
+  require_approval_for_bash?: boolean;
+  allowed_agent_types?: AgentType[];
+  feature_flags?: Record<string, boolean>;
+}
+
+export interface TeamSharedContext {
+  id: string;
+  team_id: string;
+  name: string;
+  content: string;
+  content_type: 'instructions' | 'knowledge' | 'template';
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Git Sandbox / Rollback ──
+
+export interface GitSandbox {
+  id: string;
+  workflow_id: string;
+  workspace_path: string;
+  branch_name: string;
+  base_commit: string;
+  status: 'active' | 'committed' | 'rolled_back';
+  created_at: string;
+  files_changed: string[];
+}
+
+// ── File Upload ──
+
+export interface FileUpload {
+  id: string;
+  workflow_id: string;
+  filename: string;
+  content_base64: string;
+  media_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+}
+
+// ── Workflow Templates ──
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  config: Omit<WorkflowConfig, 'objective'>;
+  created_by: string;
+  is_public: boolean;
+  tags: string[];
+  created_at: string;
+  usage_count: number;
+}
+
+// ── Agent Health ──
+
+export interface AgentHealthStatus {
+  agent_type: AgentType;
+  model: string;
+  status: 'healthy' | 'degraded' | 'unavailable';
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  success_rate_1h: number;
+  avg_latency_ms: number;
+}
+
+// ── Extended Workflow Events ──
+export type ExtendedWorkflowEventType =
+  | WorkflowEvent['type']
+  | 'subagent_progress'
+  | 'lint_result'
+  | 'file_upload'
+  | 'git_snapshot'
+  | 'git_rollback'
+  | 'health_check';

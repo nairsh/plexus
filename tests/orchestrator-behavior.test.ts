@@ -88,62 +88,78 @@ describe('orchestrator behavior', () => {
 
   test('runs unified tool loop with todo planning and subagent execution', async () => {
     vi.mocked(routeStreamingRequest)
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Create the initial work breakdown and commit the plan.',
-        tool_calls: [
-          {
-            name: 'write_todo',
-            arguments: {
-              todo_id: 'research_constraints',
-              description: 'Research runtime constraints relevant to TanStack with Tauri',
-              agent_type: 'research',
-              depends_on: [],
-              output_artifact: 'research_brief',
-            },
-          },
-          {
-            name: 'write_todo',
-            arguments: {
-              todo_id: 'analyze_fit',
-              description: 'Analyze whether constraints are fundamental or mostly configuration-related',
-              agent_type: 'analyze',
-              depends_on: ['research_constraints'],
-              output_artifact: 'analysis',
-            },
-          },
-          {
-            name: 'write_todo',
-            arguments: {
-              todo_id: 'write_summary',
-              description: 'Write final recommendation with confidence and uncertainty',
-              agent_type: 'write',
-              depends_on: ['analyze_fit'],
-              output_artifact: 'final_output',
-            },
-          },
-        ],
-      })))
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Start with research and wait for it to complete.',
-        tool_calls: [
-          { name: 'spawn_subagent', arguments: { todo_id: 'research_constraints' } },
-          { name: 'await_subagents', arguments: { todo_ids: ['research_constraints'], timeout_seconds: 5 } },
-        ],
-      })))
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Research is done, move to analysis.',
-        tool_calls: [
-          { name: 'spawn_subagent', arguments: { todo_id: 'analyze_fit' } },
-          { name: 'await_subagents', arguments: { todo_ids: ['analyze_fit'], timeout_seconds: 5 } },
-        ],
-      })))
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Now run writing and wait for the final synthesis.',
-        tool_calls: [
-          { name: 'spawn_subagent', arguments: { todo_id: 'write_summary' } },
-          { name: 'await_subagents', arguments: { todo_ids: ['write_summary'], timeout_seconds: 5 } },
-        ],
-      })))
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Create the initial work breakdown and commit the plan.',
+            tool_calls: [
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'research_constraints',
+                  description: 'Research runtime constraints relevant to TanStack with Tauri',
+                  agent_type: 'research',
+                  depends_on: [],
+                  output_artifact: 'research_brief',
+                },
+              },
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'analyze_fit',
+                  description: 'Analyze whether constraints are fundamental or mostly configuration-related',
+                  agent_type: 'analyze',
+                  depends_on: ['research_constraints'],
+                  output_artifact: 'analysis',
+                },
+              },
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'write_summary',
+                  description: 'Write final recommendation with confidence and uncertainty',
+                  agent_type: 'write',
+                  depends_on: ['analyze_fit'],
+                  output_artifact: 'final_output',
+                },
+              },
+            ],
+          })
+        )
+      )
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Start with research and wait for it to complete.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'research_constraints' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['research_constraints'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Research is done, move to analysis.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'analyze_fit' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['analyze_fit'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Now run writing and wait for the final synthesis.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'write_summary' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['write_summary'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
       .mockReturnValueOnce(toChunks('Written final answer'));
 
     vi.mocked(dispatchToAgent)
@@ -180,13 +196,30 @@ describe('orchestrator behavior', () => {
 
     const started = events.filter((event) => event.type === 'task_started');
     expect(started).toHaveLength(3);
+    started.forEach((event) => {
+      const data = event.data as { description: string; display_description?: string };
+      expect(data.description.length).toBeGreaterThan(0);
+      expect(typeof data.display_description).toBe('string');
+      expect((data.display_description ?? '').length).toBeGreaterThan(0);
+    });
+
+    const added = events.filter((event) => event.type === 'task_added');
+    expect(added.length).toBeGreaterThanOrEqual(3);
+    added.forEach((event) => {
+      const data = event.data as { description: string; display_description?: string };
+      expect(data.description.length).toBeGreaterThan(0);
+      expect(typeof data.display_description).toBe('string');
+      expect((data.display_description ?? '').length).toBeGreaterThan(0);
+    });
 
     const completedEvent = events.find((event) => event.type === 'workflow_completed');
     expect(completedEvent).toBeTruthy();
     expect((completedEvent?.data as { output?: string }).output).toBe('Written final answer');
 
     const db = getDb();
-    const taskRows = db.prepare('SELECT id, status FROM tasks WHERE workflow_id = ? ORDER BY created_at').all(workflowId) as Array<{ id: string; status: string }>;
+    const taskRows = db
+      .prepare('SELECT id, status FROM tasks WHERE workflow_id = ? ORDER BY created_at')
+      .all(workflowId) as Array<{ id: string; status: string }>;
     expect(taskRows).toHaveLength(3);
     expect(taskRows.every((row) => row.status === 'completed')).toBe(true);
 
@@ -196,26 +229,34 @@ describe('orchestrator behavior', () => {
 
   test('await_subagents returns completed subagent results without extra fetch step', async () => {
     vi.mocked(routeStreamingRequest)
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Plan a single delegated task.',
-        tool_calls: [
-          {
-            name: 'write_todo',
-            arguments: {
-              todo_id: 'reply_hello',
-              description: 'Reply hello',
-              agent_type: 'research',
-            },
-          },
-        ],
-      })))
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Run the subagent and wait for the result directly.',
-        tool_calls: [
-          { name: 'spawn_subagent', arguments: { todo_id: 'reply_hello', description: 'Reply hello' } },
-          { name: 'await_subagents', arguments: { todo_ids: ['reply_hello'], timeout_seconds: 5 } },
-        ],
-      })))
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Plan a single delegated task.',
+            tool_calls: [
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'reply_hello',
+                  description: 'Reply hello',
+                  agent_type: 'research',
+                },
+              },
+            ],
+          })
+        )
+      )
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Run the subagent and wait for the result directly.',
+            tool_calls: [
+              { name: 'spawn_subagent', arguments: { todo_id: 'reply_hello', description: 'Reply hello' } },
+              { name: 'await_subagents', arguments: { todo_ids: ['reply_hello'], timeout_seconds: 5 } },
+            ],
+          })
+        )
+      )
       .mockReturnValueOnce(toChunks('hello'));
 
     vi.mocked(dispatchToAgent).mockResolvedValueOnce({
@@ -237,7 +278,10 @@ describe('orchestrator behavior', () => {
     await stream.done;
 
     expect(vi.mocked(routeStreamingRequest)).toHaveBeenCalledTimes(3);
-    const thirdCallMessages = vi.mocked(routeStreamingRequest).mock.calls[2]?.[0]?.input as Array<{ role: string; content: string }>;
+    const thirdCallMessages = vi.mocked(routeStreamingRequest).mock.calls[2]?.[0]?.input as Array<{
+      role: string;
+      content: string;
+    }>;
     const toolResultsMessage = thirdCallMessages.at(-1)?.content;
     expect(typeof toolResultsMessage).toBe('string');
     expect(String(toolResultsMessage)).toContain('completed_results');
@@ -247,12 +291,14 @@ describe('orchestrator behavior', () => {
 
   test('orchestrator exposes web tools directly', async () => {
     vi.mocked(routeStreamingRequest)
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Use the web search tool directly.',
-        tool_calls: [
-          { name: 'web_search', arguments: { query: 'orchestrator platform' } },
-        ],
-      })))
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Use the web search tool directly.',
+            tool_calls: [{ name: 'web_search', arguments: { query: 'orchestrator platform' } }],
+          })
+        )
+      )
       .mockReturnValueOnce(toChunks('Done'));
 
     vi.mocked(executeToolCall).mockImplementation(async () => ({
@@ -277,7 +323,7 @@ describe('orchestrator behavior', () => {
       'web_search',
       { query: 'orchestrator platform' },
       expect.objectContaining({ tools: [{ type: 'web_search' }] }),
-      expect.any(Array),
+      expect.any(Array)
     );
   });
 
@@ -337,12 +383,14 @@ describe('orchestrator behavior', () => {
 
   test('orchestrator can execute builtin bash tool directly', async () => {
     vi.mocked(routeStreamingRequest)
-      .mockReturnValueOnce(toChunks(JSON.stringify({
-        thinking: 'Run a shell command directly in the workspace.',
-        tool_calls: [
-          { name: 'bash', arguments: { command: 'pwd' } },
-        ],
-      })))
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Run a shell command directly in the workspace.',
+            tool_calls: [{ name: 'bash', arguments: { command: 'pwd' } }],
+          })
+        )
+      )
       .mockReturnValueOnce(toChunks('Done'));
 
     vi.mocked(executeToolCall).mockImplementation(async (name, rawArgs, request) => {

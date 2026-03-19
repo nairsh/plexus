@@ -10,6 +10,9 @@ import { responsesRoutes } from './routes/responses.js';
 import { billingRoutes } from './routes/billing.js';
 import { sandboxRoutes } from './routes/sandbox.js';
 import { workflowRoutes } from './routes/workflows.js';
+import { registerTeamsRoutes } from './routes/teams.js';
+import { registerTemplatesRoutes } from './routes/templates.js';
+import { registerHealthRoutes } from './routes/agentHealth.js';
 
 export async function createServer() {
   const fastify = Fastify({
@@ -143,6 +146,11 @@ export async function createServer() {
   await fastify.register(billingRoutes);
   await fastify.register(sandboxRoutes);
   await fastify.register(workflowRoutes);
+
+  // Beta features
+  await registerTeamsRoutes(fastify);
+  await registerTemplatesRoutes(fastify);
+  await registerHealthRoutes(fastify);
 
   return fastify;
 }

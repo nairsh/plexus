@@ -15,6 +15,7 @@ import type { ToolCall } from './tools.js';
 import { executeToolCall, getOpenTerminalSessionForChat, getSkillById } from '@orchestrator/model-router';
 import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks } from './tracing.js';
+import { buildDisplayDescription } from './displayLabel.js';
 
 const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
   'web_search',
@@ -265,6 +266,7 @@ export const executeOrchestratorToolCall = async (
         task_id: created.id,
         data: {
           description: created.description,
+          display_description: buildDisplayDescription(created.description, created.agentType),
           agent_type: created.agentType,
           depends_on: created.dependsOn,
           origin: created.metadata.origin,

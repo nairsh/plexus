@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
+import { checkFileLint, formatLintResultsForAgent } from './linting.js';
 
 export interface WorkspaceSession {
   containerName: string;
@@ -19,6 +20,7 @@ export interface FileReadResult {
 export interface FileWriteResult {
   path: string;
   bytes_written: number;
+  lint?: { errors: number; warnings: number; summary: string };
 }
 
 export interface FileEditResult {
@@ -26,6 +28,7 @@ export interface FileEditResult {
   success: boolean;
   oldString: string;
   newString: string;
+  lint?: { errors: number; warnings: number; summary: string };
 }
 
 export interface BashResult {
@@ -219,29 +222,38 @@ export async function executeReadFile(
 export async function executeWriteFile(
   session: WorkspaceSession,
   filePath: string,
-  content: string
+  content: string,
+  runLint = true
 ): Promise<FileWriteResult> {
   try {
     if (useLocalWorkspace(session)) {
       const fullPath = resolveWorkspacePath(session, filePath);
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, content, 'utf-8');
-      return {
-        path: filePath,
-        bytes_written: Buffer.byteLength(content, 'utf-8'),
-      };
+    } else {
+      await otFetch(session, '/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, content }),
+      });
     }
 
-    await otFetch(session, '/files/write', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, content }),
-    });
+    const bytesWritten = Buffer.byteLength(content, 'utf-8');
+    const result: FileWriteResult = { path: filePath, bytes_written: bytesWritten };
 
-    return {
-      path: filePath,
-      bytes_written: Buffer.byteLength(content, 'utf-8'),
-    };
+    // Auto-lint after write for TypeScript/JS/Python files
+    if (runLint) {
+      const lintResult = await checkFileLint(session, filePath);
+      if (lintResult.language !== 'unknown') {
+        result.lint = {
+          errors: lintResult.errors.length,
+          warnings: lintResult.warnings.length,
+          summary: formatLintResultsForAgent([lintResult]),
+        };
+      }
+    }
+
+    return result;
   } catch (err) {
     logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to write file');
     throw err;
@@ -255,7 +267,7 @@ export async function executeEditFile(
   newString: string
 ): Promise<FileEditResult> {
   try {
-    // First read the file
+    // Read file first — required before any edit
     const readResult = await executeReadFile(session, filePath);
     const currentContent = readResult.content;
 
@@ -276,14 +288,26 @@ export async function executeEditFile(
     // Replace all occurrences
     const newContent = currentContent.replaceAll(oldString, newString);
 
-    // Write the updated content
-    await executeWriteFile(session, filePath, newContent);
+    // Write the updated content — pass runLint=false so we control lint below
+    await executeWriteFile(session, filePath, newContent, false);
+
+    // Run lint on the edited file
+    const lintResult = await checkFileLint(session, filePath);
+    const lintSummary =
+      lintResult.language !== 'unknown'
+        ? {
+            errors: lintResult.errors.length,
+            warnings: lintResult.warnings.length,
+            summary: formatLintResultsForAgent([lintResult]),
+          }
+        : undefined;
 
     return {
       path: filePath,
       success: true,
       oldString,
       newString,
+      lint: lintSummary,
     };
   } catch (err) {
     logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to edit file');

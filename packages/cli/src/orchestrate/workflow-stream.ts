@@ -26,6 +26,7 @@ interface TaskState {
 
 interface TaskStartedData {
   description: string;
+  display_description?: string;
   agent_type?: string;
   task_type?: string;
   origin?: string;
@@ -235,7 +236,7 @@ class ConsoleWorkflowRenderer {
     const data = event.data as TaskStartedData;
     const taskId = event.task_id ?? '';
     const task = this.upsertTask(taskId, {
-      description: data.description,
+      description: data.display_description || data.description,
       agentType: data.agent_type || data.task_type || 'task',
       status: 'running',
       origin: data.origin,
