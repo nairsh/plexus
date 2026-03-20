@@ -1,3 +1,0 @@
-Another file
-Test content here
-Bar baz foo
