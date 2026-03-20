@@ -68,6 +68,9 @@ importers:
       fastify:
         specifier: ^5.1.0
         version: 5.8.2
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   packages/billing:
     dependencies:

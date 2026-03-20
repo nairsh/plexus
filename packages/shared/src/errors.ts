@@ -96,11 +96,12 @@ export class SandboxError extends AppError {
 
 export class WorkflowError extends AppError {
   constructor(message: string, code = 'workflow_error') {
+    const notFound = code === 'workflow_not_found';
     super({
       type: 'workflow_error',
       message,
       code,
-      statusCode: 500,
+      statusCode: notFound ? 404 : 500,
     });
   }
 }

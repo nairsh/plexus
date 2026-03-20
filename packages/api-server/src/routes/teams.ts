@@ -100,17 +100,16 @@ function assertMemberWithRole(
 // ── Route registration ────────────────────────────────────────────────────────
 
 export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
-  // Feature flag middleware
-  app.addHook('onRequest', async (_req, reply) => {
-    if (!teamsEnabled()) {
-      return reply.status(404).send({
-        error: {
-          type: 'invalid_request',
-          message: 'Teams feature is not enabled. Set TEAMS_BETA_ENABLED=1 to enable.',
-          code: 'feature_disabled',
-        },
-      });
-    }
+  // Feature flag guard — only blocks /v1/teams/* routes
+  app.addHook('onRequest', async (req, reply) => {
+    if (!req.url.startsWith('/v1/teams') || teamsEnabled()) return;
+    return reply.status(404).send({
+      error: {
+        type: 'invalid_request',
+        message: 'Teams feature is not enabled. Set TEAMS_BETA_ENABLED=1 to enable.',
+        code: 'feature_disabled',
+      },
+    });
   });
 
   // POST /v1/teams — create team

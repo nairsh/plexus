@@ -134,6 +134,18 @@ export async function createServer() {
         return;
       }
 
+      // Fastify framework errors (body too large = 413, etc.) that have a statusCode < 500
+      if (typeof error.statusCode === 'number' && error.statusCode < 500) {
+        reply.status(error.statusCode).send({
+          error: {
+            type: 'request_error',
+            message: error.message,
+            code: error.code ?? 'request_error',
+          },
+        });
+        return;
+      }
+
       logger.error({ error: error.message, stack: error.stack }, 'Unhandled error');
 
       const internalErr = new InternalError();
