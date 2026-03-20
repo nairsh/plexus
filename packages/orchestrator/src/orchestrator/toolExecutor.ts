@@ -311,7 +311,7 @@ export const executeOrchestratorToolCall = async (
           type: 'task_completed',
           workflow_id: state.id,
           task_id: existing.id,
-          data: { output_preview: ((output as string) ?? '').substring(0, 500) },
+          data: { output_preview: ((output as string) ?? '').substring(0, 2000) },
         });
       } else if (newStatus === 'failed') {
         emitWorkflowEvent(state, {

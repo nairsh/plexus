@@ -1,4 +1,4 @@
-import { WorkflowError } from '@orchestrator/shared';
+import { WorkflowError, getDb } from '@orchestrator/shared';
 import type { OrchestratorTask, WorkflowConfig, WorkflowEvent } from '@orchestrator/shared';
 import { getWorkflowTrace } from './orchestrator/tracing.js';
 import { runWorkflow } from './orchestrator/loop.js';
@@ -250,6 +250,42 @@ export function pauseWorkflow(workflowId: string): void {
 
   state.status = 'paused';
   persistWorkflowStatus(workflowId, 'paused');
+}
+
+/**
+ * Retry a failed or cancelled workflow.
+ * Resets failed tasks back to pending so the loop can re-attempt them.
+ * Completed tasks are preserved — only failed/cancelled items are retried.
+ */
+export async function retryWorkflow(workflowId: string): Promise<{ workflowId: string; resetTasks: number }> {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
+  if (state.status !== 'failed' && state.status !== 'cancelled') {
+    throw new WorkflowError(`Can only retry failed or cancelled workflows, current status: ${state.status}`);
+  }
+
+  // Reset failed/cancelled tasks to pending in DB
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE tasks
+    SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
+    WHERE workflow_id = ? AND status IN ('failed', 'cancelled')
+  `).run(workflowId);
+
+  const resetTasks = result.changes;
+
+  // Reset workflow state
+  state.status = 'executing';
+  state.abortController = new AbortController();
+  persistWorkflowStatus(workflowId, 'executing');
+
+  if (!state.executionPromise) {
+    state.executionPromise = runWorkflow(state.userId, state.config, workflowId)
+      .then((r) => { state.lastOutput = r.output; })
+      .finally(() => { state.executionPromise = undefined; });
+  }
+
+  return { workflowId, resetTasks };
 }
 
 export async function resumeWorkflow(

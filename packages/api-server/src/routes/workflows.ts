@@ -21,6 +21,7 @@ import {
   cancelWorkflow,
   resumeWorkflow,
   continueWorkflow,
+  retryWorkflow,
   getWorkflowDetails,
   getWorkflowEmitter,
   getWorkflowTrace,
@@ -245,6 +246,55 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       task_id,
     };
   });
+
+  /**
+   * POST /v1/workflows/:id/retry — retry a failed or cancelled workflow.
+   * Resets failed tasks to pending and re-runs; preserves completed task outputs.
+   */
+  fastify.post(
+    '/v1/workflows/:id/retry',
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const { id } = request.params;
+      const result = await retryWorkflow(id);
+
+      // Run in background
+      executeWorkflowToCompletion(id).catch((err: Error) => {
+        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Background retry execution failed');
+      });
+
+      return { workflow_id: id, status: 'retrying', reset_tasks: result.resetTasks };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/tasks/:taskId — get full output for a specific task.
+   * Useful for transparency/context preservation — the list endpoints only include previews.
+   */
+  fastify.get(
+    '/v1/workflows/:id/tasks/:taskId',
+    async (request: FastifyRequest<{ Params: { id: string; taskId: string } }>, _reply: FastifyReply) => {
+      const { id, taskId } = request.params;
+      const { getDb } = await import('@orchestrator/shared');
+      const db = getDb();
+
+      const row = db
+        .prepare(`SELECT id AS task_id, description, task_type AS agent_type, status, output,
+                         parent_task_ids, created_at, completed_at
+                  FROM tasks WHERE workflow_id = ? AND id = ?`)
+        .get(id, taskId) as {
+          task_id: string; description: string | null; agent_type: string;
+          status: string; output: string | null; parent_task_ids: string | null;
+          created_at: string; completed_at: string | null;
+        } | undefined;
+
+      if (!row) throw new InvalidRequestError('Task not found', 'not_found');
+
+      let dependsOn: string[] = [];
+      try { dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[]; } catch { /* ignore */ }
+
+      return { ...row, depends_on: dependsOn, output: row.output ?? null };
+    }
+  );
 
   /**
    * GET /v1/workflows/:id/git-sandboxes — list git sandboxes for a workflow
