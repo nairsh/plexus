@@ -13,14 +13,16 @@ export {
   listWorkflows,
   getWorkflowTrace,
   continueWorkflow,
+  resolveWorkflowApproval,
+  retryWorkflow,
 } from './engine.js';
 
 export type { WorkflowSummary, TaskSummary } from './engine.js';
 
 export {
   loadPrompt,
-  formatToolsForPrompt,
-  formatWorkItemsForPromptSection,
+  getPromptRuntimeContext,
   formatConversationHistory,
   type PromptVariables,
+  type PromptRuntimeContext,
 } from './promptLoader.js';

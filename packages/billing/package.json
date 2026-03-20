@@ -6,5 +6,9 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@orchestrator/shared": "workspace:*"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
   }
 }

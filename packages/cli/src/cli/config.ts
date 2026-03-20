@@ -14,12 +14,7 @@ import {
   printKeyValue,
   colors,
 } from '../ui/components.js';
-import {
-  getConfigValue,
-  setConfigValue,
-  getModelConfig,
-  ConfigKey,
-} from '../lib/config-manager.js';
+import { getConfigValue, setConfigValue, getModelConfig, ConfigKey } from '../lib/config-manager.js';
 import { setEnvVar, ENV_KEYS } from '../lib/env-manager.js';
 
 // ── Types ──
@@ -118,14 +113,14 @@ async function getConfig(key: string): Promise<void> {
     'tavily.apiKey': 'tavily.apiKey',
     'models.default': 'models.default',
     'models.orchestrator': 'models.orchestrator',
-    'research': 'models.research',
-    'analyze': 'models.analyze',
-    'write': 'models.write',
-    'code': 'models.code',
-    'file': 'models.file',
+    research: 'models.research',
+    analyze: 'models.analyze',
+    write: 'models.write',
+    code: 'models.code',
+    file: 'models.file',
   };
 
-  const configKey = keyMapping[key] ?? key as ConfigKey;
+  const configKey = keyMapping[key] ?? (key as ConfigKey);
   const value = getConfigValue(configKey);
 
   if (value !== undefined) {
@@ -153,11 +148,11 @@ async function setConfig(key: string, value: string): Promise<void> {
     'tavily.apiKey': 'env',
     'models.default': 'models.default',
     'models.orchestrator': 'models.orchestrator',
-    'research': 'models.research',
-    'analyze': 'models.analyze',
-    'write': 'models.write',
-    'code': 'models.code',
-    'file': 'models.file',
+    research: 'models.research',
+    analyze: 'models.analyze',
+    write: 'models.write',
+    code: 'models.code',
+    file: 'models.file',
   };
 
   const mappedKey = keyMapping[key];
@@ -200,10 +195,9 @@ async function setConfig(key: string, value: string): Promise<void> {
 async function resetConfig(): Promise<void> {
   const { promptConfirm } = await import('../lib/prompts.js');
 
-  const confirm = await promptConfirm(
-    'Reset all configuration to defaults? This cannot be undone.',
-    { default: false }
-  );
+  const confirm = await promptConfirm('Reset all configuration to defaults? This cannot be undone.', {
+    default: false,
+  });
 
   if (!confirm) {
     console.log(chalk.dim('Reset cancelled.'));

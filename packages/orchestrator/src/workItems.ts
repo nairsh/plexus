@@ -1,5 +1,5 @@
-import { getDb, logger } from '@orchestrator/shared';
-import type { AgentType, TaskMetadata } from '@orchestrator/shared';
+import { getDb, getErrorMessage, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
+import type { AgentType, TaskMetadata, TaskRow } from '@orchestrator/shared';
 
 export type WorkItemStatus =
   | 'pending'
@@ -26,21 +26,6 @@ export interface WorkItem {
   completedAt?: string | null;
 }
 
-interface TaskRow {
-  id: string;
-  workflow_id: string;
-  description: string | null;
-  task_type: string;
-  parent_task_ids: string;
-  status: string;
-  output: string | null;
-  model: string | null;
-  tools: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
 
 const DEFAULT_METADATA: TaskMetadata = { origin: 'planned' };
 
@@ -58,7 +43,8 @@ function parseMetadata(rawValue: string | null): TaskMetadata {
       reason_generated: typeof parsed.reason_generated === 'string' ? parsed.reason_generated : undefined,
       supersedes_task_id: typeof parsed.supersedes_task_id === 'string' ? parsed.supersedes_task_id : undefined,
     };
-  } catch {
+  } catch (error) {
+    logger.warn({ error: getErrorMessage(error), rawValue }, 'Failed to parse task metadata');
     return DEFAULT_METADATA;
   }
 }
@@ -88,6 +74,11 @@ export function resolveWorkItemId(workflowId: string, itemId: string): string {
   return `${workflowId}_${itemId}`;
 }
 
+export function getWorkItemDisplayId(workflowId: string, itemId: string): string {
+  const prefix = `${workflowId}_`;
+  return itemId.startsWith(prefix) ? itemId.slice(prefix.length) : itemId;
+}
+
 export function listWorkItems(workflowId: string): WorkItem[] {
   const db = getDb();
   const rows = db
@@ -98,9 +89,9 @@ export function listWorkItems(workflowId: string): WorkItem[] {
        WHERE workflow_id = ?
        ORDER BY created_at ASC`
     )
-    .all(workflowId) as TaskRow[];
+    .all(workflowId);
 
-  return rows.map(toWorkItem);
+  return rows.map((r) => toWorkItem(parseRow(TaskRowSchema, r)));
 }
 
 export function getWorkItem(workflowId: string, itemId: string): WorkItem | null {
@@ -113,9 +104,9 @@ export function getWorkItem(workflowId: string, itemId: string): WorkItem | null
        FROM tasks
        WHERE workflow_id = ? AND id = ?`
     )
-    .get(workflowId, fullId) as TaskRow | undefined;
+    .get(workflowId, fullId);
 
-  return row ? toWorkItem(row) : null;
+  return row ? toWorkItem(parseRow(TaskRowSchema, row)) : null;
 }
 
 export function createWorkItem(input: {
@@ -266,8 +257,10 @@ export function formatWorkItemsForPrompt(workItems: WorkItem[], maxOutputLength 
   lines.push('');
 
   for (const item of workItems) {
-    const deps = item.dependsOn.length > 0 ? ` [depends_on: ${item.dependsOn.join(', ')}]` : '';
-    lines.push(`- ${item.id} (${item.agentType}) [${item.status}]${deps}: ${item.description}`);
+    const displayId = getWorkItemDisplayId(item.workflowId, item.id);
+    const displayDeps = item.dependsOn.map((depId) => getWorkItemDisplayId(item.workflowId, depId));
+    const deps = displayDeps.length > 0 ? ` [depends_on: ${displayDeps.join(', ')}]` : '';
+    lines.push(`- ${displayId} (${item.agentType}) [${item.status}]${deps}: ${item.description}`);
     if (item.metadata.output_artifact) {
       lines.push(`  artifact: ${item.metadata.output_artifact}`);
     }

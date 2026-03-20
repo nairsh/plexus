@@ -9,5 +9,9 @@
     "@orchestrator/model-router": "workspace:*",
     "@orchestrator/sandbox": "workspace:*",
     "@orchestrator/shared": "workspace:*"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
   }
 }

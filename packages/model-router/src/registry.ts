@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 const modelsConfig = JSON.parse(readFileSync(join(__dirname, 'models.json'), 'utf-8'));
 const presetsConfig = JSON.parse(readFileSync(join(__dirname, 'presets.json'), 'utf-8'));
 
-export interface RoutingRule {
+interface RoutingRule {
   primary: string;
   fallbacks: string[];
 }
@@ -38,10 +38,6 @@ const presets = presetsConfig as Record<string, Preset>;
 
 export function getDefaultModel(): string {
   return config.default_model;
-}
-
-export function getRoutingRules(): Record<string, RoutingRule> {
-  return config.routing_rules;
 }
 
 export function getPreset(name: string): Preset | null {
@@ -93,14 +89,7 @@ export function seedModelRegistry(): void {
   logger.info({ count: config.models.length }, 'Model registry seeded');
 }
 
-export function getModelInfo(modelId: string): ModelInfo | null {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT * FROM model_registry WHERE id = ? AND status = ?')
-    .get(modelId, 'active') as ModelRegistryRow | undefined;
-
-  if (!row) return null;
-
+function rowToModelInfo(row: ModelRegistryRow): ModelInfo {
   return {
     id: row.id,
     provider: row.provider,
@@ -113,22 +102,22 @@ export function getModelInfo(modelId: string): ModelInfo | null {
   };
 }
 
+export function getModelInfo(modelId: string): ModelInfo | null {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT * FROM model_registry WHERE id = ? AND status = ?')
+    .get(modelId, 'active') as ModelRegistryRow | undefined;
+
+  return row ? rowToModelInfo(row) : null;
+}
+
 export function getAllModels(): ModelInfo[] {
   const db = getDb();
   const rows = db
     .prepare('SELECT * FROM model_registry WHERE status = ?')
     .all('active') as ModelRegistryRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    provider: row.provider,
-    display_name: row.display_name,
-    capabilities: JSON.parse(row.capabilities) as string[],
-    cost_per_1m_input: row.cost_per_1m_input,
-    cost_per_1m_output: row.cost_per_1m_output,
-    context_window: row.context_window ?? 128000,
-    max_output_tokens: row.max_output_tokens ?? 8192,
-  }));
+  return rows.map(rowToModelInfo);
 }
 
 export function getFallbackChain(modelId: string): string[] {

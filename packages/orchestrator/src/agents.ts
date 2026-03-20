@@ -7,15 +7,60 @@
 
 import { routeRequest, getOpenTerminalSessionForChat, getAgentModel as getConfigAgentModel } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
-import { createSession, execute as sandboxExecute, terminateSession } from '@orchestrator/sandbox';
-import { logger } from '@orchestrator/shared';
+import { createSession, terminateSession } from '@orchestrator/sandbox';
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  RESEARCH_TEMPERATURE,
+  WRITE_TEMPERATURE,
+  getErrorMessage,
+  getDb,
+  logger,
+} from '@orchestrator/shared';
 import type {
   AgentType,
   OrchestratorTask,
   WorkflowConfig,
   ToolTraceHooks,
   SubagentExecutionResult,
+  Tool,
 } from '@orchestrator/shared';
+import { getPromptRuntimeContext, loadPrompt } from './promptLoader.js';
+
+// ── Agent health recording ──
+
+function recordHealth(agentType: AgentType, model: string, success: boolean, latencyMs?: number): void {
+  try {
+    const db = getDb();
+    if (success && latencyMs !== undefined) {
+      db.prepare(`
+        INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
+        VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
+        ON CONFLICT(agent_type, model) DO UPDATE SET
+          status = 'healthy',
+          last_success_at = datetime('now'),
+          success_count_1h = success_count_1h + 1,
+          total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
+          updated_at = datetime('now')
+      `).run(crypto.randomUUID(), agentType, model, latencyMs);
+    } else if (!success) {
+      db.prepare(`
+        INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
+        VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
+        ON CONFLICT(agent_type, model) DO UPDATE SET
+          last_failure_at = datetime('now'),
+          failure_count_1h = failure_count_1h + 1,
+          status = CASE
+            WHEN failure_count_1h + 1 >= 5 THEN 'unavailable'
+            WHEN failure_count_1h + 1 >= 2 THEN 'degraded'
+            ELSE 'healthy'
+          END,
+          updated_at = datetime('now')
+      `).run(crypto.randomUUID(), agentType, model);
+    }
+  } catch {
+    // Health recording is non-critical; never let it break agent dispatch
+  }
+}
 
 // ── Agent configuration ──
 
@@ -23,60 +68,49 @@ interface AgentConfig {
   /** Preferred model — falls back to orchestratorModel if not available */
   model: string;
   /** Tools this agent may use */
-  tools: Array<{ type: string }>;
-  /** System prompt injected as instructions */
-  systemPrompt: string;
+  tools: Tool[];
+  /** Skills this agent may activate */
+  skills: string[];
+  /** Prompt template file */
+  promptFile: string;
 }
 
 const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   research: {
     model: 'litellm/gemini-3-flash-preview',
-    tools: [{ type: 'web_search' }, { type: 'fetch_url' }],
-    systemPrompt: `You are a research specialist. Your sole job is to gather accurate, up-to-date information.
-
-Guidelines:
-- Search thoroughly using multiple queries to cover different angles
-- Fetch full page content when snippets are insufficient
-- Structure your findings clearly: key facts, dates, sources, and any notable quotes
-- Be objective — report what sources say, not your interpretation
-- Always cite the source URLs inline
-- If search results are contradictory, note the discrepancy
-- Return comprehensive findings, not a summary — the analyst will synthesize later`,
+    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'run_skill' }],
+    skills: [],
+    promptFile: 'research.md',
   },
 
   analyze: {
     model: 'litellm/ali-kimi-k2.5',
-    tools: [],
-    systemPrompt: `You are an expert analyst. You receive research findings and produce structured analysis.
-
-Guidelines:
-- Identify patterns, trends, and key insights across all provided sources
-- Cross-reference claims — flag contradictions or gaps in the evidence
-- Separate verified facts from speculation or opinion
-- Explicitly label evidence strength: confirmed, likely inference, or unknown
-- Normalize scope when the input covers an ecosystem or product family; say what is included and excluded
-- Quantify where possible (percentages, timelines, magnitudes)
-- Note what is still unknown or requires further research
-- Structure output with clear headers: Scope, Strongest Findings, Likely Inferences, Gaps, Conclusion
-- Be concise but thorough — your output will feed directly into the final report`,
+    tools: [
+      { type: 'bash' },
+      { type: 'file_read' },
+      { type: 'file_write' },
+      { type: 'file_edit' },
+      { type: 'grep' },
+      { type: 'glob' },
+      { type: 'run_skill' },
+    ],
+    skills: [],
+    promptFile: 'analyze.md',
   },
 
   write: {
     model: 'litellm/ali-kimi-k2.5',
-    tools: [],
-    systemPrompt: `You are a professional writer. You produce polished, well-structured content from research and analysis.
-
-Guidelines:
-- Match tone and format to the context (report, summary, article, etc.)
-- Use clear, direct language — avoid jargon unless the context demands it
-- Structure content logically: introduction, body with clear sections, conclusion
-- Cite sources naturally in context
-- Do not fabricate facts — use only what is provided in your context
-- Produce the complete final output in one pass — do not summarize or truncate
-- Make confidence visible: separate strong evidence from inference and call out remaining uncertainty
-- State the scope explicitly when the request involves a broad ecosystem or family of libraries
-- Prefer bullets and short sections over large markdown tables that render poorly in terminals
-- Format using markdown headers and bullet points where appropriate`,
+    tools: [
+      { type: 'bash' },
+      { type: 'file_read' },
+      { type: 'file_write' },
+      { type: 'file_edit' },
+      { type: 'grep' },
+      { type: 'glob' },
+      { type: 'run_skill' },
+    ],
+    skills: [],
+    promptFile: 'write.md',
   },
 
   code: {
@@ -88,17 +122,10 @@ Guidelines:
       { type: 'file_edit' },
       { type: 'grep' },
       { type: 'glob' },
+      { type: 'run_skill' },
     ],
-    systemPrompt: `You are a coding assistant. You write, execute, and verify code to accomplish tasks.
-
-Guidelines:
-- Understand the full requirement before writing code
-- Write clean, well-commented code
-- Execute the code and verify it produces the expected output
-- Handle errors gracefully — if execution fails, debug and retry
-- Report what was done, what the output was, and any issues encountered
-- Use bash for shell commands; use file tools for reading and writing files
-- Check your work: read files back after writing to confirm correctness`,
+    skills: [],
+    promptFile: 'code.md',
   },
 
   file: {
@@ -110,16 +137,25 @@ Guidelines:
       { type: 'file_edit' },
       { type: 'grep' },
       { type: 'glob' },
+      { type: 'run_skill' },
     ],
-    systemPrompt: `You are a file operations assistant. You manage files and directories in the workspace precisely.
-
-Guidelines:
-- Confirm what exists before creating or modifying
-- Use the right tool for each operation (file_read to read, file_write to create, file_edit to modify)
-- Use bash for complex operations like cloning, installing, or running scripts
-- Report exactly what was created, modified, or deleted
-- Verify your operations: read files back after writing to confirm success`,
+    skills: [],
+    promptFile: 'file.md',
   },
+};
+
+const buildAgentInstructions = (agentType: AgentType): string => {
+  const runtimeContext = getPromptRuntimeContext();
+  const config = AGENT_CONFIGS[agentType];
+  return loadPrompt(config.promptFile, {
+    currentDate: runtimeContext.currentDate,
+    currentTime: runtimeContext.currentTime,
+    currentDateTime: runtimeContext.currentDateTime,
+    currentTimezone: runtimeContext.currentTimezone,
+    nowIso: runtimeContext.nowIso,
+    modelBackend: runtimeContext.modelBackend,
+    agentType,
+  });
 };
 
 // ── Execution context passed from engine ──
@@ -130,6 +166,7 @@ export interface AgentExecutionContext {
   orchestratorModel: string;
   config: WorkflowConfig;
   sandboxSessionIds: string[];
+  abortSignal: AbortSignal;
   creditsCallback: (amount: number, description: string) => void;
   trace: ToolTraceHooks;
 }
@@ -171,37 +208,36 @@ export async function dispatchToAgent(
     { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type, model, promptLength: prompt.length },
     'Dispatching to sub-agent'
   );
-  
-  logger.debug(
-    { workflowId: ctx.workflowId, taskId: task.task_id, promptPreview: prompt.substring(0, 200) },
-    'Sub-agent prompt preview'
-  );
-
-  // Code and file agents may need a workspace session
-  if (task.agent_type === 'code' || task.agent_type === 'file') {
-    const chatId = ctx.config.chat_id ?? ctx.workflowId;
-    await ensureWorkspaceSession(ctx, chatId, task.task_id);
-  }
 
   const chatId = (task.agent_type === 'code' || task.agent_type === 'file')
     ? (ctx.config.chat_id ?? ctx.workflowId)
     : undefined;
 
-  logger.debug(
-    { workflowId: ctx.workflowId, taskId: task.task_id, model, hasTools: config.tools.length > 0 },
-    'Calling routeRequest for sub-agent'
-  );
+  if (chatId) {
+    await ensureWorkspaceSession(ctx, chatId, task.task_id);
+  }
 
-  const response = await routeRequest({
-    model,
-    input: prompt,
-    instructions: config.systemPrompt,
-    tools: config.tools.length > 0 ? (config.tools as import('@orchestrator/shared').Tool[]) : undefined,
-    max_output_tokens: 8192,
-    temperature: task.agent_type === 'write' ? 0.3 : 0.1,
-    trace: ctx.trace,
-    chat_id: chatId,
-  });
+  const startMs = Date.now();
+  let response: Awaited<ReturnType<typeof routeRequest>>;
+  try {
+    response = await routeRequest({
+      model,
+      input: prompt,
+      instructions: buildAgentInstructions(task.agent_type),
+      tools: config.tools.length > 0 ? config.tools : undefined,
+      allowed_skills: config.skills,
+      max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      temperature: task.agent_type === 'write' ? WRITE_TEMPERATURE : RESEARCH_TEMPERATURE,
+      trace: ctx.trace,
+      chat_id: chatId,
+      signal: ctx.abortSignal,
+    });
+  } catch (err) {
+    recordHealth(task.agent_type, model, false);
+    throw err;
+  }
+
+  recordHealth(task.agent_type, response.model, true, Date.now() - startMs);
 
   // Track cost
   if (response.usage.cost.total_cost > 0) {
@@ -214,8 +250,8 @@ export async function dispatchToAgent(
         ctx.workflowId
       );
       ctx.creditsCallback(response.usage.cost.total_cost, task.task_id);
-    } catch {
-      // Non-critical
+    } catch (err) {
+      logger.warn({ workflowId: ctx.workflowId, taskId: task.task_id, error: getErrorMessage(err) }, 'Failed to debit credits for agent task (non-critical)');
     }
   }
 
@@ -242,19 +278,6 @@ async function ensureWorkspaceSession(
     task_id: taskId,
   });
   ctx.sandboxSessionIds.push(session.id);
-}
-
-// ── Expose agent config metadata ──
-
-export function getAgentDisplayName(agentType: AgentType): string {
-  const names: Record<AgentType, string> = {
-    research: 'Research',
-    analyze: 'Analysis',
-    write: 'Writing',
-    code: 'Code',
-    file: 'File Ops',
-  };
-  return names[agentType] ?? agentType;
 }
 
 export function getAgentModel(agentType: AgentType, overrides?: Record<string, string>): string {

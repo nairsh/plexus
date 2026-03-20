@@ -1,7 +1,14 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { logger, runMigrations, AppError, InternalError } from '@orchestrator/shared';
-import { seedModelRegistry } from '@orchestrator/model-router';
+import { logger, runMigrations, closeDb, AppError, InternalError, getEnv } from '@orchestrator/shared';
+import {
+  seedModelRegistry,
+  getAllModels,
+  getAllowedOrchestratorModels,
+  getDefaultOrchestratorModel,
+  getRuntimeModelConfig,
+  getAllPresets,
+} from '@orchestrator/model-router';
 import { startSessionReaper, startCreditMeter } from '@orchestrator/sandbox';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware, startRateLimitCleaner } from './middleware/rateLimit.js';
@@ -10,6 +17,9 @@ import { responsesRoutes } from './routes/responses.js';
 import { billingRoutes } from './routes/billing.js';
 import { sandboxRoutes } from './routes/sandbox.js';
 import { workflowRoutes } from './routes/workflows.js';
+import { registerTeamsRoutes } from './routes/teams.js';
+import { registerTemplatesRoutes } from './routes/templates.js';
+import { registerHealthRoutes } from './routes/agentHealth.js';
 
 export async function createServer() {
   const fastify = Fastify({
@@ -32,26 +42,15 @@ export async function createServer() {
   }));
 
   // Models list (no auth required)
-  fastify.get('/v1/models', async () => {
-    const {
-      getAllModels,
-      getAllowedOrchestratorModels,
-      getDefaultOrchestratorModel,
-      getRuntimeModelConfig,
-    } = await import('@orchestrator/model-router');
-    return {
-      models: getAllModels(),
-      orchestrator_models: getAllowedOrchestratorModels(),
-      default_orchestrator_model: getDefaultOrchestratorModel(),
-      subagent_models: getRuntimeModelConfig().subagent_models,
-    };
-  });
+  fastify.get('/v1/models', async () => ({
+    models: getAllModels(),
+    orchestrator_models: getAllowedOrchestratorModels(),
+    default_orchestrator_model: getDefaultOrchestratorModel(),
+    subagent_models: getRuntimeModelConfig().subagent_models,
+  }));
 
   // Presets list (no auth required)
-  fastify.get('/v1/presets', async () => {
-    const { getAllPresets } = await import('@orchestrator/model-router');
-    return { presets: getAllPresets() };
-  });
+  fastify.get('/v1/presets', async () => ({ presets: getAllPresets() }));
 
   // Auth middleware for all /v1/ routes (except models/presets/health)
   fastify.addHook('onRequest', async (request, reply) => {
@@ -131,6 +130,18 @@ export async function createServer() {
         return;
       }
 
+      // Fastify framework errors (body too large = 413, etc.) that have a statusCode < 500
+      if (typeof error.statusCode === 'number' && error.statusCode < 500) {
+        reply.status(error.statusCode).send({
+          error: {
+            type: 'request_error',
+            message: error.message,
+            code: error.code ?? 'request_error',
+          },
+        });
+        return;
+      }
+
       logger.error({ error: error.message, stack: error.stack }, 'Unhandled error');
 
       const internalErr = new InternalError();
@@ -143,6 +154,11 @@ export async function createServer() {
   await fastify.register(billingRoutes);
   await fastify.register(sandboxRoutes);
   await fastify.register(workflowRoutes);
+
+  // Beta features
+  await registerTeamsRoutes(fastify);
+  await registerTemplatesRoutes(fastify);
+  await registerHealthRoutes(fastify);
 
   return fastify;
 }
@@ -158,7 +174,7 @@ export async function startServer() {
 
   // Create and start server
   const server = await createServer();
-  const port = parseInt(process.env['PORT'] || '8080', 10);
+  const port = getEnv().PORT;
 
   // Start background services
   const cleanerInterval = startRateLimitCleaner();
@@ -174,7 +190,6 @@ export async function startServer() {
     clearInterval(reaperInterval);
     clearInterval(meterInterval);
     await server.close();
-    const { closeDb } = await import('@orchestrator/shared');
     closeDb();
     process.exit(0);
   };

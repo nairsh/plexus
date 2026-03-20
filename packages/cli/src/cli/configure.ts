@@ -169,7 +169,11 @@ async function configureTavily(): Promise<void> {
   const currentKey = process.env.TAVILY_API_KEY ?? '';
 
   console.log(chalk.dim(`Current Key: ${currentKey ? '*'.repeat(8) : '(not set)'}`));
-  console.log(chalk.dim('\nTavily provides web search capabilities. It\'s optional - the system will use a public fallback if not configured.'));
+  console.log(
+    chalk.dim(
+      "\nTavily provides web search capabilities. It's optional - the system will use a public fallback if not configured."
+    )
+  );
   console.log('');
 
   const newKey = await password({
@@ -226,7 +230,11 @@ async function configureModels(): Promise<void> {
     const action = await select({
       message: chalk.bold('Model Configuration'),
       choices: [
-        { value: 'default', name: '🎯 Default Model', description: `Current: ${modelConfig.default_orchestrator_model}` },
+        {
+          value: 'default',
+          name: '🎯 Default Model',
+          description: `Current: ${modelConfig.default_orchestrator_model}`,
+        },
         { value: 'allowed', name: '📋 Allowed Models', description: `Manage the list of allowed orchestrator models` },
         { value: 'agents', name: '🤖 Agent Models', description: 'Configure model for each agent type' },
         { value: 'fetch', name: '⬇️ Fetch from LiteLLM', description: 'Fetch available models from LiteLLM' },
@@ -300,7 +308,7 @@ async function configureAllowedModels(): Promise<void> {
   if (action === 'add') {
     const newModel = await input({
       message: 'Enter model ID (e.g., litellm/gpt-4)',
-      validate: (value) => value.includes('/') ? true : 'Model ID should be in format: provider/model',
+      validate: (value) => (value.includes('/') ? true : 'Model ID should be in format: provider/model'),
     });
 
     if (!modelConfig.orchestrator_models.includes(newModel)) {
@@ -368,9 +376,10 @@ async function configureAgentModels(): Promise<void> {
   }
 
   // Get current model for the selected agent
-  const currentAgentModel = agent === 'all'
-    ? modelConfig.default_orchestrator_model
-    : (currentModels[agent as keyof typeof currentModels] ?? modelConfig.default_orchestrator_model);
+  const currentAgentModel =
+    agent === 'all'
+      ? modelConfig.default_orchestrator_model
+      : (currentModels[agent as keyof typeof currentModels] ?? modelConfig.default_orchestrator_model);
 
   const choices = modelConfig.orchestrator_models.map((model) => ({
     value: model,

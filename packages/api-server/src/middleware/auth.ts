@@ -9,10 +9,7 @@ declare module 'fastify' {
   }
 }
 
-export async function authMiddleware(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+export async function authMiddleware(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     const err = new AuthenticationError('Missing or invalid Authorization header. Expected: Bearer <api_key>');
@@ -65,9 +62,7 @@ export async function authMiddleware(
   }
 
   // Update last_used_at
-  db.prepare('UPDATE api_keys SET last_used_at = datetime(\'now\') WHERE id = ?').run(
-    row.key_id
-  );
+  db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.key_id);
 
   request.user = {
     id: row.user_id,

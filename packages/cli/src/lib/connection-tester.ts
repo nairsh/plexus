@@ -17,10 +17,7 @@ export interface ConnectionTestResult {
 /**
  * Test LiteLLM connection by listing models.
  */
-export async function testLiteLLMConnection(
-  baseUrl: string,
-  apiKey: string
-): Promise<ConnectionTestResult> {
+export async function testLiteLLMConnection(baseUrl: string, apiKey: string): Promise<ConnectionTestResult> {
   const startTime = Date.now();
 
   try {
@@ -28,7 +25,7 @@ export async function testLiteLLMConnection(
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       signal: AbortSignal.timeout(10000), // 10 second timeout
@@ -63,7 +60,7 @@ export async function testLiteLLMConnection(
       };
     }
 
-    const data = await response.json() as { data?: Array<{ id: string }> };
+    const data = (await response.json()) as { data?: Array<{ id: string }> };
     const models = data.data ?? [];
 
     logger.debug({ modelCount: models.length, latency }, 'LiteLLM connection successful');
@@ -71,7 +68,7 @@ export async function testLiteLLMConnection(
     return {
       success: true,
       latency,
-      data: models.map(m => m.id),
+      data: models.map((m) => m.id),
     };
   } catch (error) {
     const latency = Date.now() - startTime;
@@ -98,10 +95,7 @@ export async function testLiteLLMConnection(
 /**
  * Fetch available models from LiteLLM.
  */
-export async function fetchLiteLLMModels(
-  baseUrl: string,
-  apiKey: string
-): Promise<string[]> {
+export async function fetchLiteLLMModels(baseUrl: string, apiKey: string): Promise<string[]> {
   const result = await testLiteLLMConnection(baseUrl, apiKey);
 
   if (!result.success) {
@@ -121,7 +115,7 @@ export async function testTavilyConnection(apiKey: string): Promise<ConnectionTe
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

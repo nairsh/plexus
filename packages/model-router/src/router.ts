@@ -1,6 +1,7 @@
-import { logger, ModelError } from '@orchestrator/shared';
+import { getErrorMessage, logger, ModelError } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelAdapter } from '@orchestrator/shared';
 import { getModelInfo, getFallbackChain, getPreset, getDefaultModel } from './registry.js';
+import { ensureRunSkillTool } from './skills.js';
 import { OpenAIAdapter } from './adapters/openai.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
@@ -55,7 +56,7 @@ export function resolveRequest(request: AgentRequest): AgentRequest {
     return {
       ...request,
       model: request.model || preset.model,
-      tools: request.tools ?? preset.tools,
+      tools: ensureRunSkillTool(request.tools ?? preset.tools),
       max_output_tokens: request.max_output_tokens ?? preset.max_output_tokens,
       instructions: request.instructions ?? preset.instructions,
     };
@@ -63,10 +64,10 @@ export function resolveRequest(request: AgentRequest): AgentRequest {
 
   // If no model specified, use default
   if (!request.model) {
-    return { ...request, model: getDefaultModel() };
+    return { ...request, model: getDefaultModel(), tools: ensureRunSkillTool(request.tools) };
   }
 
-  return request;
+  return { ...request, tools: ensureRunSkillTool(request.tools) };
 }
 
 export async function routeRequest(request: AgentRequest): Promise<AgentResponse> {
@@ -93,7 +94,7 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
     } catch (err) {
       lastError = err as Error;
       logger.warn(
-        { modelId: currentModelId, error: (err as Error).message },
+        { modelId: currentModelId, error: getErrorMessage(err) },
         'Model call failed, trying fallback'
       );
     }
@@ -127,7 +128,7 @@ export async function* routeStreamingRequest(
     } catch (err) {
       lastError = err as Error;
       logger.warn(
-        { modelId: currentModelId, error: (err as Error).message },
+        { modelId: currentModelId, error: getErrorMessage(err) },
         'Streaming model call failed, trying fallback'
       );
     }

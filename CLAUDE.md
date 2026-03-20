@@ -1,111 +1,199 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides repo context for coding agents working in `orchestrator-platform`.
 
-## Project Overview
+## Rule files and precedence
 
-This is an AI orchestrator platform that manages multi-agent workflows. It dispatches tasks to specialized sub-agents (research, analyze, write, code, file) and coordinates their execution. The platform provides a Fastify-based API server with streaming responses, credit-based billing, and sandbox environments for code execution.
+- Highest precedence: system/developer/user instruction > this file.
+- Cursor rules: none found (`.cursorrules` and `.cursor/rules/` absent).
+- Copilot rules: none found (`.github/copilot-instructions.md` absent).
+- Agent-specific coding guidance also lives in `AGENTS.md`.
 
-## Common Commands
+## What this repo is
+
+`orchestrator-platform` is a TypeScript monorepo for an agent orchestration backend.
+
+- Fastify API server with `/v1/responses`, `/v1/workflows`, `/v1/sandbox`, `/v1/billing`.
+- Multi-provider model router (OpenAI, Anthropic, Google, LiteLLM adapters).
+- Turn-based orchestrator loop with todo/work-item lifecycle and subagent dispatch.
+- SQLite persistence for users, credits, workflows/tasks, and workflow traces.
+- Sandbox sessions with Open Terminal integration and persisted chat workspaces.
+- CLI and menubar UIs as separate clients.
+
+Current operational baseline: model IDs and defaults are configured for LiteLLM-style routing in `packages/model-router/src/model_config.json`.
+
+## Workspace map (detailed)
+
+- `packages/shared`
+  - `env.ts`: Zod-validated env (`getEnv`, `resetEnvCache`).
+  - `db.ts`: SQLite connection + migrations (`runMigrations`).
+  - `errors.ts`: typed API errors + `getErrorMessage` helper.
+  - `schemas.ts`: request/tool/workflow Zod schemas.
+  - `db-schemas.ts`: row validation (`parseRow`, `parseRowOrNull`).
+- `packages/model-router`
+  - `router.ts`: request routing, preset/model resolution, fallback chain.
+  - `registry.ts`: model registry seeding and lookup from SQLite + JSON seeds.
+  - `config.ts`: runtime model config read/write.
+  - `skills.ts`: local skill loading from `~/.claude/skills` or env override.
+  - `tools/*`: tavily, file ops, tool defs, executor, approvals, workspace access.
+  - `adapters/*`: openai / anthropic / google / litellm adapters.
+- `packages/orchestrator`
+  - `orchestrator/loop.ts`: core loop (`MAX_TURNS` from workflow state, currently 60).
+  - `orchestrator/toolExecutor.ts`: executes orchestrator tool calls.
+  - `agents.ts`: per-agent config, model/tool assignment, dispatch.
+  - `workItems.ts`: todo/work-item CRUD and dependency logic.
+  - `workflow/state.ts`: in-memory workflow state and stream iterator types.
+  - `workflow/persistence.ts`: SQLite hydration and status persistence.
+  - `workflowTrace.ts` + `orchestrator/tracing.ts`: trace capture and event bridge.
+- `packages/api-server`
+  - `server.ts`: Fastify app, middleware wiring, global error handler.
+  - `routes/responses.ts`: direct model API + streaming + billing/audit side effects.
+  - `routes/workflows.ts`: workflow create/continue/list/details/trace/SSE/approve/cancel.
+  - `routes/sandbox.ts`: session lifecycle and workspace file endpoints.
+  - `routes/billing.ts`: balance/usage/top-up/transactions.
+  - `middleware/*`: auth, rate-limit, credit precheck.
+- `packages/sandbox`
+  - `manager.ts`: create/execute/read/write/list/terminate sessions.
+  - `openTerminal.ts`: Open Terminal API integration.
+  - `workspaces.ts`: persistent workspace activation/deactivation/snapshots.
+- `packages/billing`
+  - `ledger.ts`: atomic debit/credit transactions.
+  - `usage.ts`: SQL-based aggregation by model/reference type/time window.
+- `packages/cli`
+  - `src/cli/*`: config/onboarding/models/doctor command surface.
+  - `src/orchestrate/*`: interactive and non-interactive orchestration UX.
+- `packages/menubar`
+  - Tauri + React frontend with its own TS config (`moduleResolution: bundler`).
+
+## Commands
+
+### Install / bootstrap
 
 ```bash
-pnpm dev          # Start the API server (packages/api-server)
-pnpm build        # TypeScript type-check only (no emit)
-pnpm test         # Run vitest tests
-pnpm lint         # Run tsc --noEmit for type checking
-pnpm seed         # Create dev user + API key (sk-dev-...)
-pnpm orchestrate  # Run CLI orchestrator
+pnpm install
+pnpm seed
 ```
 
-### Testing
+### Root scripts
 
-- Integration tests expect a running server: `pnpm dev & sleep 2 && pnpm seed && pnpm test`
-- Set `SKIP_LLM_TESTS=1` to skip tests requiring real LLM API calls
-- Tests create temporary users/keys via direct DB access
-- Test timeout is 30 seconds
+```bash
+pnpm dev
+pnpm build
+pnpm lint
+pnpm lint:eslint
+pnpm test
+pnpm orchestrate
+pnpm test-web-search
+```
 
-## Architecture
+### Package-targeted examples
 
-### Package Structure (pnpm workspace)
+```bash
+pnpm --filter @orchestrator/api-server test
+pnpm --filter @orchestrator/orchestrator test
+pnpm --filter @orchestrator/model-router test
+pnpm --filter @orchestrator/cli test
+pnpm --filter @orchestrator/menubar dev
+pnpm --filter @orchestrator/menubar build
+```
 
-| Package | Purpose |
-|---------|---------|
-| `@orchestrator/shared` | Types, schemas (Zod), database (SQLite/better-sqlite3), logger (pino), errors |
-| `@orchestrator/model-router` | Model registry, request routing, adapters for OpenAI/Anthropic/Google/LiteLLM, tool implementations |
-| `@orchestrator/orchestrator` | Workflow engine, sub-agent dispatch, task management via todo lists |
-| `@orchestrator/billing` | Credit ledger (append-only), usage tracking |
-| `@orchestrator/sandbox` | Workspace management, terminal sessions, code execution |
-| `@orchestrator/api-server` | Fastify HTTP server with auth, rate limiting, SSE for workflow events |
-| `@orchestrator/cli` | Command-line tools |
+### Single-test runs (important)
 
-### Key Data Flow
+```bash
+# one test file
+pnpm test -- tests/orchestrator-behavior.test.ts
 
-1. **Workflow Creation**: `POST /v1/workflows` → `planWorkflow()` → LLM generates task list → `executeWorkflow()` runs orchestrator loop
-2. **Model Routing**: `routeRequest()` resolves model → looks up provider → adapter creates response (with fallback chain)
-3. **Sub-agent Dispatch**: Orchestrator selects agent type → `dispatchToAgent()` applies config (model, tools, system prompt) → routes to model
+# one test case name
+pnpm test -- tests/orchestrator-behavior.test.ts -t "allows direct final output without subagent dispatch"
 
-### Database (SQLite)
+# package-local test file
+pnpm --filter @orchestrator/cli test -- src/ui/chat-app.test.ts
+```
 
-- Path: `./data/orchestrator.db` (configurable via `DATABASE_PATH`)
-- WAL mode enabled for concurrent reads
-- Migrations run on startup via `runMigrations()`
-- Key tables: `users`, `api_keys`, `workflows`, `tasks`, `workflow_steps`, `credit_transactions`, `sandbox_sessions`
+### Integration tests
 
-### Orchestrator Loop
+```bash
+pnpm dev & sleep 2 && pnpm seed && pnpm test
+```
 
-The engine (`packages/orchestrator/src/engine.ts`) runs a max of 25 iterations:
-1. LLM decides actions: `dispatch`, `add_task`, `skip`, `complete`, `delegate_write`
-2. Tasks dispatched to specialized agents (research/analyze/write/code/file)
-3. Each agent has: preferred model, allowed tools, system prompt
-4. Todo list tracks dependencies and ready tasks
+- Integration suite expects server at `http://localhost:8080`.
+- Use `SKIP_LLM_TESTS=1 pnpm test` to skip live-provider tests.
 
-### Model Configuration
+## Runtime flow notes
 
-- Models configured in `packages/model-router/src/model_config.json`
-- Format: `provider/model` (e.g., `litellm/gemini-3-flash-preview`)
-- Default orchestrator model and allowed models defined in config
-- Fallback chains configured per model in registry
+### API server boot
 
-### API Authentication
+1. `packages/api-server/src/index.ts` imports dotenv and starts server.
+2. `startServer()` runs migrations and model registry seed.
+3. Middleware chain for `/v1/*`: auth -> rate limit -> credit check for mutating non-billing routes.
+4. Global Fastify error handler formats typed errors and validation failures.
 
-- API keys: `sk-...` format, SHA-256 hashed in DB
-- Auth middleware extracts `request.user` for routes
-- Rate limiting per user, credit checks on mutating endpoints
+### Workflow execution
 
-### Environment Variables
+1. `POST /v1/workflows` calls `planWorkflow()` then background `executeWorkflowToCompletion()` unless `background=true`.
+2. `runWorkflow()` loops up to `MAX_TURNS` (currently 60).
+3. Orchestrator calls model with manual tool execution and structured tool-call extraction.
+4. Todo tools (`write_todo`, `edit_todo`, `spawn_subagent`, `await_subagents`) drive subagent lifecycle.
+5. Trace/events persisted/emitted as `tool_call`, `tool_result`, `subagent_*`, completion/failure events.
 
-Required for LLM adapters:
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GOOGLE_API_KEY`
-- `LITELLM_BASE_URL` (optional, for LiteLLM proxy)
+### Sandbox execution
 
-Other:
-- `DATABASE_PATH` - defaults to `./data/orchestrator.db`
-- `PORT` - defaults to 8080
-- `TAVILY_API_KEY` - for web search tool
+- Sessions can run local child process execution or Open Terminal-backed execution.
+- Path traversal protections are enforced before filesystem operations.
+- Child process env is allowlisted to avoid leaking host secrets.
 
-## Important Patterns
+## Data and persistence
 
-### Adding a New Tool
+- SQLite path defaults to `./data/orchestrator.db` unless `DATABASE_PATH` is set.
+- WAL mode and foreign keys enabled.
+- Core tables: `users`, `api_keys`, `credit_transactions`, `workflows`, `tasks`, `workflow_steps`, `sandbox_sessions`, `sandbox_workspaces`, `audit_log`.
+- Migrations are additive/idempotent with guarded `ALTER TABLE` and table recreation only when needed.
 
-1. Define in `packages/model-router/src/tools/`
-2. Export from `packages/model-router/src/index.ts`
-3. Add to tool schemas in `packages/shared/src/schemas.ts`
-4. Implement in adapter if needed (e.g., Anthropic tool format)
+## Environment variables (actual names used)
 
-### Adding a New Agent Type
+- Core: `PORT` (default `8080`), `LOG_LEVEL`, `NODE_ENV`, `DATABASE_PATH`.
+- Providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`, `LITELLM_BASE_URL`, `LITELLM_API_KEY`.
+- Tools: `TAVILY_API_KEY`, `TAVILY_BASE_URL`, `TAVILY_RATE_LIMIT_MS`, `BRAVE_SEARCH_API_KEY`.
+- Skills: `CLAUDE_SKILLS_PATH`.
+- Sandbox: `SANDBOX_WORKSPACE_ROOT`, `SANDBOX_MAX_TIMEOUT`, `SANDBOX_DEFAULT_TIMEOUT`.
+- Open Terminal: `OPEN_TERMINAL_IMAGE`, `OPEN_TERMINAL_HOST`, `OPEN_TERMINAL_START_TIMEOUT_MS`.
 
-1. Add to `AgentTypeSchema` in `packages/shared/src/schemas.ts`
-2. Add config to `AGENT_CONFIGS` in `packages/orchestrator/src/agents.ts`
-3. Update `dispatchToAgent` if special handling needed
+## Implementation conventions
 
-### Error Handling
+- TypeScript strict mode; root packages use NodeNext ESM with explicit `.js` local imports.
+- Validate external input with Zod; prefer shared schemas in `@orchestrator/shared`.
+- Prefer typed errors (`InvalidRequestError`, `WorkflowError`, `BillingError`, etc.).
+- Use shared `logger`; avoid `console.*` outside bootstraps/tests/scripts.
+- Prefer `parseRow`/schema-backed row parsing over unchecked DB casts.
+- Keep event names/route contracts backward compatible.
 
-- Use typed errors from `@orchestrator/shared`: `AppError`, `ModelError`, `WorkflowError`, `InvalidRequestError`, etc.
-- Fastify error handler catches `AppError` instances and formats JSON response
+## Change playbooks
 
-### Streaming
+### Add a new tool
 
-- SSE for workflow events via `getWorkflowEmitter()`
-- Model streaming via `routeStreamingRequest()` yields `StreamChunk` objects
+1. Implement tool logic under `packages/model-router/src/tools`.
+2. Register in tool defs/registry/executor.
+3. Add schema/type coverage in `packages/shared/src/schemas.ts` and `types.ts`.
+4. Ensure adapter-specific tool conversion still works.
+5. Add/update tests (`tests/tool-registry.test.ts` etc.).
+
+### Add a new agent type
+
+1. Extend shared `AgentType` + schema unions.
+2. Add config in `packages/orchestrator/src/agents.ts`.
+3. Update orchestrator tool schemas if needed.
+4. Add behavior tests in `tests/orchestrator-behavior.test.ts`.
+
+### Add/modify API routes
+
+1. Validate request with Zod `safeParse`.
+2. Throw typed shared errors.
+3. Keep auth/rate-limit/credit semantics consistent.
+4. Add route tests (integration when practical).
+
+## Practical gotchas
+
+- `runWorkflow()` turn cap is 60 (not 25).
+- Integration tests build their own users/keys if `TEST_API_KEY` is absent.
+- Some test-sensitive env access intentionally bypasses cached env (skills/workspace root).
+- `tools` column in `tasks` is reused for serialized metadata; preserve compatibility when touching work-item persistence.

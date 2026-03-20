@@ -1,7 +1,4 @@
-import { ModelError, logger } from '@orchestrator/shared';
-
-const TAVILY_BASE_URL = process.env['TAVILY_BASE_URL'] || 'https://api.tavily.com';
-const RATE_LIMIT_MS = parseInt(process.env['TAVILY_RATE_LIMIT_MS'] || '300', 10);
+import { ModelError, getEnv, logger } from '@orchestrator/shared';
 
 let nextAvailableAt = 0;
 
@@ -13,17 +10,17 @@ const waitForRateLimit = async () => {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
-  nextAvailableAt = Date.now() + RATE_LIMIT_MS;
+  nextAvailableAt = Date.now() + getEnv().TAVILY_RATE_LIMIT_MS;
 };
 
-const getTavilyApiKey = () => process.env['TAVILY_API_KEY'];
+const getTavilyApiKey = () => getEnv().TAVILY_API_KEY;
 
 const hasBrave = () => {
-  const key = process.env['BRAVE_SEARCH_API_KEY'];
+  const key = getEnv().BRAVE_SEARCH_API_KEY;
   return Boolean(key && key !== '...');
 };
 
-const getBraveSearchApiKey = () => process.env['BRAVE_SEARCH_API_KEY'];
+const getBraveSearchApiKey = () => getEnv().BRAVE_SEARCH_API_KEY;
 
 const ensureConfigured = () => {
   const key = getTavilyApiKey();
@@ -50,7 +47,7 @@ const postTavily = async <T>(path: string, payload: Record<string, unknown>): Pr
   await waitForRateLimit();
 
   const apiKey = getTavilyApiKey();
-  const response = await fetch(`${TAVILY_BASE_URL}${path}`, {
+  const response = await fetch(`${getEnv().TAVILY_BASE_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -81,7 +78,7 @@ export interface TavilySearchResult {
 }
 
 export interface TavilySearchResponse {
-  provider: 'tavily' | 'brave';
+  provider: 'tavily' | 'brave' | 'duckduckgo';
   query: string;
   answer?: string;
   results: TavilySearchResult[];
@@ -101,24 +98,24 @@ const searchWebWithBrave = async (query: string): Promise<TavilySearchResponse> 
     throw new ModelError('No web search provider is configured', 'search_not_configured');
   }
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`, {
-    headers: {
-      Accept: 'application/json',
-      'X-Subscription-Token': getBraveSearchApiKey()!,
-    },
-    signal: AbortSignal.timeout(20_000),
-  });
+  const response = await fetch(
+    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`,
+    {
+      headers: {
+        Accept: 'application/json',
+        'X-Subscription-Token': getBraveSearchApiKey()!,
+      },
+      signal: AbortSignal.timeout(20_000),
+    }
+  );
 
   if (!response.ok) {
     const errorBody = await response.text();
     logger.error({ status: response.status, errorBody }, 'Brave search request failed');
-    throw new ModelError(
-      `Brave search failed with ${response.status}: ${response.statusText}`,
-      'brave_search_failed'
-    );
+    throw new ModelError(`Brave search failed with ${response.status}: ${response.statusText}`, 'brave_search_failed');
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     web?: {
       results?: Array<{
         title?: string;
@@ -188,8 +185,12 @@ const searchWebWithPublicFallback = async (query: string): Promise<TavilySearchR
   }
 
   const html = await response.text();
-  const matches = [...html.matchAll(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)]
-    .slice(0, 5)
+  const matches = [
+    ...html.matchAll(
+      /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi
+    ),
+  ]
+    .slice(0, 10)
     .map((match) => ({
       title: stripHtml(match[2] ?? ''),
       url: match[1] ?? '',
@@ -202,13 +203,17 @@ const searchWebWithPublicFallback = async (query: string): Promise<TavilySearchR
   }
 
   return {
-    provider: 'brave',
+    provider: 'duckduckgo',
     query,
     results: matches,
   };
 };
 
-export const searchWeb = async (query: string): Promise<TavilySearchResponse> => {
+export interface SearchWebOptions {
+  searchDepth?: 'basic' | 'advanced';
+}
+
+export const searchWeb = async (query: string, options: SearchWebOptions = {}): Promise<TavilySearchResponse> => {
   if (!hasTavily()) {
     return searchWebWithPublicFallback(query);
   }
@@ -222,14 +227,13 @@ export const searchWeb = async (query: string): Promise<TavilySearchResponse> =>
         url?: string;
         content?: string;
         score?: number;
-        raw_content?: string;
       }>;
     }>('/search', {
       query,
-      search_depth: 'advanced',
-      max_results: 5,
+      search_depth: options.searchDepth ?? 'basic',
+      max_results: 10,
       include_answer: true,
-      include_raw_content: 'markdown',
+      include_raw_content: false,
     });
 
     return {
@@ -241,7 +245,6 @@ export const searchWeb = async (query: string): Promise<TavilySearchResponse> =>
         url: result.url ?? '',
         snippet: result.content ?? '',
         score: result.score,
-        raw_content: result.raw_content,
       })),
     };
   } catch (error) {
@@ -272,7 +275,10 @@ export const fetchUrl = async (url: string): Promise<TavilyFetchResponse> => {
   const result = data.results?.[0];
 
   if (!result) {
-    throw new ModelError(`Tavily returned no content for URL: ${url}`, 'tavily_empty_extract');
+    throw new ModelError(
+      `Could not extract content from ${url}. The site may block crawlers, require authentication, or have no extractable content. Try a different URL or check if the page is publicly accessible.`,
+      'fetch_url_empty'
+    );
   }
 
   return {

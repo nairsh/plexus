@@ -2,7 +2,7 @@ import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
-import { getDb, logger, SandboxError } from '@orchestrator/shared';
+import { DEFAULT_CREDIT_BALANCE, getDb, getEnv, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession, ExecutionResult } from '@orchestrator/shared';
 import { debitCredits } from '@orchestrator/billing';
 import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspaceInfo, getWorkspacePaths } from './workspaces.js';
@@ -71,7 +71,7 @@ export async function createSession(
   try {
     mkdirSync(workspaceDir, { recursive: true });
   } catch (err) {
-    throw new SandboxError(`Failed to create session directory: ${(err as Error).message}`);
+    throw new SandboxError(`Failed to create session directory: ${getErrorMessage(err)}`);
   }
 
   const state: SessionState = {
@@ -90,13 +90,21 @@ export async function createSession(
 
   sessions.set(sessionId, state);
 
+  // Ensure user exists BEFORE creating workspace (foreign key constraint on sandbox_workspaces.user_id)
+  const db = getDb();
+  const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
+  if (!userExists) {
+    db.prepare(
+      "INSERT INTO users (id, email, tier, credits_balance, created_at) VALUES (?, ?, ?, ?, datetime('now'))"
+    ).run(userId, `${userId}@localhost`, 'pro', DEFAULT_CREDIT_BALANCE);
+  }
+
   // Ensure workspace exists BEFORE inserting session (foreign key constraint)
   if (chatId) {
     ensureWorkspace(userId, chatId, config.language);
   }
 
   // Persist to DB
-  const db = getDb();
   db.prepare(
     `INSERT INTO sandbox_sessions (id, task_id, user_id, chat_id, language, working_dir, environment_status, status, config)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -111,10 +119,10 @@ export async function createSession(
         const workspace = getWorkspacePaths(chatId);
         const openTerminal = await startOpenTerminal(chatId, workspace.filesPath);
         state.openTerminal = openTerminal;
-        db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ? WHERE id = ?').run(openTerminal.baseUrl, sessionId);
+        db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ?, open_terminal_api_key = ? WHERE id = ?').run(openTerminal.baseUrl, openTerminal.apiKey, sessionId);
       } catch (err) {
         logger.warn(
-          { chatId, sessionId, error: (err as Error).message },
+          { chatId, sessionId, error: getErrorMessage(err) },
           'Open Terminal unavailable, falling back to local workspace mode'
         );
       }
@@ -159,7 +167,7 @@ export async function createSession(
   } catch (err) {
     state.status = 'error';
     db.prepare('UPDATE sandbox_sessions SET status = ? WHERE id = ?').run('error', sessionId);
-    throw new SandboxError(`Failed to initialize session: ${(err as Error).message}`);
+    throw new SandboxError(`Failed to initialize session: ${getErrorMessage(err)}`);
   }
 }
 
@@ -181,7 +189,7 @@ async function installPackages(
         stdio: 'pipe',
       });
     } catch (err) {
-      throw new SandboxError(`Failed to install Python packages: ${(err as Error).message}`);
+      throw new SandboxError(`Failed to install Python packages: ${getErrorMessage(err)}`);
     }
   } else if (language === 'javascript') {
     // Initialize package.json if needed
@@ -195,7 +203,7 @@ async function installPackages(
         stdio: 'pipe',
       });
     } catch (err) {
-      throw new SandboxError(`Failed to install Node packages: ${(err as Error).message}`);
+      throw new SandboxError(`Failed to install Node packages: ${getErrorMessage(err)}`);
     }
   }
 }
@@ -210,9 +218,8 @@ export async function execute(
     throw new SandboxError('Session is already executing code', 'session_busy');
   }
 
-  const maxTimeout = parseInt(process.env['SANDBOX_MAX_TIMEOUT'] || '3600', 10);
-  const defaultTimeout = parseInt(process.env['SANDBOX_DEFAULT_TIMEOUT'] || '300', 10);
-  const timeout = Math.min(timeoutSeconds ?? defaultTimeout, maxTimeout);
+  const env = getEnv();
+  const timeout = Math.min(timeoutSeconds ?? env.SANDBOX_DEFAULT_TIMEOUT, env.SANDBOX_MAX_TIMEOUT);
   const timeoutMs = timeout * 1000;
 
   session.status = 'executing';
@@ -262,20 +269,27 @@ export async function execute(
   const startTime = process.hrtime.bigint();
 
   return new Promise<ExecutionResult>((resolvePromise) => {
-    const env: Record<string, string> = { ...process.env as Record<string, string> };
+    // Explicit env allowlist — do not pass host secrets (API keys, DATABASE_PATH, etc.)
+    const childEnv: Record<string, string> = {
+      PATH: env.PATH,
+      HOME: env.HOME,
+      LANG: env.LANG,
+      TERM: env.TERM,
+      NODE_ENV: env.NODE_ENV,
+    };
 
     // For Python, set PYTHONPATH to .packages dir
     if (session.language === 'python') {
       const packagesDir = join(session.workingDir, '.packages');
       if (existsSync(packagesDir)) {
-        env['PYTHONPATH'] = packagesDir + (env['PYTHONPATH'] ? `:${env['PYTHONPATH']}` : '');
+        childEnv['PYTHONPATH'] = packagesDir;
       }
     }
 
     const child = spawn(command, args, {
       cwd: session.workingDir,
       timeout: timeoutMs,
-      env,
+      env: childEnv,
       stdio: session.language === 'sql' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
     });
 
@@ -441,7 +455,7 @@ export function terminateSession(sessionId: string): void {
     const baseDir = join(session.workingDir, '..');
     rmSync(baseDir, { recursive: true, force: true });
   } catch (err) {
-    logger.warn({ sessionId, error: (err as Error).message }, 'Failed to clean up sandbox directory');
+    logger.warn({ sessionId, error: getErrorMessage(err) }, 'Failed to clean up sandbox directory');
   }
 
   session.status = 'terminated';
@@ -493,7 +507,7 @@ export function getSessionInfo(sessionId: string): SandboxSession | null {
 
 export function startSessionReaper(): NodeJS.Timeout {
   const REAPER_INTERVAL = 5 * 60 * 1000; // 5 minutes
-  const MAX_SESSION_AGE = parseInt(process.env['SANDBOX_MAX_TIMEOUT'] || '3600', 10) * 1000;
+  const MAX_SESSION_AGE = getEnv().SANDBOX_MAX_TIMEOUT * 1000;
 
   return setInterval(() => {
     const now = Date.now();
@@ -533,7 +547,7 @@ export function startCreditMeter(): NodeJS.Timeout {
         );
       } catch (err) {
         logger.warn(
-          { sessionId: session.id, error: (err as Error).message },
+          { sessionId: session.id, error: getErrorMessage(err) },
           'Failed to meter sandbox credits, terminating session'
         );
         terminateSession(session.id);

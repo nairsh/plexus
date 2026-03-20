@@ -17,17 +17,8 @@ import {
   icons,
   createSpinner,
 } from '../ui/components.js';
-import {
-  setEnvVar,
-  setEnvVars,
-  envFileExists,
-  ENV_KEYS,
-} from '../lib/env-manager.js';
-import {
-  testLiteLLMConnection,
-  testTavilyConnection,
-  fetchLiteLLMModels,
-} from '../lib/connection-tester.js';
+import { setEnvVar, setEnvVars, envFileExists, ENV_KEYS } from '../lib/env-manager.js';
+import { testLiteLLMConnection, testTavilyConnection, fetchLiteLLMModels } from '../lib/connection-tester.js';
 import {
   isOnboardingComplete,
   completeOnboarding,
@@ -259,7 +250,7 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
     }
 
     // Normalize models to match registry format
-    const normalizedModels = models.map(m => normalizeModelId(m));
+    const normalizedModels = models.map((m) => normalizeModelId(m));
     const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
 
     if (normalized.size > 0) {
@@ -296,22 +287,16 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
   const existingConfig = getModelConfig();
   const defaultModels = existingConfig?.orchestrator_models ?? availableModels.slice(0, 5);
 
-  const selectedModels = await promptModels(
-    'Orchestrator models',
-    availableModels,
-    { default: defaultModels, min: 1 }
-  );
+  const selectedModels = await promptModels('Orchestrator models', availableModels, { default: defaultModels, min: 1 });
 
   state.orchestratorModels = selectedModels;
 
   // Select default model
   console.log(chalk.white('\nSelect the default model for the orchestrator:'));
 
-  const defaultModel = await promptModel(
-    'Default orchestrator model',
-    selectedModels,
-    { default: existingConfig?.default_orchestrator_model }
-  );
+  const defaultModel = await promptModel('Default orchestrator model', selectedModels, {
+    default: existingConfig?.default_orchestrator_model,
+  });
 
   state.defaultModel = defaultModel;
 
@@ -333,19 +318,14 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
     const typedAgentType = agentType as keyof typeof existingAgentModels;
     const currentModel = existingAgentModels[typedAgentType] ?? state.defaultModel;
 
-    const useDefault = await promptConfirm(
-      `Use default model for ${chalk.cyan(agentType)} agent? (${currentModel})`,
-      { default: true }
-    );
+    const useDefault = await promptConfirm(`Use default model for ${chalk.cyan(agentType)} agent? (${currentModel})`, {
+      default: true,
+    });
 
     if (useDefault) {
       agentConfigs[agentType] = state.defaultModel!;
     } else {
-      const model = await promptModel(
-        `Select model for ${agentType} agent`,
-        selectedModels,
-        { default: currentModel }
-      );
+      const model = await promptModel(`Select model for ${agentType} agent`, selectedModels, { default: currentModel });
       agentConfigs[agentType] = model;
     }
   }

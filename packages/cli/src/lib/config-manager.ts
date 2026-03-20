@@ -208,12 +208,12 @@ export function getAllAgentModels(): AgentModels {
 
 /**
  * Normalize a model ID to match the registry format.
- * 
+ *
  * Rules:
  * - Add 'litellm/' prefix if not present
  * - Convert model name to lowercase
  * - Replace '/' with '-' in the model name part (e.g., 'ali/MiniMax' -> 'ali-minimax')
- * 
+ *
  * Examples:
  * - 'ali/MiniMax-M2.5' -> 'litellm/ali-minimax-m2.5'
  * - 'gemini-3-flash-preview' -> 'litellm/gemini-3-flash-preview'
@@ -239,7 +239,7 @@ export function normalizeModelId(modelId: string): string {
 export function getValidModelIds(): string[] {
   try {
     const models = getAllModels();
-    return models.map(m => m.id);
+    return models.map((m) => m.id);
   } catch {
     return [];
   }
@@ -251,12 +251,12 @@ export function getValidModelIds(): string[] {
 export function needsNormalization(modelId: string): boolean {
   const normalized = normalizeModelId(modelId);
   const validIds = getValidModelIds();
-  
+
   // If the original ID is already valid, no normalization needed
   if (validIds.includes(modelId)) {
     return false;
   }
-  
+
   // If the normalized version is valid, normalization is needed
   return validIds.includes(normalized);
 }
@@ -268,16 +268,16 @@ export function needsNormalization(modelId: string): boolean {
 export function tryNormalizeModelId(modelId: string): string | null {
   const normalized = normalizeModelId(modelId);
   const validIds = getValidModelIds();
-  
+
   if (validIds.includes(normalized)) {
     return normalized;
   }
-  
+
   // Try exact match first
   if (validIds.includes(modelId)) {
     return modelId;
   }
-  
+
   return null;
 }
 
@@ -382,7 +382,7 @@ export function setConfigValue(key: ConfigKey, value: string, envPath: string = 
       break;
     }
     case 'models.orchestrator': {
-      const models = value.split(',').map(m => m.trim());
+      const models = value.split(',').map((m) => m.trim());
       updateOrchestratorModels(models);
       break;
     }

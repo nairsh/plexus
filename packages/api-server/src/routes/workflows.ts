@@ -5,9 +5,16 @@ import {
   PaginationSchema,
   InvalidRequestError,
   WorkflowError,
+  getErrorMessage,
   logger,
+  getDb,
 } from '@orchestrator/shared';
 import type { WorkflowEvent } from '@orchestrator/shared';
+import {
+  rollbackGitSandbox,
+  getGitSandboxDiff,
+  listGitSandboxes,
+} from '@orchestrator/sandbox';
 import {
   planWorkflow,
   executeWorkflow,
@@ -15,6 +22,7 @@ import {
   cancelWorkflow,
   resumeWorkflow,
   continueWorkflow,
+  retryWorkflow,
   getWorkflowDetails,
   getWorkflowEmitter,
   getWorkflowTrace,
@@ -25,66 +33,55 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /v1/workflows — Create and start a workflow.
    */
-  fastify.post(
-    '/v1/workflows',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const parseResult = WorkflowConfigSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        const firstError = parseResult.error.errors[0];
-        throw new InvalidRequestError(
-          `Validation error: ${firstError?.message ?? 'Invalid request'}`,
-          firstError?.path?.join('.') ?? undefined
-        );
-      }
-
-      const userId = request.user!.id;
-      const config = parseResult.data;
-
-      // Audit log
-      try {
-        const { getDb } = await import('@orchestrator/shared');
-        const db = getDb();
-        db.prepare(
-          'INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)'
-        ).run(
-          crypto.randomUUID(),
-          userId,
-          'workflow_create',
-          JSON.stringify({ objective: config.objective.substring(0, 200) })
-        );
-      } catch {
-        // Non-critical
-      }
-
-      const { workflowId, tasks } = await planWorkflow(userId, config);
-
-      // Start execution in background — events will be emitted via SSE
-      if (!config.background) {
-        (async () => {
-          try {
-            await executeWorkflowToCompletion(workflowId);
-          } catch (err) {
-            logger.error({ workflowId, error: (err as Error).message }, 'Background workflow execution failed');
-          }
-        })();
-      }
-
-      reply.status(201);
-      return {
-        workflow_id: workflowId,
-        status: 'executing',
-        created_at: new Date().toISOString(),
-        task_count: tasks.length,
-        tasks: tasks.map((t) => ({
-          id: t.task_id,
-          type: t.agent_type,
-          description: t.description,
-          agent_type: t.agent_type,
-          depends_on: t.depends_on,
-        })),
-      };
+  fastify.post('/v1/workflows', async (request: FastifyRequest, reply: FastifyReply) => {
+    const parseResult = WorkflowConfigSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.errors[0];
+      throw new InvalidRequestError(
+        `Validation error: ${firstError?.message ?? 'Invalid request'}`,
+        firstError?.path?.join('.') ?? undefined
+      );
     }
-  );
+
+    const userId = request.user!.id;
+    const config = parseResult.data;
+
+    try {
+      getDb()
+        .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+        .run(crypto.randomUUID(), userId, 'workflow_create', JSON.stringify({ objective: config.objective.substring(0, 200) }));
+    } catch (err) {
+      logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
+    }
+
+    const { workflowId, tasks } = await planWorkflow(userId, config);
+
+    // Start execution in background — events will be emitted via SSE
+    if (!config.background) {
+      (async () => {
+        try {
+          await executeWorkflowToCompletion(workflowId);
+        } catch (err) {
+          logger.error({ workflowId, error: getErrorMessage(err) }, 'Background workflow execution failed');
+        }
+      })();
+    }
+
+    reply.status(201);
+    return {
+      workflow_id: workflowId,
+      status: 'executing',
+      created_at: new Date().toISOString(),
+      task_count: tasks.length,
+      tasks: tasks.map((t) => ({
+        id: t.task_id,
+        type: t.agent_type,
+        description: t.description,
+        agent_type: t.agent_type,
+        depends_on: t.depends_on,
+      })),
+    };
+  });
 
   fastify.post(
     '/v1/workflows/:id/continue',
@@ -99,7 +96,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const result = await continueWorkflow(id, objective);
       const stream = executeWorkflow(id);
       void stream.done.catch((error) => {
-        logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow continuation execution failed');
+        logger.error({ workflowId: id, error: getErrorMessage(error) }, 'Workflow continuation execution failed');
       });
 
       return {
@@ -142,33 +139,27 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /v1/workflows/:id — Get workflow details.
    */
-  fastify.get(
-    '/v1/workflows/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      const details = getWorkflowDetails(id);
-      if (!details) {
-        throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
-      }
-      return details;
+  fastify.get('/v1/workflows/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    const details = getWorkflowDetails(id);
+    if (!details) {
+      throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
     }
-  );
+    return details;
+  });
 
-  fastify.get(
-    '/v1/workflows/:id/trace',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      const details = getWorkflowDetails(id);
-      if (!details) {
-        throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
-      }
-
-      return {
-        workflow_id: id,
-        trace: getWorkflowTrace(id),
-      };
+  fastify.get('/v1/workflows/:id/trace', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    const details = getWorkflowDetails(id);
+    if (!details) {
+      throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
     }
-  );
+
+    return {
+      workflow_id: id,
+      trace: getWorkflowTrace(id),
+    };
+  });
 
   /**
    * GET /v1/workflows/:id/stream — SSE stream of workflow events.
@@ -210,7 +201,8 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const heartbeat = setInterval(() => {
         try {
           reply.raw.write(': heartbeat\n\n');
-        } catch {
+        } catch (_err) {
+          // Client disconnected; stop heartbeat
           clearInterval(heartbeat);
         }
       }, 15_000);
@@ -224,30 +216,115 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /v1/workflows/:id/approve — Approve or reject a pending task.
    */
+  fastify.post('/v1/workflows/:id/approve', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    const parseResult = WorkflowApprovalSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new InvalidRequestError(
+        'Invalid approval body. Required: { task_id, approved: boolean, feedback?: string }'
+      );
+    }
+
+    const { task_id, approved, feedback } = parseResult.data;
+
+    await resumeWorkflow(id, [{ task_id, approved, feedback }]);
+
+    if (approved) {
+      void executeWorkflowToCompletion(id).catch((error) => {
+        logger.error({ workflowId: id, error: getErrorMessage(error) }, 'Workflow execution failed after approval');
+      });
+    }
+
+    return {
+      status: approved ? 'resumed' : 'rejected',
+      workflow_id: id,
+      task_id,
+    };
+  });
+
+  /**
+   * POST /v1/workflows/:id/retry — retry a failed or cancelled workflow.
+   * Resets failed tasks to pending and re-runs; preserves completed task outputs.
+   */
   fastify.post(
-    '/v1/workflows/:id/approve',
+    '/v1/workflows/:id/retry',
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const { id } = request.params;
-      const parseResult = WorkflowApprovalSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        throw new InvalidRequestError('Invalid approval body. Required: { task_id, approved: boolean, feedback?: string }');
+      const result = await retryWorkflow(id);
+
+      // Run in background
+      executeWorkflowToCompletion(id).catch((err: Error) => {
+        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Background retry execution failed');
+      });
+
+      return { workflow_id: id, status: 'retrying', reset_tasks: result.resetTasks };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/tasks/:taskId — get full output for a specific task.
+   * Useful for transparency/context preservation — the list endpoints only include previews.
+   */
+  fastify.get(
+    '/v1/workflows/:id/tasks/:taskId',
+    async (request: FastifyRequest<{ Params: { id: string; taskId: string } }>) => {
+      const { id, taskId } = request.params;
+      const db = getDb();
+
+      const row = db
+        .prepare(`SELECT id AS task_id, description, task_type AS agent_type, status, output,
+                         parent_task_ids, created_at, completed_at
+                  FROM tasks WHERE workflow_id = ? AND id = ?`)
+        .get(id, taskId) as {
+          task_id: string; description: string | null; agent_type: string;
+          status: string; output: string | null; parent_task_ids: string | null;
+          created_at: string; completed_at: string | null;
+        } | undefined;
+
+      if (!row) throw new InvalidRequestError('Task not found', 'not_found');
+
+      let dependsOn: string[] = [];
+      try { dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[]; } catch { /* ignore */ }
+
+      return { ...row, depends_on: dependsOn, output: row.output ?? null };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/git-sandboxes — list git sandboxes for a workflow
+   */
+  fastify.get(
+    '/v1/workflows/:id/git-sandboxes',
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const { id } = request.params;
+      const sandboxes = listGitSandboxes(id);
+      return { sandboxes };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/git-sandboxes/:sandboxId/diff — get diff for a sandbox
+   */
+  fastify.get(
+    '/v1/workflows/:id/git-sandboxes/:sandboxId/diff',
+    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>) => {
+      const { sandboxId } = request.params;
+      return getGitSandboxDiff(sandboxId);
+    }
+  );
+
+  /**
+   * POST /v1/workflows/:id/git-sandboxes/:sandboxId/rollback — roll back agent changes
+   */
+  fastify.post(
+    '/v1/workflows/:id/git-sandboxes/:sandboxId/rollback',
+    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>, reply: FastifyReply) => {
+      const { sandboxId } = request.params;
+      const result = await rollbackGitSandbox(sandboxId);
+      if (!result.success) {
+        throw new InvalidRequestError(result.error ?? 'Rollback failed', 'rollback_failed');
       }
-
-      const { task_id, approved, feedback } = parseResult.data;
-
-      await resumeWorkflow(id, [{ task_id, approved, feedback }]);
-
-      if (approved) {
-        void executeWorkflowToCompletion(id).catch((error) => {
-          logger.error({ workflowId: id, error: (error as Error).message }, 'Workflow execution failed after approval');
-        });
-      }
-
-      return {
-        status: approved ? 'resumed' : 'rejected',
-        workflow_id: id,
-        task_id,
-      };
+      return reply.status(200).send({ success: true, sandbox_id: sandboxId });
     }
   );
 
@@ -260,20 +337,12 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
       cancelWorkflow(id);
 
-      // Audit log
       try {
-        const { getDb } = await import('@orchestrator/shared');
-        const db = getDb();
-        db.prepare(
-          'INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)'
-        ).run(
-          crypto.randomUUID(),
-          request.user!.id,
-          'workflow_cancel',
-          JSON.stringify({ workflow_id: id })
-        );
-      } catch {
-        // Non-critical
+        getDb()
+          .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+          .run(crypto.randomUUID(), request.user!.id, 'workflow_cancel', JSON.stringify({ workflow_id: id }));
+      } catch (err) {
+        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(200);

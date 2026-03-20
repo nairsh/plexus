@@ -56,10 +56,6 @@ export const resolveOrchestratorModel = (requestedModel?: string): string => {
 export const getSubagentModel = (role: string, fallback: string): string =>
   modelConfig.subagent_models[role] ?? fallback;
 
-/**
- * Get the model assigned to a specific agent type.
- * Falls back to the default orchestrator model if not configured.
- */
 export const getAgentModel = (agentType: string): string => {
   const agentModels = modelConfig.agent_models;
   if (agentModels && agentType in agentModels) {
@@ -68,25 +64,15 @@ export const getAgentModel = (agentType: string): string => {
   return modelConfig.default_orchestrator_model;
 };
 
-/**
- * Get all agent model assignments.
- */
 export const getAllAgentModels = (): AgentModels => {
   return modelConfig.agent_models ?? {};
 };
 
-/**
- * Save the runtime model configuration to disk.
- * This allows the CLI to persist model changes.
- */
 export const saveRuntimeModelConfig = (config: RuntimeModelConfig): void => {
   modelConfig = config;
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 };
 
-/**
- * Update agent model assignments.
- */
 export const updateAgentModels = (agentModels: AgentModels): void => {
   modelConfig = {
     ...modelConfig,

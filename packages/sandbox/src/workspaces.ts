@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, cpSync, rmSync, rea
 import { dirname, join, resolve, relative } from 'node:path';
 import { getDb, logger, SandboxError } from '@orchestrator/shared';
 
-const getWorkspaceRoot = () => resolve(process.env['SANDBOX_WORKSPACE_ROOT'] || './data/workspaces');
+// Read directly (not via cached getEnv()) so tests can override SANDBOX_WORKSPACE_ROOT at runtime.
+const getWorkspaceRoot = () => resolve(process.env['SANDBOX_WORKSPACE_ROOT'] ?? './data/workspaces');
 
 interface WorkspaceRecord {
   chat_id: string;

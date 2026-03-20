@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { logger, SandboxError } from '@orchestrator/shared';
+import { getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
+import { checkFileLint, formatLintResultsForAgent } from './linting.js';
 
 export interface WorkspaceSession {
   containerName: string;
@@ -19,6 +20,7 @@ export interface FileReadResult {
 export interface FileWriteResult {
   path: string;
   bytes_written: number;
+  lint?: { errors: number; warnings: number; summary: string };
 }
 
 export interface FileEditResult {
@@ -26,6 +28,7 @@ export interface FileEditResult {
   success: boolean;
   oldString: string;
   newString: string;
+  lint?: { errors: number; warnings: number; summary: string };
 }
 
 export interface BashResult {
@@ -33,6 +36,7 @@ export interface BashResult {
   stderr: string;
   exit_code: number;
   command: string;
+  interrupted?: boolean;
 }
 
 export interface GrepResult {
@@ -174,12 +178,12 @@ export async function executeReadFile(
     if (response.ok) {
       const contentType = response.headers.get('content-type') ?? '';
       if (contentType.includes('application/json')) {
-        const body = await response.json() as { content?: string; entries?: Array<{ name: string; type: string }> };
+        const body = (await response.json()) as { content?: string; entries?: Array<{ name: string; type: string }> };
         if (body.entries) {
           return {
             path: filePath,
             isDirectory: true,
-            entries: body.entries.map(e => e.name),
+            entries: body.entries.map((e) => e.name),
             content: '',
           };
         }
@@ -210,7 +214,7 @@ export async function executeReadFile(
 
     throw new SandboxError(`Failed to read ${filePath}: ${response.statusText}`, 'file_read_failed');
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to read file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to read file');
     throw err;
   }
 }
@@ -218,31 +222,40 @@ export async function executeReadFile(
 export async function executeWriteFile(
   session: WorkspaceSession,
   filePath: string,
-  content: string
+  content: string,
+  runLint = true
 ): Promise<FileWriteResult> {
   try {
     if (useLocalWorkspace(session)) {
       const fullPath = resolveWorkspacePath(session, filePath);
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, content, 'utf-8');
-      return {
-        path: filePath,
-        bytes_written: Buffer.byteLength(content, 'utf-8'),
-      };
+    } else {
+      await otFetch(session, '/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, content }),
+      });
     }
 
-    await otFetch(session, '/files/write', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, content }),
-    });
+    const bytesWritten = Buffer.byteLength(content, 'utf-8');
+    const result: FileWriteResult = { path: filePath, bytes_written: bytesWritten };
 
-    return {
-      path: filePath,
-      bytes_written: Buffer.byteLength(content, 'utf-8'),
-    };
+    // Auto-lint after write for TypeScript/JS/Python files
+    if (runLint) {
+      const lintResult = await checkFileLint(session, filePath);
+      if (lintResult.language !== 'unknown') {
+        result.lint = {
+          errors: lintResult.errors.length,
+          warnings: lintResult.warnings.length,
+          summary: formatLintResultsForAgent([lintResult]),
+        };
+      }
+    }
+
+    return result;
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to write file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to write file');
     throw err;
   }
 }
@@ -254,7 +267,7 @@ export async function executeEditFile(
   newString: string
 ): Promise<FileEditResult> {
   try {
-    // First read the file
+    // Read file first — required before any edit
     const readResult = await executeReadFile(session, filePath);
     const currentContent = readResult.content;
 
@@ -275,17 +288,29 @@ export async function executeEditFile(
     // Replace all occurrences
     const newContent = currentContent.replaceAll(oldString, newString);
 
-    // Write the updated content
-    await executeWriteFile(session, filePath, newContent);
+    // Write the updated content — pass runLint=false so we control lint below
+    await executeWriteFile(session, filePath, newContent, false);
+
+    // Run lint on the edited file
+    const lintResult = await checkFileLint(session, filePath);
+    const lintSummary =
+      lintResult.language !== 'unknown'
+        ? {
+            errors: lintResult.errors.length,
+            warnings: lintResult.warnings.length,
+            summary: formatLintResultsForAgent([lintResult]),
+          }
+        : undefined;
 
     return {
       path: filePath,
       success: true,
       oldString,
       newString,
+      lint: lintSummary,
     };
   } catch (err) {
-    logger.error({ path: filePath, error: (err as Error).message }, 'Failed to edit file');
+    logger.error({ path: filePath, error: getErrorMessage(err) }, 'Failed to edit file');
     throw err;
   }
 }
@@ -293,28 +318,45 @@ export async function executeEditFile(
 export async function executeBash(
   session: WorkspaceSession,
   command: string,
-  timeoutSeconds: number = 60
+  timeoutSeconds: number = 60,
+  signal?: AbortSignal
 ): Promise<BashResult> {
   try {
     if (useLocalWorkspace(session)) {
       const { execFile } = await import('node:child_process');
 
       const result = await new Promise<BashResult>((resolvePromise) => {
-        execFile('bash', ['-lc', command], {
-          cwd: session.workspacePath,
-          timeout: Math.max(1, timeoutSeconds) * 1000,
-        }, (error, stdout, stderr) => {
-          resolvePromise({
-            stdout: stdout ?? '',
-            stderr: stderr ?? '',
-            exit_code: error && typeof (error as { code?: number }).code === 'number'
-              ? (error as { code?: number }).code ?? 1
-              : error
-                ? 1
-                : 0,
-            command,
-          });
-        });
+        const child = execFile(
+          'bash',
+          ['-lc', command],
+          {
+            cwd: session.workspacePath,
+            timeout: Math.max(1, timeoutSeconds) * 1000,
+          },
+          (error, stdout, stderr) => {
+            resolvePromise({
+              stdout: stdout ?? '',
+              stderr: stderr ?? '',
+              exit_code:
+                error && typeof (error as { code?: number }).code === 'number'
+                  ? ((error as { code?: number }).code ?? 1)
+                  : error
+                    ? 1
+                    : 0,
+              command,
+              interrupted: signal?.aborted === true,
+            });
+          }
+        );
+
+        if (signal) {
+          const abortHandler = () => child.kill('SIGTERM');
+          if (signal.aborted) {
+            abortHandler();
+          } else {
+            signal.addEventListener('abort', abortHandler, { once: true });
+          }
+        }
       });
 
       return result;
@@ -328,6 +370,7 @@ export async function executeBash(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command }),
+      signal,
     });
 
     const stdout = response.output
@@ -344,9 +387,10 @@ export async function executeBash(
       stderr,
       exit_code: response.exit_code ?? (response.status === 'done' ? 0 : 1),
       command,
+      interrupted: signal?.aborted === true,
     };
   } catch (err) {
-    logger.error({ command, error: (err as Error).message }, 'Failed to execute bash command');
+    logger.error({ command, error: getErrorMessage(err) }, 'Failed to execute bash command');
     throw err;
   }
 }
@@ -361,18 +405,21 @@ export async function executeGrep(
     // Use OpenTerminal's bash execution which properly handles command execution
     // Build command arguments array to avoid shell injection
     const grepArgs = ['-rn'];
-    
+
     if (include) {
       // Validate include pattern - only allow safe glob characters
       if (!/^[a-zA-Z0-9_*.?-]+$/.test(include)) {
-        throw new SandboxError('Invalid include pattern. Only alphanumeric, *, ?, ., _, and - allowed.', 'invalid_pattern');
+        throw new SandboxError(
+          'Invalid include pattern. Only alphanumeric, *, ?, ., _, and - allowed.',
+          'invalid_pattern'
+        );
       }
       grepArgs.push('--include', include);
     }
-    
+
     // Pass pattern as a literal string argument
     grepArgs.push('--', pattern);
-    
+
     // Validate path - must be relative and safe
     const searchPath = path || '.';
     if (searchPath.includes('..') || searchPath.startsWith('/')) {
@@ -381,17 +428,19 @@ export async function executeGrep(
     grepArgs.push(searchPath);
 
     // Use JSON.stringify to safely pass the array as a single argument to bash -c
-    const command = `grep ${grepArgs.map(arg => 
-      // Escape single quotes and wrap in single quotes for safety
-      typeof arg === 'string' ? "'" + arg.replace(/'/g, "'\"'\"'") + "'" : arg
-    ).join(' ')}`;
+    const command = `grep ${grepArgs
+      .map((arg) =>
+        // Escape single quotes and wrap in single quotes for safety
+        typeof arg === 'string' ? "'" + arg.replace(/'/g, "'\"'\"'") + "'" : arg
+      )
+      .join(' ')}`;
 
     const result = await executeBash(session, command, 30);
-    
+
     const matches: Array<{ path: string; line: number; content: string }> = [];
-    
+
     // Parse grep output: path:line:content
-    const lines = result.stdout.split('\n').filter(line => line.trim());
+    const lines = result.stdout.split('\n').filter((line) => line.trim());
     for (const line of lines) {
       const match = line.match(/^(.+):(\d+):(.*)$/);
       if (match) {
@@ -409,34 +458,33 @@ export async function executeGrep(
     };
   } catch (err) {
     // Grep returns exit code 1 when no matches found, which is not an error
-    if ((err as Error).message?.includes('exit code 1')) {
+    if (getErrorMessage(err).includes('exit code 1')) {
       return {
         pattern,
         matches: [],
       };
     }
-    logger.error({ pattern, path, error: (err as Error).message }, 'Failed to execute grep');
+    logger.error({ pattern, path, error: getErrorMessage(err) }, 'Failed to execute grep');
     throw err;
   }
 }
 
-export async function executeGlob(
-  session: WorkspaceSession,
-  pattern: string,
-  path?: string
-): Promise<GlobResult> {
+export async function executeGlob(session: WorkspaceSession, pattern: string, path?: string): Promise<GlobResult> {
   try {
     // Validate inputs to prevent injection
     const searchPath = path || '.';
     if (searchPath.includes('..') || searchPath.startsWith('/')) {
       throw new SandboxError('Path must be relative and cannot contain ".."', 'invalid_path');
     }
-    
+
     // Validate pattern - only allow safe glob characters
     if (!/^[a-zA-Z0-9_*.?/\[\]-]+$/.test(pattern)) {
-      throw new SandboxError('Invalid glob pattern. Only alphanumeric, *, ?, ., /, _, [], and - allowed.', 'invalid_pattern');
+      throw new SandboxError(
+        'Invalid glob pattern. Only alphanumeric, *, ?, ., /, _, [], and - allowed.',
+        'invalid_pattern'
+      );
     }
-    
+
     let matches: string[];
 
     if (useLocalWorkspace(session)) {
@@ -451,8 +499,8 @@ export async function executeGlob(
       const result = await executeBash(session, command, 30);
       matches = result.stdout
         .split('\n')
-        .filter(line => line.trim())
-        .map(line => line.replace(/^\.\//, ''));
+        .filter((line) => line.trim())
+        .map((line) => line.replace(/^\.\//, ''));
     }
 
     return {
@@ -460,7 +508,7 @@ export async function executeGlob(
       matches,
     };
   } catch (err) {
-    logger.error({ pattern, path, error: (err as Error).message }, 'Failed to execute glob');
+    logger.error({ pattern, path, error: getErrorMessage(err) }, 'Failed to execute glob');
     throw err;
   }
 }

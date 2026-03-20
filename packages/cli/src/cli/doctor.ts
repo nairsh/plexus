@@ -53,13 +53,13 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<void> {
   const results: CheckResult[] = [];
 
   // Environment checks
-  results.push(...await checkEnvironment(options));
+  results.push(...(await checkEnvironment(options)));
 
   // Connection checks
-  results.push(...await checkConnections(options));
+  results.push(...(await checkConnections(options)));
 
   // Model config checks
-  results.push(...await checkModelConfig(options));
+  results.push(...(await checkModelConfig(options)));
 
   // Print results
   printResults(results, options);
@@ -170,13 +170,10 @@ async function checkConnections(options: DoctorOptions): Promise<CheckResult[]> 
       category: 'Connections',
       name: 'LiteLLM connection',
       status: result.success ? 'success' : 'error',
-      message: result.success
-        ? `${result.latency}ms`
-        : result.error,
+      message: result.success ? `${result.latency}ms` : result.error,
       hint: result.hint,
-      details: options.verbose && result.success
-        ? `${(result.data as string[])?.length ?? 0} models available`
-        : undefined,
+      details:
+        options.verbose && result.success ? `${(result.data as string[])?.length ?? 0} models available` : undefined,
     });
   } else {
     results.push({
@@ -196,9 +193,7 @@ async function checkConnections(options: DoctorOptions): Promise<CheckResult[]> 
       category: 'Connections',
       name: 'Tavily API',
       status: result.success ? 'success' : 'warning',
-      message: result.success
-        ? `${result.latency}ms`
-        : result.error,
+      message: result.success ? `${result.latency}ms` : result.error,
       hint: result.hint,
     });
   } else {
@@ -240,9 +235,7 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
     category: 'Models',
     name: 'Orchestrator models',
     status: orchestratorModels.length > 0 ? 'success' : 'error',
-    message: orchestratorModels.length > 0
-      ? `${orchestratorModels.length} models available`
-      : 'No models configured',
+    message: orchestratorModels.length > 0 ? `${orchestratorModels.length} models available` : 'No models configured',
   });
 
   // Check for model ID mismatches
@@ -295,7 +288,8 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
   // Default model in allowed
   const defaultModel = refreshedConfig?.default_orchestrator_model ?? '';
   const normalizedDefault = tryNormalizeModelId(defaultModel);
-  const defaultInAllowed = currentOrchestratorModels.includes(defaultModel) ||
+  const defaultInAllowed =
+    currentOrchestratorModels.includes(defaultModel) ||
     (normalizedDefault && currentOrchestratorModels.includes(normalizedDefault));
 
   results.push({
@@ -339,12 +333,14 @@ async function checkModelConfig(options: DoctorOptions): Promise<CheckResult[]> 
     category: 'Models',
     name: 'Agent model assignments',
     status: configuredAgents.length === agentTypes.length ? 'success' : 'warning',
-    message: configuredAgents.length === agentTypes.length
-      ? `All ${agentTypes.length} agents configured`
-      : `${configuredAgents.length}/${agentTypes.length} agents configured`,
-    hint: configuredAgents.length < agentTypes.length
-      ? `Missing: ${agentTypes.filter((t) => !agentModels[t]).join(', ')}`
-      : undefined,
+    message:
+      configuredAgents.length === agentTypes.length
+        ? `All ${agentTypes.length} agents configured`
+        : `${configuredAgents.length}/${agentTypes.length} agents configured`,
+    hint:
+      configuredAgents.length < agentTypes.length
+        ? `Missing: ${agentTypes.filter((t) => !agentModels[t]).join(', ')}`
+        : undefined,
   });
 
   return results;
@@ -414,11 +410,7 @@ function printResults(results: CheckResult[], options: DoctorOptions): void {
     printCategory(category);
 
     for (const item of items) {
-      const icon = item.status === 'success'
-        ? icons.success
-        : item.status === 'warning'
-          ? icons.warning
-          : icons.error;
+      const icon = item.status === 'success' ? icons.success : item.status === 'warning' ? icons.warning : icons.error;
 
       const nameDisplay = chalk.dim(item.name + ':');
       let messageDisplay = item.message ?? '';

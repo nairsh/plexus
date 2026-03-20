@@ -28,10 +28,7 @@ import {
   validateAndNormalizeModels,
   tryNormalizeModelId,
 } from '../lib/config-manager.js';
-import {
-  fetchLiteLLMModels,
-  testLiteLLMConnection,
-} from '../lib/connection-tester.js';
+import { fetchLiteLLMModels, testLiteLLMConnection } from '../lib/connection-tester.js';
 
 // ── Types ──
 
@@ -166,7 +163,7 @@ async function fetchModels(): Promise<void> {
 
     if (update) {
       // Normalize models to match registry format
-      const normalizedModels = models.map(m => normalizeModelId(m));
+      const normalizedModels = models.map((m) => normalizeModelId(m));
       const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
 
       if (normalized.size > 0) {
@@ -189,7 +186,9 @@ async function fetchModels(): Promise<void> {
       }
 
       // Ask to set default
-      const defaultModel = await (await import('../lib/prompts.js')).promptModel(
+      const defaultModel = await (
+        await import('../lib/prompts.js')
+      ).promptModel(
         'Select default model',
         valid.slice(0, 10), // Limit choices
         {}
@@ -199,7 +198,6 @@ async function fetchModels(): Promise<void> {
       printSuccess(`Updated orchestrator models with ${valid.length} models.`);
       printSuccess(`Default model set to ${defaultModel}`);
     }
-
   } catch (error) {
     fetchSpinner.fail(chalk.red((error as Error).message));
     process.exit(1);

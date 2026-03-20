@@ -22,16 +22,11 @@ import { runDoctor } from './doctor.js';
 import { runConfig, printConfigHelp } from './config.js';
 import { runModels, printModelsHelp } from './models.js';
 import { runConfigure } from './configure.js';
-
-// Package version
-const VERSION = '0.1.0';
+import { CLI_VERSION } from '../version.js';
 
 // ── Main program ──
 
-program
-  .name('orchestrator')
-  .description('AI orchestrator platform CLI')
-  .version(VERSION);
+program.name('orchestrator').description('AI orchestrator platform CLI').version(CLI_VERSION);
 
 // ── Configure command (interactive) ──
 
@@ -116,7 +111,11 @@ program
 // If no recognized subcommand, treat as objective for orchestrator
 const args = process.argv.slice(2);
 
-if (args.length > 0 && !args[0].startsWith('-') && !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive'].includes(args[0])) {
+if (
+  args.length > 0 &&
+  !args[0].startsWith('-') &&
+  !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive'].includes(args[0])
+) {
   // This looks like an objective, not a command
   // Delegate to orchestrate.ts
   console.log(chalk.dim('Running orchestrator...'));

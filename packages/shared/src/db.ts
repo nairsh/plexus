@@ -193,6 +193,7 @@ export function runMigrations(): void {
   // Note: updated_at column will be added via table recreation below
   addColumnIfMissing('sandbox_sessions', 'chat_id', 'TEXT REFERENCES sandbox_workspaces(chat_id)');
   addColumnIfMissing('sandbox_sessions', 'open_terminal_url', 'TEXT');
+  addColumnIfMissing('sandbox_sessions', 'open_terminal_api_key', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'environment_status', "TEXT NOT NULL DEFAULT 'running'");
 
   // Update task_type CHECK constraint to include new agent types
@@ -247,6 +248,80 @@ export function runMigrations(): void {
       database.exec('PRAGMA foreign_keys = ON');
     }
   }
+
+  // ── Teams (beta) ─────────────────────────────────────────────────────────
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      owner_id TEXT NOT NULL REFERENCES users(id),
+      settings TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (team_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS team_shared_contexts (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      content_type TEXT NOT NULL DEFAULT 'knowledge' CHECK (content_type IN ('instructions', 'knowledge', 'template')),
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Git sandbox snapshots for coding agent rollback
+    CREATE TABLE IF NOT EXISTS git_snapshots (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      task_id TEXT,
+      workspace_path TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      base_commit TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'committed', 'rolled_back')),
+      files_changed TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Workflow templates
+    CREATE TABLE IF NOT EXISTS workflow_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      config TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      is_public INTEGER NOT NULL DEFAULT 0,
+      tags TEXT NOT NULL DEFAULT '[]',
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Agent health tracking
+    CREATE TABLE IF NOT EXISTS agent_health (
+      id TEXT PRIMARY KEY,
+      agent_type TEXT NOT NULL,
+      model TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'healthy' CHECK (status IN ('healthy', 'degraded', 'unavailable')),
+      last_success_at TEXT,
+      last_failure_at TEXT,
+      success_count_1h INTEGER NOT NULL DEFAULT 0,
+      failure_count_1h INTEGER NOT NULL DEFAULT 0,
+      total_latency_ms_1h INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(agent_type, model)
+    );
+  `);
 
   logger.info('Database migrations completed');
 }
