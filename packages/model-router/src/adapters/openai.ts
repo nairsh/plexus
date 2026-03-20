@@ -178,8 +178,8 @@ export class OpenAIAdapter extends BaseAdapter {
       status: 'incomplete',
       output: outputBlocks,
       output_text: outputBlocks
-        .filter((b) => b['type'] === 'message')
-        .map((b) => b['content'] as string)
+        .filter((b) => b.type === 'message')
+        .map((b) => b.content as string)
         .join('\n'),
       usage,
       tools: request.tools ?? [],

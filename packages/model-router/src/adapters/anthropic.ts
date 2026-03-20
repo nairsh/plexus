@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getEnv, getErrorMessage } from '@orchestrator/shared';
+import { DEFAULT_LLM_TIMEOUT_MS, MAX_TOOL_ITERATIONS, getEnv, getErrorMessage } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
@@ -13,7 +13,7 @@ export class AnthropicAdapter extends BaseAdapter {
     super();
     this.client = new Anthropic({
       apiKey: getEnv().ANTHROPIC_API_KEY,
-      timeout: 120_000,
+      timeout: DEFAULT_LLM_TIMEOUT_MS,
     });
   }
 
@@ -27,7 +27,7 @@ export class AnthropicAdapter extends BaseAdapter {
     let toolCallsCost = 0;
 
     let currentMessages = [...messages];
-    let maxIterations = 10;
+    let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {
       maxIterations--;
@@ -144,8 +144,8 @@ export class AnthropicAdapter extends BaseAdapter {
       status: 'incomplete',
       output: outputBlocks,
       output_text: outputBlocks
-        .filter((b) => b['type'] === 'message')
-        .map((b) => b['content'] as string)
+        .filter((b) => b.type === 'message')
+        .map((b) => b.content as string)
         .join('\n'),
       usage: {
         input_tokens: totalInputTokens,

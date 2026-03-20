@@ -1,7 +1,14 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { logger, runMigrations, AppError, InternalError, getEnv } from '@orchestrator/shared';
-import { seedModelRegistry } from '@orchestrator/model-router';
+import { logger, runMigrations, closeDb, AppError, InternalError, getEnv } from '@orchestrator/shared';
+import {
+  seedModelRegistry,
+  getAllModels,
+  getAllowedOrchestratorModels,
+  getDefaultOrchestratorModel,
+  getRuntimeModelConfig,
+  getAllPresets,
+} from '@orchestrator/model-router';
 import { startSessionReaper, startCreditMeter } from '@orchestrator/sandbox';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware, startRateLimitCleaner } from './middleware/rateLimit.js';
@@ -35,26 +42,15 @@ export async function createServer() {
   }));
 
   // Models list (no auth required)
-  fastify.get('/v1/models', async () => {
-    const {
-      getAllModels,
-      getAllowedOrchestratorModels,
-      getDefaultOrchestratorModel,
-      getRuntimeModelConfig,
-    } = await import('@orchestrator/model-router');
-    return {
-      models: getAllModels(),
-      orchestrator_models: getAllowedOrchestratorModels(),
-      default_orchestrator_model: getDefaultOrchestratorModel(),
-      subagent_models: getRuntimeModelConfig().subagent_models,
-    };
-  });
+  fastify.get('/v1/models', async () => ({
+    models: getAllModels(),
+    orchestrator_models: getAllowedOrchestratorModels(),
+    default_orchestrator_model: getDefaultOrchestratorModel(),
+    subagent_models: getRuntimeModelConfig().subagent_models,
+  }));
 
   // Presets list (no auth required)
-  fastify.get('/v1/presets', async () => {
-    const { getAllPresets } = await import('@orchestrator/model-router');
-    return { presets: getAllPresets() };
-  });
+  fastify.get('/v1/presets', async () => ({ presets: getAllPresets() }));
 
   // Auth middleware for all /v1/ routes (except models/presets/health)
   fastify.addHook('onRequest', async (request, reply) => {
@@ -194,7 +190,6 @@ export async function startServer() {
     clearInterval(reaperInterval);
     clearInterval(meterInterval);
     await server.close();
-    const { closeDb } = await import('@orchestrator/shared');
     closeDb();
     process.exit(0);
   };

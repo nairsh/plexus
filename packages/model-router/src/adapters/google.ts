@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, type GenerateContentResult, type Part } from '@google/generative-ai';
-import { getEnv, getErrorMessage } from '@orchestrator/shared';
+import { MAX_TOOL_ITERATIONS, getEnv, getErrorMessage } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelInfo, OutputBlock, StreamChunk, UsageInfo } from '@orchestrator/shared';
 import { BaseAdapter } from './base.js';
 import { computeCost } from '../registry.js';
@@ -24,7 +24,7 @@ export class GoogleAdapter extends BaseAdapter {
 
     const contents = this.buildGoogleContents(request);
     let currentContents = [...contents];
-    let maxIterations = 10;
+    let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {
       maxIterations--;
@@ -136,8 +136,8 @@ export class GoogleAdapter extends BaseAdapter {
       status: 'incomplete',
       output: outputBlocks,
       output_text: outputBlocks
-        .filter((b) => b['type'] === 'message')
-        .map((b) => b['content'] as string)
+        .filter((b) => b.type === 'message')
+        .map((b) => b.content as string)
         .join('\n'),
       usage: {
         input_tokens: totalInputTokens,

@@ -22,8 +22,6 @@ export type { WorkflowSummary, TaskSummary } from './engine.js';
 export {
   loadPrompt,
   getPromptRuntimeContext,
-  formatToolsForPrompt,
-  formatWorkItemsForPromptSection,
   formatConversationHistory,
   type PromptVariables,
   type PromptRuntimeContext,

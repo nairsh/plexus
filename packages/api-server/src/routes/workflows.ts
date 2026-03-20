@@ -7,6 +7,7 @@ import {
   WorkflowError,
   getErrorMessage,
   logger,
+  getDb,
 } from '@orchestrator/shared';
 import type { WorkflowEvent } from '@orchestrator/shared';
 import {
@@ -45,16 +46,10 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     const userId = request.user!.id;
     const config = parseResult.data;
 
-    // Audit log
     try {
-      const { getDb } = await import('@orchestrator/shared');
-      const db = getDb();
-      db.prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)').run(
-        crypto.randomUUID(),
-        userId,
-        'workflow_create',
-        JSON.stringify({ objective: config.objective.substring(0, 200) })
-      );
+      getDb()
+        .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+        .run(crypto.randomUUID(), userId, 'workflow_create', JSON.stringify({ objective: config.objective.substring(0, 200) }));
     } catch (err) {
       logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }
@@ -253,7 +248,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post(
     '/v1/workflows/:id/retry',
-    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const { id } = request.params;
       const result = await retryWorkflow(id);
 
@@ -272,9 +267,8 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get(
     '/v1/workflows/:id/tasks/:taskId',
-    async (request: FastifyRequest<{ Params: { id: string; taskId: string } }>, _reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string; taskId: string } }>) => {
       const { id, taskId } = request.params;
-      const { getDb } = await import('@orchestrator/shared');
       const db = getDb();
 
       const row = db
@@ -301,7 +295,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get(
     '/v1/workflows/:id/git-sandboxes',
-    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const { id } = request.params;
       const sandboxes = listGitSandboxes(id);
       return { sandboxes };
@@ -313,7 +307,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get(
     '/v1/workflows/:id/git-sandboxes/:sandboxId/diff',
-    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>, _reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>) => {
       const { sandboxId } = request.params;
       return getGitSandboxDiff(sandboxId);
     }
@@ -343,16 +337,10 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
       cancelWorkflow(id);
 
-      // Audit log
       try {
-        const { getDb } = await import('@orchestrator/shared');
-        const db = getDb();
-        db.prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)').run(
-          crypto.randomUUID(),
-          request.user!.id,
-          'workflow_cancel',
-          JSON.stringify({ workflow_id: id })
-        );
+        getDb()
+          .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+          .run(crypto.randomUUID(), request.user!.id, 'workflow_cancel', JSON.stringify({ workflow_id: id }));
       } catch (err) {
         logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }

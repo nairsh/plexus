@@ -7,7 +7,8 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
   // Check cache first
   if (activeSessions.has(chatId)) {
     const cached = activeSessions.get(chatId)!;
-    // Verify it's still healthy
+    if (!cached.baseUrl) return cached; // local workspace — no health check needed
+    // Verify remote session is still healthy
     try {
       const response = await fetch(`${cached.baseUrl}/health`, {
         signal: AbortSignal.timeout(3_000),

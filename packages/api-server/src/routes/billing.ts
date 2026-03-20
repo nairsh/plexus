@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { TopUpSchema, UsageQuerySchema, InvalidRequestError } from '@orchestrator/shared';
-import { creditBalance, getBalance, getTransactions } from '@orchestrator/billing';
-import { getUsageSummary, getCurrentPeriodUsage } from '@orchestrator/billing';
+import { creditBalance, getBalance, getTransactions, getUsageSummary, getCurrentPeriodUsage } from '@orchestrator/billing';
 
 export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
   /**

@@ -1,8 +1,5 @@
 import { ModelError, getEnv, logger } from '@orchestrator/shared';
 
-const getTavilyBaseUrl = () => getEnv().TAVILY_BASE_URL;
-const getRateLimitMs = () => getEnv().TAVILY_RATE_LIMIT_MS;
-
 let nextAvailableAt = 0;
 
 const waitForRateLimit = async () => {
@@ -13,7 +10,7 @@ const waitForRateLimit = async () => {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
-  nextAvailableAt = Date.now() + getRateLimitMs();
+  nextAvailableAt = Date.now() + getEnv().TAVILY_RATE_LIMIT_MS;
 };
 
 const getTavilyApiKey = () => getEnv().TAVILY_API_KEY;
@@ -50,7 +47,7 @@ const postTavily = async <T>(path: string, payload: Record<string, unknown>): Pr
   await waitForRateLimit();
 
   const apiKey = getTavilyApiKey();
-  const response = await fetch(`${getTavilyBaseUrl()}${path}`, {
+  const response = await fetch(`${getEnv().TAVILY_BASE_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -420,8 +420,6 @@ export const executeOrchestratorToolCall = async (
         return finish({ status: 'error', error: 'skill_not_found', skill_id: skillId });
       }
 
-      // Apply skill - it modifies the workflow's config/skills for future iterations
-      // For now, we just acknowledge the skill activation
       return finish({ status: 'ok', skill_activated: skillId, skill_name: skill.name });
     }
 

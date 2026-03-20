@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { AgentRequestSchema, InvalidRequestError, getErrorMessage, logger } from '@orchestrator/shared';
+import { AgentRequestSchema, InvalidRequestError, getErrorMessage, logger, getDb } from '@orchestrator/shared';
 import type { AgentRequest } from '@orchestrator/shared';
 import { routeRequest, routeStreamingRequest } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
@@ -70,20 +70,19 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    // Log to audit
     try {
-      const { getDb } = await import('@orchestrator/shared');
-      const db = getDb();
-      db.prepare(`INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)`).run(
-        crypto.randomUUID(),
-        userId,
-        'api_response',
-        JSON.stringify({
-          model: response.model,
-          tokens: response.usage.total_tokens,
-          cost: response.usage.cost.total_cost,
-        })
-      );
+      getDb()
+        .prepare(`INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)`)
+        .run(
+          crypto.randomUUID(),
+          userId,
+          'api_response',
+          JSON.stringify({
+            model: response.model,
+            tokens: response.usage.total_tokens,
+            cost: response.usage.cost.total_cost,
+          })
+        );
     } catch (err) {
       logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }

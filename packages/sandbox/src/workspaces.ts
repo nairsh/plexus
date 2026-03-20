@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, cpSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve, relative } from 'node:path';
-import { getDb, getEnv, logger, SandboxError } from '@orchestrator/shared';
+import { getDb, logger, SandboxError } from '@orchestrator/shared';
 
 // Read directly (not via cached getEnv()) so tests can override SANDBOX_WORKSPACE_ROOT at runtime.
 const getWorkspaceRoot = () => resolve(process.env['SANDBOX_WORKSPACE_ROOT'] ?? './data/workspaces');

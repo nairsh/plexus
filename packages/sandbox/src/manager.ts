@@ -218,9 +218,8 @@ export async function execute(
     throw new SandboxError('Session is already executing code', 'session_busy');
   }
 
-  const maxTimeout = getEnv().SANDBOX_MAX_TIMEOUT;
-  const defaultTimeout = getEnv().SANDBOX_DEFAULT_TIMEOUT;
-  const timeout = Math.min(timeoutSeconds ?? defaultTimeout, maxTimeout);
+  const env = getEnv();
+  const timeout = Math.min(timeoutSeconds ?? env.SANDBOX_DEFAULT_TIMEOUT, env.SANDBOX_MAX_TIMEOUT);
   const timeoutMs = timeout * 1000;
 
   session.status = 'executing';
@@ -271,26 +270,26 @@ export async function execute(
 
   return new Promise<ExecutionResult>((resolvePromise) => {
     // Explicit env allowlist — do not pass host secrets (API keys, DATABASE_PATH, etc.)
-    const env: Record<string, string> = {
-      PATH: getEnv().PATH,
-      HOME: getEnv().HOME,
-      LANG: getEnv().LANG,
-      TERM: getEnv().TERM,
-      NODE_ENV: getEnv().NODE_ENV,
+    const childEnv: Record<string, string> = {
+      PATH: env.PATH,
+      HOME: env.HOME,
+      LANG: env.LANG,
+      TERM: env.TERM,
+      NODE_ENV: env.NODE_ENV,
     };
 
     // For Python, set PYTHONPATH to .packages dir
     if (session.language === 'python') {
       const packagesDir = join(session.workingDir, '.packages');
       if (existsSync(packagesDir)) {
-        env['PYTHONPATH'] = packagesDir;
+        childEnv['PYTHONPATH'] = packagesDir;
       }
     }
 
     const child = spawn(command, args, {
       cwd: session.workingDir,
       timeout: timeoutMs,
-      env,
+      env: childEnv,
       stdio: session.language === 'sql' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
     });
 

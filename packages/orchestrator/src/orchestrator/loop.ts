@@ -5,6 +5,7 @@ import {
   ORCHESTRATOR_MAX_OUTPUT_TOKENS,
   WorkflowError,
   getErrorMessage,
+  logger,
 } from '@orchestrator/shared';
 import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';

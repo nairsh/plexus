@@ -6,6 +6,7 @@ import {
   SandboxError,
   getErrorMessage,
   logger,
+  getDb,
 } from '@orchestrator/shared';
 import {
   createSession,
@@ -37,16 +38,10 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     const userId = request.user!.id;
     const session = await createSession(userId, parseResult.data);
 
-    // Audit log
     try {
-      const { getDb } = await import('@orchestrator/shared');
-      const db = getDb();
-      db.prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)').run(
-        crypto.randomUUID(),
-        userId,
-        'sandbox_create',
-        JSON.stringify({ session_id: session.id, language: session.language })
-      );
+      getDb()
+        .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+        .run(crypto.randomUUID(), userId, 'sandbox_create', JSON.stringify({ session_id: session.id, language: session.language }));
     } catch (err) {
       logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }
@@ -67,20 +62,15 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
 
     const result = await execute(id, parseResult.data.code, parseResult.data.timeout_seconds);
 
-    // Audit log
     try {
-      const { getDb } = await import('@orchestrator/shared');
-      const db = getDb();
-      db.prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)').run(
-        crypto.randomUUID(),
-        request.user!.id,
-        'sandbox_execute',
-        JSON.stringify({
-          session_id: id,
-          exit_code: result.exit_code,
-          execution_time_ms: result.execution_time_ms,
-        })
-      );
+      getDb()
+        .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+        .run(
+          crypto.randomUUID(),
+          request.user!.id,
+          'sandbox_execute',
+          JSON.stringify({ session_id: id, exit_code: result.exit_code, execution_time_ms: result.execution_time_ms })
+        );
     } catch (err) {
       logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }
@@ -209,16 +199,10 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
       terminateSession(id);
 
-      // Audit log
       try {
-        const { getDb } = await import('@orchestrator/shared');
-        const db = getDb();
-        db.prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)').run(
-          crypto.randomUUID(),
-          request.user!.id,
-          'sandbox_terminate',
-          JSON.stringify({ session_id: id })
-        );
+        getDb()
+          .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+          .run(crypto.randomUUID(), request.user!.id, 'sandbox_terminate', JSON.stringify({ session_id: id }));
       } catch (err) {
         logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getEnv, getErrorMessage, logger } from '@orchestrator/shared';
+import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, Skill, Tool } from '@orchestrator/shared';
 
 const RESERVED_NAMES = new Set(['anthropic', 'claude']);

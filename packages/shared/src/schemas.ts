@@ -128,16 +128,6 @@ export const WorkflowConfigSchema = z.object({
 // ── Agent type ──
 export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file']);
 
-const EditTodoArgsSchema = z.object({
-  todo_id: z.string().min(1),
-  description: z.string().min(1).optional(),
-  depends_on: z.array(z.string()).optional(),
-  status: z.enum(['pending', 'running', 'completed', 'failed', 'blocked', 'skipped', 'cancelled']).optional(),
-  output_artifact: z.string().min(1).optional(),
-  output: z.string().optional(),
-  reason: z.string().optional(),
-});
-
 // ── Legacy DAG Task (kept for backward compat) ──
 export const DAGTaskSchema = z.object({
   task_id: z.string(),

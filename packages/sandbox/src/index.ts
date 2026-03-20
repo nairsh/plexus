@@ -8,7 +8,6 @@ export {
   getSessionInfo,
   startSessionReaper,
   startCreditMeter,
-  getActiveSessionCount,
 } from './manager.js';
 export { getWorkspaceInfo, readWorkspaceMetadata, snapshotWorkspaceFiles } from './workspaces.js';
 export {

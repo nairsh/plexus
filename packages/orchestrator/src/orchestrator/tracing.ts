@@ -6,19 +6,7 @@ import { emitWorkflowEvent } from '../workflow/emitter.js';
 export const recordStep = (
   state: WorkflowState,
   step: Omit<WorkflowTraceStep, 'step_id' | 'workflow_id' | 'timestamp'> & { timestamp?: string }
-): WorkflowTraceStep => {
-  return logWorkflowStep({
-    workflow_id: state.id,
-    timestamp: step.timestamp,
-    step_type: step.step_type,
-    model_name: step.model_name,
-    message_content: step.message_content,
-    tool_name: step.tool_name,
-    tool_input: step.tool_input,
-    tool_output: step.tool_output,
-    subagent_id: step.subagent_id,
-  });
-};
+): WorkflowTraceStep => logWorkflowStep({ ...step, workflow_id: state.id });
 
 export const buildToolTraceHooks = (state: WorkflowState, subagentId: string, model?: string): ToolTraceHooks => ({
   model,

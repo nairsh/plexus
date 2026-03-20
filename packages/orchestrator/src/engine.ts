@@ -24,10 +24,18 @@ import {
   type WorkflowSummary,
   workflows,
 } from './workflow/state.js';
+
 import { cleanupSessions } from './subagents/lifecycle.js';
 import { recordStep } from './orchestrator/tracing.js';
 import { resolveOrchestratorModel } from '@orchestrator/model-router';
 import { listWorkItems } from './workItems.js';
+
+const startWorkflowExecution = (state: WorkflowState): void => {
+  if (state.executionPromise) return;
+  state.executionPromise = runWorkflow(state.userId, state.config, state.id)
+    .then((r) => { state.lastOutput = r.output; })
+    .finally(() => { state.executionPromise = undefined; });
+};
 
 export async function planWorkflow(
   userId: string,
@@ -211,10 +219,10 @@ export function getWorkflowState(workflowId: string): WorkflowState | null {
 export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, getWorkflowTrace, getWorkflowSummaryById };
 export type { WorkflowSummary, TaskSummary };
 
-export async function continueWorkflow(
+export function continueWorkflow(
   workflowId: string,
   followUpQuery: string,
-): Promise<{ workflowId: string; status: WorkflowStatus }> {
+): { workflowId: string; status: WorkflowStatus } {
   const state = hydrateWorkflowState(workflowId);
   if (!state) {
     throw new WorkflowError(`Workflow not found: ${workflowId}`);
@@ -257,7 +265,7 @@ export function pauseWorkflow(workflowId: string): void {
  * Resets failed tasks back to pending so the loop can re-attempt them.
  * Completed tasks are preserved — only failed/cancelled items are retried.
  */
-export async function retryWorkflow(workflowId: string): Promise<{ workflowId: string; resetTasks: number }> {
+export function retryWorkflow(workflowId: string): { workflowId: string; resetTasks: number } {
   const state = hydrateWorkflowState(workflowId);
   if (!state) throw new WorkflowError(`Workflow not found: ${workflowId}`);
   if (state.status !== 'failed' && state.status !== 'cancelled') {
@@ -274,24 +282,18 @@ export async function retryWorkflow(workflowId: string): Promise<{ workflowId: s
 
   const resetTasks = result.changes;
 
-  // Reset workflow state
   state.status = 'executing';
   state.abortController = new AbortController();
   persistWorkflowStatus(workflowId, 'executing');
-
-  if (!state.executionPromise) {
-    state.executionPromise = runWorkflow(state.userId, state.config, workflowId)
-      .then((r) => { state.lastOutput = r.output; })
-      .finally(() => { state.executionPromise = undefined; });
-  }
+  startWorkflowExecution(state);
 
   return { workflowId, resetTasks };
 }
 
-export async function resumeWorkflow(
+export function resumeWorkflow(
   workflowId: string,
   _approvals?: Array<{ task_id: string; approved: boolean; feedback?: string }>,
-): Promise<void> {
+): void {
   const state = hydrateWorkflowState(workflowId);
   if (!state) {
     throw new WorkflowError(`Workflow not found: ${workflowId}`);
@@ -303,14 +305,5 @@ export async function resumeWorkflow(
   state.status = 'executing';
   state.abortController = new AbortController();
   persistWorkflowStatus(workflowId, 'executing');
-
-  if (!state.executionPromise) {
-    state.executionPromise = runWorkflow(state.userId, state.config, workflowId)
-      .then((result) => {
-        state.lastOutput = result.output;
-      })
-      .finally(() => {
-        state.executionPromise = undefined;
-      });
-  }
+  startWorkflowExecution(state);
 }

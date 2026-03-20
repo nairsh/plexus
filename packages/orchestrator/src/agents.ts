@@ -7,7 +7,7 @@
 
 import { routeRequest, getOpenTerminalSessionForChat, getAgentModel as getConfigAgentModel } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
-import { createSession, execute as sandboxExecute, terminateSession } from '@orchestrator/sandbox';
+import { createSession, terminateSession } from '@orchestrator/sandbox';
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   RESEARCH_TEMPERATURE,
@@ -208,26 +208,14 @@ export async function dispatchToAgent(
     { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type, model, promptLength: prompt.length },
     'Dispatching to sub-agent'
   );
-  
-  logger.debug(
-    { workflowId: ctx.workflowId, taskId: task.task_id, promptPreview: prompt.substring(0, 200) },
-    'Sub-agent prompt preview'
-  );
-
-  // Code and file agents may need a workspace session
-  if (task.agent_type === 'code' || task.agent_type === 'file') {
-    const chatId = ctx.config.chat_id ?? ctx.workflowId;
-    await ensureWorkspaceSession(ctx, chatId, task.task_id);
-  }
 
   const chatId = (task.agent_type === 'code' || task.agent_type === 'file')
     ? (ctx.config.chat_id ?? ctx.workflowId)
     : undefined;
 
-  logger.debug(
-    { workflowId: ctx.workflowId, taskId: task.task_id, model, hasTools: config.tools.length > 0 },
-    'Calling routeRequest for sub-agent'
-  );
+  if (chatId) {
+    await ensureWorkspaceSession(ctx, chatId, task.task_id);
+  }
 
   const startMs = Date.now();
   let response: Awaited<ReturnType<typeof routeRequest>>;
@@ -290,19 +278,6 @@ async function ensureWorkspaceSession(
     task_id: taskId,
   });
   ctx.sandboxSessionIds.push(session.id);
-}
-
-// ── Expose agent config metadata ──
-
-export function getAgentDisplayName(agentType: AgentType): string {
-  const names: Record<AgentType, string> = {
-    research: 'Research',
-    analyze: 'Analysis',
-    write: 'Writing',
-    code: 'Code',
-    file: 'File Ops',
-  };
-  return names[agentType] ?? agentType;
 }
 
 export function getAgentModel(agentType: AgentType, overrides?: Record<string, string>): string {

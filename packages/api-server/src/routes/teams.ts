@@ -20,7 +20,7 @@ import {
   MAX_TEAM_SHARED_CONTEXTS,
   TEAMS_FEATURE_FLAG,
 } from '@orchestrator/shared';
-import type { AuthUser, Team, TeamMember, TeamSettings, TeamSharedContext } from '@orchestrator/shared';
+import type { Team, TeamMember, TeamSettings, TeamSharedContext } from '@orchestrator/shared';
 
 // ── Feature flag guard ────────────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /v1/teams — create team
   app.post('/v1/teams', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const body = CreateTeamSchema.safeParse(req.body);
     if (!body.success) {
       throw new InvalidRequestError('Invalid request body', 'validation_error');
@@ -141,8 +141,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /v1/teams — list user's teams
-  app.get('/v1/teams', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.get('/v1/teams', async (req) => {
+    const user = req.user!;
     const db = getDb();
 
     const rows = db
@@ -164,8 +164,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /v1/teams/:id — get team details
-  app.get('/v1/teams/:id', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.get('/v1/teams/:id', async (req) => {
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'member');
@@ -183,8 +183,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // PATCH /v1/teams/:id — update team settings
-  app.patch('/v1/teams/:id', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.patch('/v1/teams/:id', async (req) => {
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'admin');
@@ -208,7 +208,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
   // DELETE /v1/teams/:id — delete team (owner only)
   app.delete('/v1/teams/:id', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'owner');
@@ -221,8 +221,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /v1/teams/:id/members — add member
-  app.post('/v1/teams/:id/members', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.post('/v1/teams/:id/members', async (req) => {
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'admin');
@@ -259,7 +259,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
   // DELETE /v1/teams/:id/members/:userId — remove member
   app.delete('/v1/teams/:id/members/:userId', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const { id, userId } = req.params as { id: string; userId: string };
 
     // Members can remove themselves; admins can remove members
@@ -278,8 +278,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /v1/teams/:id/contexts — list shared contexts
-  app.get('/v1/teams/:id/contexts', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.get('/v1/teams/:id/contexts', async (req) => {
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'member');
@@ -294,7 +294,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /v1/teams/:id/contexts — create shared context
   app.post('/v1/teams/:id/contexts', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'member');
@@ -331,7 +331,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
   // DELETE /v1/teams/:id/contexts/:contextId — delete shared context
   app.delete('/v1/teams/:id/contexts/:contextId', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const { id, contextId } = req.params as { id: string; contextId: string };
 
     assertMemberWithRole(id, user.id, 'member');
@@ -354,8 +354,8 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /v1/teams/:id/settings — get effective settings for workflow config
-  app.get('/v1/teams/:id/settings', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.get('/v1/teams/:id/settings', async (req) => {
+    const user = req.user!;
     const { id } = req.params as { id: string };
 
     assertMemberWithRole(id, user.id, 'member');

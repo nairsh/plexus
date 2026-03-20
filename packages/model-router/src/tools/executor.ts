@@ -56,11 +56,6 @@ const traceToolResult = async (
   await request.trace?.onToolResult?.({ name, input, output, ...getTraceContext(request) });
 };
 
-const getWorkspaceSession = async (request: AgentRequest) => {
-  if (!request.chat_id) return null;
-  return getOpenTerminalSessionForChat(request.chat_id);
-};
-
 export const executeToolCall = async (
   name: string,
   rawArgs: unknown,
@@ -126,7 +121,7 @@ export const executeToolCall = async (
         return { output: JSON.stringify(FILE_CONTEXT_ERROR), cost: 0 };
       }
 
-      const session = await getWorkspaceSession(request);
+      const session = await getOpenTerminalSessionForChat(request.chat_id);
       if (!session) {
         return { output: JSON.stringify(WORKSPACE_MISSING_ERROR), cost: 0 };
       }

@@ -81,7 +81,7 @@ function toHealthStatus(row: HealthRow): AgentHealthStatus {
 
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {
   // GET /v1/health/agents — agent health dashboard
-  app.get('/v1/health/agents', async (_req, _reply) => {
+  app.get('/v1/health/agents', async () => {
     const db = getDb();
 
     // Reset hourly counters for stale records (>1 hour since last update)
@@ -109,7 +109,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
   });
 
   // GET /v1/health — overall system health
-  app.get('/v1/health/system', async (_req, _reply) => {
+  app.get('/v1/health/system', async () => {
     const db = getDb();
 
     const workflowStats = db

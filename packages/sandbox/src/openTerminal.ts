@@ -3,10 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { SandboxError, getEnv, logger } from '@orchestrator/shared';
 import type { ExecutionResult } from '@orchestrator/shared';
 
-const getOpenTerminalImage = () => getEnv().OPEN_TERMINAL_IMAGE;
-const getOpenTerminalHost = () => getEnv().OPEN_TERMINAL_HOST;
-const getOpenTerminalStartTimeoutMs = () => getEnv().OPEN_TERMINAL_START_TIMEOUT_MS;
-
 export interface OpenTerminalSession {
   containerName: string;
   apiKey: string;
@@ -26,7 +22,7 @@ const runDocker = (args: string[]): string => {
 const sanitizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 40);
 
 const waitForHealth = async (baseUrl: string) => {
-  const deadline = Date.now() + getOpenTerminalStartTimeoutMs();
+  const deadline = Date.now() + getEnv().OPEN_TERMINAL_START_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
     try {
@@ -54,14 +50,14 @@ export const startOpenTerminal = async (chatId: string, workspacePath: string): 
     '--name',
     containerName,
     '-p',
-    `${getOpenTerminalHost()}::8000`,
+    `${getEnv().OPEN_TERMINAL_HOST}::8000`,
     '-v',
     `${workspacePath}:/home/user`,
     '-e',
     `OPEN_TERMINAL_API_KEY=${apiKey}`,
     '-e',
     `OPEN_TERMINAL_INFO=Persistent workspace for chat ${chatId}`,
-    getOpenTerminalImage(),
+    getEnv().OPEN_TERMINAL_IMAGE,
   ]);
 
   const portInfo = runDocker(['port', containerName, '8000/tcp']);
@@ -70,7 +66,7 @@ export const startOpenTerminal = async (chatId: string, workspacePath: string): 
     throw new SandboxError(`Failed to determine mapped port for container ${containerName}`, 'open_terminal_port_error');
   }
 
-  const baseUrl = `http://${getOpenTerminalHost()}:${port}`;
+  const baseUrl = `http://${getEnv().OPEN_TERMINAL_HOST}:${port}`;
   await waitForHealth(baseUrl);
 
   logger.info({ chatId, containerName, baseUrl }, 'Open Terminal environment started');

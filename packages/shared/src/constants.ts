@@ -40,10 +40,6 @@ export const LINT_CHECK_TIMEOUT_MS = 15_000;
 export const LINT_SUPPORTED_LANGUAGES = ['typescript', 'javascript', 'python'] as const;
 export type LintLanguage = (typeof LINT_SUPPORTED_LANGUAGES)[number];
 
-// ── Agent best practices ──
-export const READ_BEFORE_WRITE_ENABLED = true;
-export const MAX_FILE_READ_CACHE_SIZE = 50;
-
 // ── Teams (beta) ──
 export const TEAMS_FEATURE_FLAG = 'teams_beta';
 export const MAX_TEAM_MEMBERS = 50;

@@ -18,19 +18,6 @@ export interface PromptRuntimeContext {
   modelBackend: string;
 }
 
-/**
- * Load a prompt from a markdown file and interpolate variables.
- * 
- * Variables use {{variableName}} syntax.
- * Objects are automatically JSON-stringified with indentation.
- * 
- * Example:
- *   loadPrompt('orchestrator.md', { tools: ['tool1', 'tool2'], mode: 'direct' })
- * 
- * @param filename - Name of the markdown file in the prompts directory
- * @param variables - Variables to interpolate
- * @returns The interpolated prompt string
- */
 export function loadPrompt(filename: string, variables: PromptVariables = {}): string {
   const filepath = resolve(__dirname, 'prompts', filename);
   let content: string;
@@ -77,9 +64,6 @@ export function getPromptRuntimeContext(now: Date = new Date()): PromptRuntimeCo
   };
 }
 
-/**
- * Interpolate {{variableName}} placeholders in content.
- */
 function interpolateVariables(content: string, variables: PromptVariables): string {
   return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
     const value = variables[varName];
@@ -103,38 +87,6 @@ function interpolateVariables(content: string, variables: PromptVariables): stri
   });
 }
 
-/**
- * Format tools for prompt display.
- */
-export function formatToolsForPrompt(tools: Array<{ name: string; description: string; parameters?: object }>): string {
-  return tools.map(tool => {
-    let lines = [`- ${tool.name}: ${tool.description}`];
-    if (tool.parameters && Object.keys(tool.parameters).length > 0) {
-      lines.push(`  Parameters: ${JSON.stringify(tool.parameters, null, 2).replace(/\n/g, '\n  ')}`);
-    }
-    return lines.join('\n');
-  }).join('\n');
-}
-
-/**
- * Format work items for prompt display.
- */
-export function formatWorkItemsForPromptSection(workItems: Array<{ id: string; description: string; agent_type: string; status: string; depends_on?: string[] }>): string {
-  if (workItems.length === 0) {
-    return 'No work items.';
-  }
-  
-  return workItems.map(item => {
-    const deps = item.depends_on && item.depends_on.length > 0 
-      ? ` (depends on: ${item.depends_on.join(', ')})`
-      : '';
-    return `- [${item.status}] ${item.id}: ${item.description} (${item.agent_type})${deps}`;
-  }).join('\n');
-}
-
-/**
- * Format conversation history for prompt display.
- */
 export function formatConversationHistory(messages: Array<{ role: string; content: string; timestamp?: string }>): string {
   if (messages.length === 0) {
     return 'No previous conversation.';

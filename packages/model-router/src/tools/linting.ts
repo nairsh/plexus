@@ -8,9 +8,8 @@
 import { execFile } from 'node:child_process';
 import { extname } from 'node:path';
 import { promisify } from 'node:util';
-import { LINT_CHECK_TIMEOUT_MS } from '@orchestrator/shared';
+import { LINT_CHECK_TIMEOUT_MS, logger } from '@orchestrator/shared';
 import type { LintError, LintResult } from '@orchestrator/shared';
-import { logger } from '@orchestrator/shared';
 import type { WorkspaceSession } from './fileOperations.js';
 
 const execFileAsync = promisify(execFile);
@@ -45,11 +44,6 @@ function parseTscOutput(output: string, requestedPath: string): LintError[] {
     if (!m) continue;
 
     const [, filePath, lineStr, colStr, severity, rule, message] = m;
-
-    // Only include errors for the specific file or nearby files
-    if (!filePath || (!filePath.includes(requestedPath) && requestedPath !== '')) {
-      // Include all errors when no specific file is requested
-    }
 
     errors.push({
       line: parseInt(lineStr ?? '1', 10),

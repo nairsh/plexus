@@ -8,7 +8,6 @@ export {
   getPreset,
   getAllPresets,
   getDefaultModel,
-  getRoutingRules,
 } from './registry.js';
 export {
   getRuntimeModelConfig,

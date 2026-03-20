@@ -7,7 +7,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb, InvalidRequestError, logger } from '@orchestrator/shared';
-import type { AuthUser, WorkflowTemplate } from '@orchestrator/shared';
+import type { WorkflowTemplate } from '@orchestrator/shared';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -39,8 +39,8 @@ function parseTemplate(row: WorkflowTemplate & { config: string; tags: string })
 
 export async function registerTemplatesRoutes(app: FastifyInstance): Promise<void> {
   // GET /v1/templates — list public + user's own templates
-  app.get('/v1/templates', async (req, _reply) => {
-    const user = (req as { user: AuthUser }).user;
+  app.get('/v1/templates', async (req) => {
+    const user = req.user!;
     const { tag, search } = req.query as { tag?: string; search?: string };
     const db = getDb();
 
@@ -70,7 +70,7 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
 
   // POST /v1/templates — create template
   app.post('/v1/templates', async (req, reply) => {
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const body = CreateTemplateSchema.safeParse(req.body);
     if (!body.success) throw new InvalidRequestError('Invalid request body', 'validation_error');
 
@@ -99,9 +99,9 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
   });
 
   // GET /v1/templates/:id — get template
-  app.get('/v1/templates/:id', async (req, _reply) => {
+  app.get('/v1/templates/:id', async (req) => {
     const { id } = req.params as { id: string };
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const db = getDb();
 
     const row = db
@@ -113,9 +113,9 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
   });
 
   // POST /v1/templates/:id/use — use a template (returns workflow config)
-  app.post('/v1/templates/:id/use', async (req, _reply) => {
+  app.post('/v1/templates/:id/use', async (req) => {
     const { id } = req.params as { id: string };
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const { objective } = req.body as { objective?: string };
 
     const db = getDb();
@@ -141,7 +141,7 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
   // DELETE /v1/templates/:id — delete template (owner only)
   app.delete('/v1/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const user = (req as { user: AuthUser }).user;
+    const user = req.user!;
     const db = getDb();
 
     const row = db
