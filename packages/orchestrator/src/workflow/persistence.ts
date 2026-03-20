@@ -175,7 +175,7 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
   const workflow = db
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
-              credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
        FROM workflows WHERE id = ?`
     )
     .get(workflowId) as WorkflowSummary | undefined;
@@ -245,7 +245,7 @@ export const listWorkflows = (userId: string): WorkflowSummary[] => {
   const workflowsFromDb = db
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
-              credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
        FROM workflows WHERE user_id = ? ORDER BY created_at DESC`
     )
     .all(userId) as WorkflowSummary[];

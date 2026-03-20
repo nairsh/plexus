@@ -28,7 +28,7 @@ import {
   validateAndNormalizeModels,
   tryNormalizeModelId,
 } from '../lib/config-manager.js';
-import { fetchLiteLLMModels, testLiteLLMConnection } from '../lib/connection-tester.js';
+import { discoverAvailableModels, replaceModelRegistry } from '@orchestrator/model-router';
 
 // ── Types ──
 
@@ -111,50 +111,30 @@ async function listModels(): Promise<void> {
 
 async function fetchModels(): Promise<void> {
   printBanner();
-  printHeader('Fetch Models from LiteLLM');
+  printHeader('Fetch Configured Models');
 
-  // Load .env
   if (existsSync(resolve('.env'))) {
     config({ path: resolve('.env') });
   }
 
-  const litellmUrl = process.env.LITELLM_BASE_URL;
-  const litellmKey = process.env.LITELLM_API_KEY;
-
-  if (!litellmUrl || !litellmKey) {
-    printError('LiteLLM not configured. Set LITELLM_BASE_URL and LITELLM_API_KEY.');
-    console.log(chalk.dim('Run "orchestrator onboarding" to configure.'));
-    process.exit(1);
-  }
-
-  // Test connection first
-  const testSpinner = createSpinner('Testing LiteLLM connection...').start();
-  const testResult = await testLiteLLMConnection(litellmUrl, litellmKey);
-
-  if (!testResult.success) {
-    testSpinner.fail(chalk.red(testResult.error));
-    process.exit(1);
-  }
-
-  testSpinner.succeed(chalk.green(`Connected to LiteLLM (${testResult.latency}ms)`));
-
-  // Fetch models
-  const fetchSpinner = createSpinner('Fetching available models...').start();
+  const fetchSpinner = createSpinner('Discovering configured models...').start();
 
   try {
-    const models = await fetchLiteLLMModels(litellmUrl, litellmKey);
+    const models = await discoverAvailableModels();
     fetchSpinner.succeed(chalk.green(`Found ${models.length} models`));
 
     if (models.length === 0) {
-      printWarning('No models found on LiteLLM instance.');
+      printWarning('No models found from configured credentials.');
       return;
     }
+
+    replaceModelRegistry(models);
 
     // Display models
     printSubHeader('Available Models');
 
     for (const model of models) {
-      console.log(`  ${colors.muted('•')} ${chalk.white(`litellm/${model}`)}`);
+      console.log(`  ${colors.muted('•')} ${chalk.white(model.id)}`);
     }
 
     // Ask to update orchestrator models
@@ -163,7 +143,7 @@ async function fetchModels(): Promise<void> {
 
     if (update) {
       // Normalize models to match registry format
-      const normalizedModels = models.map((m) => normalizeModelId(m));
+      const normalizedModels = models.map((m) => normalizeModelId(m.id));
       const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
 
       if (normalized.size > 0) {
@@ -188,11 +168,7 @@ async function fetchModels(): Promise<void> {
       // Ask to set default
       const defaultModel = await (
         await import('../lib/prompts.js')
-      ).promptModel(
-        'Select default model',
-        valid.slice(0, 10), // Limit choices
-        {}
-      );
+      ).promptModel('Select default model', valid.slice(0, 10), {});
 
       updateOrchestratorModels(valid, defaultModel);
       printSuccess(`Updated orchestrator models with ${valid.length} models.`);

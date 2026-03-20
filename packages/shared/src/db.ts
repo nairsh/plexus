@@ -249,6 +249,50 @@ export function runMigrations(): void {
     }
   }
 
+  // Update task_type CHECK constraint to include 'deep_research'
+  const hasDeepResearchType = database.prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%deep_research%' AND name='tasks'").get();
+  if (!hasDeepResearchType) {
+    logger.info('Updating tasks table to support deep_research agent type...');
+
+    database.exec('PRAGMA foreign_keys = OFF');
+
+    try {
+      database.exec(`
+        DROP TABLE IF EXISTS tasks_new;
+
+        CREATE TABLE tasks_new (
+          id TEXT PRIMARY KEY,
+          workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+          parent_task_ids TEXT NOT NULL DEFAULT '[]',
+          task_type TEXT NOT NULL CHECK (task_type IN ('llm_completion','web_search','code_execution','browser_action','file_operation','api_call','human_approval','research','analyze','write','code','file','deep_research')),
+          description TEXT,
+          model TEXT,
+          tools TEXT,
+          input_context TEXT,
+          output TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','blocked','cancelled','skipped')),
+          sandbox_id TEXT,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          cost TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO tasks_new SELECT * FROM tasks;
+
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+
+        CREATE INDEX idx_tasks_workflow ON tasks(workflow_id, status);
+      `);
+      logger.info('Tasks table updated with deep_research type');
+    } finally {
+      database.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
   // ── Teams (beta) ─────────────────────────────────────────────────────────
   database.exec(`
     CREATE TABLE IF NOT EXISTS teams (
@@ -307,6 +351,21 @@ export function runMigrations(): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- User memories (persistent cross-session memory)
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL DEFAULT 'general',
+      key TEXT NOT NULL,
+      content TEXT NOT NULL,
+      relevance_score REAL NOT NULL DEFAULT 1.0,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id, category);
+    CREATE INDEX IF NOT EXISTS idx_user_memories_key ON user_memories(user_id, key);
+
     -- Agent health tracking
     CREATE TABLE IF NOT EXISTS agent_health (
       id TEXT PRIMARY KEY,
@@ -321,6 +380,24 @@ export function runMigrations(): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(agent_type, model)
     );
+  `);
+
+  // ── Scheduled workflows ──────────────────────────────────────────────────
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_workflows (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      cron_expression TEXT NOT NULL,
+      workflow_config TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','deleted')),
+      last_run_at TEXT,
+      next_run_at TEXT,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_next_run ON scheduled_workflows(status, next_run_at);
   `);
 
   logger.info('Database migrations completed');

@@ -16,6 +16,7 @@ export interface AgentRequest {
   preset?: string;
   trace?: ToolTraceHooks;
   chat_id?: string;
+  user_id?: string;
   signal?: AbortSignal;
 }
 
@@ -127,7 +128,9 @@ export interface Tool {
     | 'bash'
     | 'grep'
     | 'glob'
-    | 'run_skill';
+    | 'run_skill'
+    | 'remember'
+    | 'recall';
   function?: { name: string; description: string; parameters: object };
 }
 
@@ -206,7 +209,7 @@ export interface ExecutionResult {
 // ── Orchestrator ──
 
 /** The type of specialized sub-agent that handles a task */
-export type AgentType = 'research' | 'analyze' | 'write' | 'code' | 'file';
+export type AgentType = 'research' | 'analyze' | 'write' | 'code' | 'file' | 'deep_research';
 
 /** A single task in the orchestrator's task list */
 export interface OrchestratorTask {

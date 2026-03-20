@@ -28,6 +28,7 @@ import {
 } from '../ui/components.js';
 import { setEnvVar, ENV_KEYS } from '../lib/env-manager.js';
 import { testLiteLLMConnection, testTavilyConnection } from '../lib/connection-tester.js';
+import { discoverAvailableModels, replaceModelRegistry } from '@orchestrator/model-router';
 import {
   getModelConfig,
   saveModelConfig,
@@ -307,8 +308,8 @@ async function configureAllowedModels(): Promise<void> {
 
   if (action === 'add') {
     const newModel = await input({
-      message: 'Enter model ID (e.g., litellm/gpt-4)',
-      validate: (value) => (value.includes('/') ? true : 'Model ID should be in format: provider/model'),
+      message: 'Enter configured model ID',
+      validate: (value) => (value.trim().length > 0 ? true : 'Model ID is required'),
     });
 
     if (!modelConfig.orchestrator_models.includes(newModel)) {
@@ -421,25 +422,24 @@ async function fetchModelsFromLiteLLM(): Promise<void> {
   const litellmKey = process.env.LITELLM_API_KEY;
 
   if (!litellmUrl || !litellmKey) {
-    printError('LiteLLM not configured. Please configure LiteLLM first.');
+    printError('No model endpoint configured. Please configure credentials first.');
     return;
   }
 
-  const spinner = createSpinner('Fetching models from LiteLLM...').start();
+  const spinner = createSpinner('Fetching configured models...').start();
 
   try {
-    const { fetchLiteLLMModels } = await import('../lib/connection-tester.js');
-    const models = await fetchLiteLLMModels(litellmUrl, litellmKey);
+    const models = await discoverAvailableModels();
     spinner.succeed(chalk.green(`Found ${models.length} models`));
 
     if (models.length === 0) {
-      printWarning('No models found on LiteLLM instance.');
+      printWarning('No models found from configured credentials.');
       return;
     }
 
     console.log(chalk.dim('\nAvailable models:'));
     for (const model of models.slice(0, 20)) {
-      console.log(`  • litellm/${model}`);
+      console.log(`  • ${model.id}`);
     }
     if (models.length > 20) {
       console.log(chalk.dim(`  ... and ${models.length - 20} more`));
@@ -451,7 +451,7 @@ async function fetchModelsFromLiteLLM(): Promise<void> {
     });
 
     if (update) {
-      const litellmModels = models.map((m) => normalizeModelId(m));
+      const litellmModels = models.map((m) => normalizeModelId(m.id));
       const { valid, invalid, normalized } = validateAndNormalizeModels(litellmModels);
 
       if (normalized.size > 0) {
@@ -468,6 +468,7 @@ async function fetchModelsFromLiteLLM(): Promise<void> {
         }
       }
 
+      replaceModelRegistry(models);
       updateOrchestratorModels(valid);
       printSuccess(`Updated allowed models with ${valid.length} models`);
     }

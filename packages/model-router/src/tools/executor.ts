@@ -3,6 +3,7 @@
  */
 import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, OutputBlock } from '@orchestrator/shared';
+import { saveMemory, recallMemory } from '@orchestrator/memory';
 import {
   executeBash,
   executeEditFile,
@@ -86,10 +87,23 @@ export const executeToolCall = async (
     }
 
     if (name === 'web_search') {
-      const input = { query: args['query'], search_depth: args['search_depth'] };
+      const input = {
+        query: args['query'],
+        search_depth: args['search_depth'],
+        include_domains: args['include_domains'],
+        exclude_domains: args['exclude_domains'],
+        days_recency: args['days_recency'],
+        language: args['language'],
+        content_budget: args['content_budget'],
+      };
       await traceToolCall(request, name, input);
       const results = await searchWeb(String(args['query'] ?? ''), {
         searchDepth: args['search_depth'] === 'advanced' ? 'advanced' : 'basic',
+        includeDomains: Array.isArray(args['include_domains']) ? args['include_domains'].filter((s): s is string => typeof s === 'string') : undefined,
+        excludeDomains: Array.isArray(args['exclude_domains']) ? args['exclude_domains'].filter((s): s is string => typeof s === 'string') : undefined,
+        daysRecency: typeof args['days_recency'] === 'number' ? args['days_recency'] : undefined,
+        language: typeof args['language'] === 'string' ? args['language'] : undefined,
+        contentBudget: typeof args['content_budget'] === 'number' ? args['content_budget'] : undefined,
       });
       outputBlocks.push({ type: 'search_results', results });
       await traceToolResult(request, name, input, results);
@@ -227,6 +241,24 @@ export const executeToolCall = async (
         await traceToolResult(request, name, input, result);
         return { output: JSON.stringify(result), cost: CANONICAL_TOOL_DEFS.get('glob')!.cost };
       }
+    }
+
+    if (name === 'remember') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for memory operations' }), cost: 0 };
+      const memory = saveMemory(userId, {
+        key: String(args['key'] ?? ''),
+        content: String(args['content'] ?? ''),
+        category: typeof args['category'] === 'string' ? args['category'] : 'general',
+      });
+      return { output: JSON.stringify({ saved: true, id: memory.id }), cost: 0 };
+    }
+
+    if (name === 'recall') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for memory operations' }), cost: 0 };
+      const memories = recallMemory(userId, String(args['query'] ?? ''), typeof args['limit'] === 'number' ? args['limit'] : 5);
+      return { output: JSON.stringify({ memories }), cost: 0 };
     }
 
     return { output: JSON.stringify({ error: `Unknown tool: ${name}` }), cost: 0 };

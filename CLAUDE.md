@@ -34,7 +34,7 @@ Current operational baseline: model IDs and defaults are configured for LiteLLM-
   - `router.ts`: request routing, preset/model resolution, fallback chain.
   - `registry.ts`: model registry seeding and lookup from SQLite + JSON seeds.
   - `config.ts`: runtime model config read/write.
-  - `skills.ts`: local skill loading from `~/.claude/skills` or env override.
+  - `skills.ts`: local skill loading from backend-local `skills/`.
   - `tools/*`: tavily, file ops, tool defs, executor, approvals, workspace access.
   - `adapters/*`: openai / anthropic / google / litellm adapters.
 - `packages/orchestrator`
@@ -154,7 +154,7 @@ pnpm dev & sleep 2 && pnpm seed && pnpm test
 - Core: `PORT` (default `8080`), `LOG_LEVEL`, `NODE_ENV`, `DATABASE_PATH`.
 - Providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`, `LITELLM_BASE_URL`, `LITELLM_API_KEY`.
 - Tools: `TAVILY_API_KEY`, `TAVILY_BASE_URL`, `TAVILY_RATE_LIMIT_MS`, `BRAVE_SEARCH_API_KEY`.
-- Skills: `CLAUDE_SKILLS_PATH`.
+- Skills: backend-local `skills/` directory (test-only override via `CLAUDE_SKILLS_PATH`).
 - Sandbox: `SANDBOX_WORKSPACE_ROOT`, `SANDBOX_MAX_TIMEOUT`, `SANDBOX_DEFAULT_TIMEOUT`.
 - Open Terminal: `OPEN_TERMINAL_IMAGE`, `OPEN_TERMINAL_HOST`, `OPEN_TERMINAL_START_TIMEOUT_MS`.
 

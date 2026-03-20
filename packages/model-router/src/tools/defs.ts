@@ -34,6 +34,8 @@ export const BUILTIN_TOOL_NAMES = new Set<BuiltinToolName>([
   'grep',
   'glob',
   'run_skill',
+  'remember',
+  'recall',
 ]);
 
 export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinition>([
@@ -51,6 +53,28 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
             type: 'string',
             enum: ['basic', 'advanced'],
             description: 'Search depth; basic is the default and should be used normally',
+          },
+          include_domains: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Only return results from these domains',
+          },
+          exclude_domains: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Exclude results from these domains',
+          },
+          days_recency: {
+            type: 'number',
+            description: 'Only return results from the last N days',
+          },
+          language: {
+            type: 'string',
+            description: 'Filter results by language code (e.g. "en", "fr")',
+          },
+          content_budget: {
+            type: 'number',
+            description: 'Maximum total characters of content to return',
           },
         },
         required: ['query'],
@@ -206,6 +230,46 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
           input: { type: 'string', description: 'Optional input for the skill' },
         },
         required: ['skill_id'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'remember',
+    {
+      name: 'remember',
+      description:
+        'Save information to persistent memory for future sessions. Use for preferences, project context, or important facts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            description: 'Unique identifier for this memory (e.g., "user_preference_theme", "project_goal")',
+          },
+          content: { type: 'string', description: 'The content to remember' },
+          category: {
+            type: 'string',
+            description: 'Category for organization (e.g., "preferences", "project", "research")',
+          },
+        },
+        required: ['key', 'content'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'recall',
+    {
+      name: 'recall',
+      description: 'Search persistent memory for relevant information from past sessions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query to find relevant memories' },
+          limit: { type: 'number', description: 'Maximum number of memories to return (default: 5)' },
+        },
+        required: ['query'],
       },
       cost: 0,
     },

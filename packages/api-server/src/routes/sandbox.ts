@@ -21,6 +21,11 @@ import {
   snapshotWorkspaceFiles,
 } from '@orchestrator/sandbox';
 
+const toStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+};
+
 export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /v1/sandbox/sessions — Create a sandbox session.
@@ -183,10 +188,16 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
       throw new SandboxError(`Workspace not found: ${request.params.chatId}`, 'workspace_not_found');
     }
 
+    const metadata = readWorkspaceMetadata(request.params.chatId);
+    const files = snapshotWorkspaceFiles(workspace['workspace_path'] as string);
+    const fileSet = new Set(files);
+    const createdFiles = toStringArray(metadata?.['created_files']).filter((filePath) => fileSet.has(filePath));
+
     return {
       workspace,
-      metadata: readWorkspaceMetadata(request.params.chatId),
-      files: snapshotWorkspaceFiles(workspace['workspace_path'] as string),
+      metadata,
+      files,
+      created_files: createdFiles,
     };
   });
 

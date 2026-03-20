@@ -6,6 +6,7 @@ const AGENT_VERB: Record<AgentType, string> = {
   write: 'Writing',
   code: 'Coding',
   file: 'Updating',
+  deep_research: 'Deep researching',
 };
 
 const LEADING_VERB =

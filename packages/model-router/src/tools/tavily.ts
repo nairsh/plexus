@@ -211,6 +211,11 @@ const searchWebWithPublicFallback = async (query: string): Promise<TavilySearchR
 
 export interface SearchWebOptions {
   searchDepth?: 'basic' | 'advanced';
+  includeDomains?: string[];
+  excludeDomains?: string[];
+  daysRecency?: number;
+  language?: string;
+  contentBudget?: number;
 }
 
 export const searchWeb = async (query: string, options: SearchWebOptions = {}): Promise<TavilySearchResponse> => {
@@ -219,6 +224,23 @@ export const searchWeb = async (query: string, options: SearchWebOptions = {}): 
   }
 
   try {
+    const payload: Record<string, unknown> = {
+      query,
+      search_depth: options.searchDepth ?? 'basic',
+      max_results: 10,
+      include_answer: true,
+      include_raw_content: false,
+    };
+    if (options.includeDomains && options.includeDomains.length > 0) {
+      payload['include_domains'] = options.includeDomains;
+    }
+    if (options.excludeDomains && options.excludeDomains.length > 0) {
+      payload['exclude_domains'] = options.excludeDomains;
+    }
+    if (options.daysRecency !== undefined) {
+      payload['days'] = options.daysRecency;
+    }
+
     const data = await postTavily<{
       query: string;
       answer?: string;
@@ -228,24 +250,36 @@ export const searchWeb = async (query: string, options: SearchWebOptions = {}): 
         content?: string;
         score?: number;
       }>;
-    }>('/search', {
-      query,
-      search_depth: options.searchDepth ?? 'basic',
-      max_results: 10,
-      include_answer: true,
-      include_raw_content: false,
-    });
+    }>('/search', payload);
+
+    let results = (data.results ?? []).map((result) => ({
+      title: result.title ?? '',
+      url: result.url ?? '',
+      snippet: result.content ?? '',
+      score: result.score,
+    }));
+
+    if (options.contentBudget !== undefined && options.contentBudget > 0) {
+      let remaining = options.contentBudget;
+      const trimmed: typeof results = [];
+      for (const r of results) {
+        if (remaining <= 0) break;
+        if (r.snippet.length > remaining) {
+          trimmed.push({ ...r, snippet: r.snippet.slice(0, remaining) });
+          remaining = 0;
+        } else {
+          trimmed.push(r);
+          remaining -= r.snippet.length;
+        }
+      }
+      results = trimmed;
+    }
 
     return {
       provider: 'tavily',
       query: data.query,
       answer: data.answer,
-      results: (data.results ?? []).map((result) => ({
-        title: result.title ?? '',
-        url: result.url ?? '',
-        snippet: result.content ?? '',
-        score: result.score,
-      })),
+      results,
     };
   } catch (error) {
     logger.warn({ query, error }, 'Tavily search failed, falling back to public search');

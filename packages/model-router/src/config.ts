@@ -28,26 +28,19 @@ export interface RuntimeModelConfig {
 
 const CONFIG_PATH = join(__dirname, 'model_config.json');
 
-let modelConfig: RuntimeModelConfig = JSON.parse(
-  readFileSync(CONFIG_PATH, 'utf-8')
-) as RuntimeModelConfig;
+let modelConfig: RuntimeModelConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as RuntimeModelConfig;
 
 export const getRuntimeModelConfig = (): RuntimeModelConfig => modelConfig;
 
-export const getDefaultOrchestratorModel = (): string =>
-  modelConfig.default_orchestrator_model;
+export const getDefaultOrchestratorModel = (): string => modelConfig.default_orchestrator_model;
 
-export const getAllowedOrchestratorModels = (): string[] =>
-  [...modelConfig.orchestrator_models];
+export const getAllowedOrchestratorModels = (): string[] => [...modelConfig.orchestrator_models];
 
 export const resolveOrchestratorModel = (requestedModel?: string): string => {
   const model = requestedModel ?? modelConfig.default_orchestrator_model;
 
   if (!modelConfig.orchestrator_models.includes(model)) {
-    throw new InvalidRequestError(
-      `Unsupported orchestrator model: ${model}`,
-      'orchestrator_model'
-    );
+    throw new InvalidRequestError(`Unsupported orchestrator model: ${model}`, 'orchestrator_model');
   }
 
   return model;
@@ -66,6 +59,15 @@ export const getAgentModel = (agentType: string): string => {
 
 export const getAllAgentModels = (): AgentModels => {
   return modelConfig.agent_models ?? {};
+};
+
+export const hasConfiguredModelMapping = (): boolean => {
+  return Boolean(
+    modelConfig.default_orchestrator_model ||
+    modelConfig.orchestrator_models.length > 0 ||
+    Object.keys(modelConfig.subagent_models).length > 0 ||
+    Boolean(modelConfig.agent_models && Object.keys(modelConfig.agent_models).length > 0)
+  );
 };
 
 export const saveRuntimeModelConfig = (config: RuntimeModelConfig): void => {

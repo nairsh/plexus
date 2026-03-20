@@ -26,3 +26,5 @@ export {
   type PromptVariables,
   type PromptRuntimeContext,
 } from './promptLoader.js';
+
+export { startScheduler, stopScheduler, getNextRun } from './scheduler.js';

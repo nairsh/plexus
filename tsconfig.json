@@ -3,8 +3,9 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "nodenext",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
+    "jsx": "react-jsx",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -17,11 +18,10 @@
       "@orchestrator/model-router": ["./packages/model-router/src/index.ts"],
       "@orchestrator/billing": ["./packages/billing/src/index.ts"],
       "@orchestrator/sandbox": ["./packages/sandbox/src/index.ts"],
-      "@orchestrator/orchestrator": ["./packages/orchestrator/src/index.ts"]
+      "@orchestrator/orchestrator": ["./packages/orchestrator/src/index.ts"],
+      "@orchestrator/memory": ["./packages/memory/src/index.ts"]
     }
   },
-  "include": [
-    "packages/*/src/**/*.{ts,tsx}",
-    "scripts/**/*.ts"
-  ]
+  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx", "scripts/**/*.ts"],
+  "exclude": ["packages/menubar/**"]
 }

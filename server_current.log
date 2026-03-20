@@ -1,23 +1,216 @@
 
-> orchestrator-platform@0.1.0 dev
+> orchestrator-platform@0.1.0 dev /Users/sharathn/coding/dev/orchestrator-platform
 > tsx packages/api-server/src/index.ts
 
-Failed to start server: Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
-    at Server.setupListenHandle [as _listen2] (node:net:2008:16)
-    at listenInCluster (node:net:2065:12)
-    at node:net:2274:7
-    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
-  code: 'EADDRINUSE',
-  errno: -48,
-  syscall: 'listen',
-  address: '0.0.0.0',
-  port: 3000
-}
-[18:46:39.708] [32mINFO[39m (24699): [36mRunning database migrations...[39m
-[18:46:39.712] [32mINFO[39m (24699): [36mSQLite database connected[39m
+[22:19:22.298] [32mINFO[39m (29545): [36mRunning database migrations...[39m
+[22:19:22.305] [32mINFO[39m (29545): [36mSQLite database connected[39m
     [35mpath[39m: "/Users/sharathn/coding/dev/orchestrator-platform/data/orchestrator.db"
-[18:46:39.712] [32mINFO[39m (24699): [36mDatabase migrations completed[39m
-[18:46:39.712] [32mINFO[39m (24699): [36mSeeding model registry...[39m
-[18:46:39.713] [32mINFO[39m (24699): [36mModel registry seeded[39m
-    [35mcount[39m: 17
-[18:46:39.785] [32mINFO[39m (24699): [36mBackground services started (rate limit cleaner, session reaper, credit meter)[39m
+[22:19:22.306] [32mINFO[39m (29545): [36mDatabase migrations completed[39m
+[22:19:22.306] [32mINFO[39m (29545): [36mSeeding model registry...[39m
+[22:19:22.723] [32mINFO[39m (29545): [36mModel registry refreshed[39m
+    [35mcount[39m: 8
+[22:19:22.798] [32mINFO[39m (29545): [36mTeams routes registered (beta)[39m
+[22:19:22.800] [32mINFO[39m (29545): [36mWorkflow scheduler started[39m
+[22:19:22.800] [32mINFO[39m (29545): [36mBackground services started (rate limit cleaner, session reaper, credit meter, workflow scheduler)[39m
+[22:19:22.802] [32mINFO[39m (29545): [36mServer started on port 8080[39m
+    [35mport[39m: 8080
+[22:37:19.360] [32mINFO[39m (29545): [36mLiteLLM adapter initialized[39m
+    [35mbaseURL[39m: "http://100.91.248.114:4001"
+    [35mprovider[39m: "litellm"
+[22:37:19.381] [32mINFO[39m (29545): [36mSandbox workspace activated[39m
+    [35mchatId[39m: "test-chat-1774042639337"
+    [35msessionId[39m: "2899945e-fdf7-4d38-98e1-ff903a1a1471"
+    [35mtargetDir[39m: "/var/folders/xb/43rdgv5x3rjdplz5lfk0zgm80000gn/T/sandbox-2899945e-fdf7-4d38-98e1-ff903a1a1471/workspace"
+[22:37:19.577] [33mWARN[39m (29545): [36mOpen Terminal unavailable, falling back to local workspace mode[39m
+    [35mchatId[39m: "test-chat-1774042639337"
+    [35msessionId[39m: "2899945e-fdf7-4d38-98e1-ff903a1a1471"
+    error: "failed to connect to the docker API at unix:///Users/sharathn/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/sharathn/.docker/run/docker.sock: connect: no such file or directory"
+[22:37:19.577] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "2899945e-fdf7-4d38-98e1-ff903a1a1471"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "483e0a84-091c-4327-b718-6bee876f174d"
+[22:37:19.622] [32mINFO[39m (29545): [36mCredits added[39m
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+    [35mamount[39m: 10
+    [35mdescription[39m: "Manual top-up"
+    [35mnewBalance[39m: 110
+[22:37:19.628] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "6b30c2ce-69c4-4bca-9266-2ff3996f816e"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.631] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "07e90e24-c52b-48c9-a7bf-28bc787d24e7"
+    [35mlanguage[39m: "javascript"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.876] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "6b30c2ce-69c4-4bca-9266-2ff3996f816e"
+[22:37:19.944] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "07e90e24-c52b-48c9-a7bf-28bc787d24e7"
+[22:37:19.948] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "a413313c-2fe9-47e4-b672-85b15e93729b"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.948] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "14780d55-60ec-4411-a742-975d164a802a"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.950] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "d19c13d3-a0b4-4266-81a2-573e827b839c"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.951] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "70fc74ca-b4d7-4c4f-a791-30baafad4eb0"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.952] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "e17a3655-40dc-443f-9385-375f36124dc7"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.952] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "a1b9d59f-c7cb-475f-b99d-7d7317c33b73"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.952] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "f614e7a7-eb6d-495f-87e0-a1dba97a7a82"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.953] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "9f0ec639-c925-4f10-9dd3-190eababf9de"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.953] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "d5e9e703-8c51-4b30-b64e-b73a56f11edf"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:19.954] [32mINFO[39m (29545): [36mSandbox session created[39m
+    [35msessionId[39m: "e8760d73-34a7-4681-b33f-633262910b4a"
+    [35mlanguage[39m: "python"
+    [35muserId[39m: "28faadff-914f-4a08-b857-b2f3b3cd47ac"
+[22:37:20.083] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "a413313c-2fe9-47e4-b672-85b15e93729b"
+[22:37:20.084] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "14780d55-60ec-4411-a742-975d164a802a"
+[22:37:20.085] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "d19c13d3-a0b4-4266-81a2-573e827b839c"
+[22:37:20.085] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "70fc74ca-b4d7-4c4f-a791-30baafad4eb0"
+[22:37:20.086] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "e17a3655-40dc-443f-9385-375f36124dc7"
+[22:37:20.086] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "a1b9d59f-c7cb-475f-b99d-7d7317c33b73"
+[22:37:20.086] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "f614e7a7-eb6d-495f-87e0-a1dba97a7a82"
+[22:37:20.087] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "9f0ec639-c925-4f10-9dd3-190eababf9de"
+[22:37:20.087] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "d5e9e703-8c51-4b30-b64e-b73a56f11edf"
+[22:37:20.087] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "e8760d73-34a7-4681-b33f-633262910b4a"
+[22:37:20.094] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:20.100] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:20.102] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:20.103] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:20.112] [31mERROR[39m (29545): [36mLiteLLM streaming failed[39m
+    [35mrequestedModel[39m: "litellm/ali/MiniMax-M2.5"
+    [35mlitellmModel[39m: "ali/MiniMax-M2.5"
+    error: "Request was aborted."
+[22:37:20.112] [31mERROR[39m (29545): [36mBackground workflow execution failed[39m
+    [35mworkflowId[39m: "48d20887-8233-470d-9312-1600be5a89a9"
+    error: "Request was aborted."
+[22:37:22.823] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "483e0a84-091c-4327-b718-6bee876f174d"
+    [35mamount[39m: 1
+    [35mdescription[39m: "Sandbox session 2899945e-fdf7-4d38-98e1-ff903a1a1471 (python)"
+    [35mnewBalance[39m: 99
+[22:37:23.288] [32mINFO[39m (29545): [36mLiteLLM request completed[39m
+    [35mrequestedModel[39m: "litellm/gemini-3.1-flash-lite-preview"
+    [35mlitellmModel[39m: "gemini-3.1-flash-lite-preview"
+    [35minputTokens[39m: 3174
+    [35moutputTokens[39m: 154
+    [35mtotalCost[39m: 0.005
+[22:37:23.289] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "34a80c11-816c-47c4-908e-4a4d5b702125"
+    [35mamount[39m: 0.005
+    [35mdescription[39m: "API response: litellm/gemini-3.1-flash-lite-preview"
+    [35mnewBalance[39m: 49.995
+[22:37:26.361] [32mINFO[39m (29545): [36mLiteLLM request completed[39m
+    [35mrequestedModel[39m: "litellm/gemini-3.1-flash-lite-preview"
+    [35mlitellmModel[39m: "gemini-3.1-flash-lite-preview"
+    [35minputTokens[39m: 2988
+    [35moutputTokens[39m: 634
+    [35mtotalCost[39m: 0.005
+[22:37:26.364] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "426aaf2c-4554-4104-aef4-158f76416752"
+    [35mamount[39m: 0.005
+    [35mdescription[39m: "API response: litellm/gemini-3.1-flash-lite-preview"
+    [35mnewBalance[39m: 99.995
+[22:37:26.977] [32mINFO[39m (29545): [36mLiteLLM request completed[39m
+    [35mrequestedModel[39m: "litellm/gemini-3.1-flash-lite-preview"
+    [35mlitellmModel[39m: "gemini-3.1-flash-lite-preview"
+    [35minputTokens[39m: 1611
+    [35moutputTokens[39m: 291
+    [35mtotalCost[39m: 0.005
+[22:37:26.978] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "34a80c11-816c-47c4-908e-4a4d5b702125"
+    [35mamount[39m: 0.005
+    [35mdescription[39m: "API response: litellm/gemini-3.1-flash-lite-preview"
+    [35mnewBalance[39m: 49.99
+[22:37:31.335] [32mINFO[39m (29545): [36mLiteLLM request completed[39m
+    [35mrequestedModel[39m: "litellm/gemini-3.1-flash-lite-preview"
+    [35mlitellmModel[39m: "gemini-3.1-flash-lite-preview"
+    [35minputTokens[39m: 3959
+    [35moutputTokens[39m: 309
+    [35mtotalCost[39m: 0.005
+[22:37:31.337] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "426aaf2c-4554-4104-aef4-158f76416752"
+    [35mamount[39m: 0.005
+    [35mdescription[39m: "API response: litellm/gemini-3.1-flash-lite-preview"
+    [35mnewBalance[39m: 99.99
+[22:37:32.192] [32mINFO[39m (29545): [36mWork item created[39m
+    [35mworkflowId[39m: "52960b6d-844b-413a-a73d-464dc644ee10"
+    [35mitemId[39m: "52960b6d-844b-413a-a73d-464dc644ee10_research_ts_5_4_features"
+    [35magentType[39m: "research"
+[22:37:33.293] [32mINFO[39m (29545): [36mDispatching to sub-agent[39m
+    [35mworkflowId[39m: "52960b6d-844b-413a-a73d-464dc644ee10"
+    [35mtaskId[39m: "52960b6d-844b-413a-a73d-464dc644ee10_research_ts_5_4_features"
+    [35magentType[39m: "research"
+    [35mmodel[39m: "litellm/ali/MiniMax-M2.5"
+    [35mpromptLength[39m: 155
+[22:37:49.638] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:49.658] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:49.660] [33mWARN[39m (29545): [36mModel not found in registry, skipping[39m
+    [35mmodelId[39m: "openai/gpt-4o-mini"
+[22:37:49.667] [32mINFO[39m (29545): [36mSandbox workspace deactivated[39m
+    [35mchatId[39m: "test-chat-1774042639337"
+    [35msessionId[39m: "2899945e-fdf7-4d38-98e1-ff903a1a1471"
+[22:37:49.667] [32mINFO[39m (29545): [36mSandbox session terminated[39m
+    [35msessionId[39m: "2899945e-fdf7-4d38-98e1-ff903a1a1471"
+[22:38:04.178] [33mWARN[39m (29545): [36mSubagent wait timed out or failed[39m
+    [35mworkflowId[39m: "52960b6d-844b-413a-a73d-464dc644ee10"
+    [35mtodoId[39m: "52960b6d-844b-413a-a73d-464dc644ee10_research_ts_5_4_features"
+    error: "timeout"
+[22:38:28.012] [32mINFO[39m (29545): [36mLiteLLM request completed[39m
+    [35mrequestedModel[39m: "litellm/ali/MiniMax-M2.5"
+    [35mlitellmModel[39m: "ali/MiniMax-M2.5"
+    [35minputTokens[39m: 69875
+    [35moutputTokens[39m: 2232
+    [35mtotalCost[39m: 0.007
+[22:38:28.015] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "426aaf2c-4554-4104-aef4-158f76416752"
+    [35mamount[39m: 0.007
+    [35mdescription[39m: "Agent task: 52960b6d-844b-413a-a73d-464dc644ee10_research_ts_5_4_features (research)"
+    [35mnewBalance[39m: 99.983
+[22:38:28.015] [32mINFO[39m (29545): [36mCredits debited[39m
+    [35muserId[39m: "426aaf2c-4554-4104-aef4-158f76416752"
+    [35mamount[39m: 0.007
+    [35mdescription[39m: "52960b6d-844b-413a-a73d-464dc644ee10_research_ts_5_4_features"
+    [35mnewBalance[39m: 99.976
+[22:44:30.022] [32mINFO[39m (29545): [36mShutting down...[39m
+[22:44:30.023] [32mINFO[39m (29545): [36mWorkflow scheduler stopped[39m
+[22:44:30.025] [32mINFO[39m (29545): [36mDatabase connection closed[39m

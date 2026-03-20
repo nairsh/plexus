@@ -240,6 +240,11 @@ export class OpenAIAdapter extends BaseAdapter {
         }
       }
 
+      // Flush any remaining tool calls not triggered by finish_reason === 'tool_calls'
+      for (const toolChunk of toolAccumulator.flush()) {
+        yield toolChunk;
+      }
+
       yield { type: 'done' };
     } catch (err) {
       yield { type: 'error', data: { message: getErrorMessage(err) } };
@@ -247,6 +252,30 @@ export class OpenAIAdapter extends BaseAdapter {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    return [];
+    if (!process.env.OPENAI_API_KEY) {
+      return [];
+    }
+
+    try {
+      const page = await this.client.models.list();
+      const models: Array<{ id: string }> = [];
+
+      for await (const model of page as AsyncIterable<{ id: string }>) {
+        models.push(model);
+      }
+
+      return models.map((model) => ({
+        id: `openai/${model.id}`,
+        provider: 'openai',
+        display_name: model.id,
+        capabilities: [],
+        cost_per_1m_input: 0,
+        cost_per_1m_output: 0,
+        context_window: 128000,
+        max_output_tokens: 0,
+      }));
+    } catch {
+      return [];
+    }
   }
 }

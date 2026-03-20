@@ -54,6 +54,7 @@ export interface WorkflowSummary {
   user_prompt?: string;
   orchestrator_model?: string | null;
   status: string;
+  error?: string | null;
   credits_consumed: number;
   started_at?: string | null;
   ended_at?: string | null;

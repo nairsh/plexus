@@ -5,7 +5,12 @@
  * The orchestrator dispatches tasks to these agents; they return their output as a string.
  */
 
-import { routeRequest, getOpenTerminalSessionForChat, getAgentModel as getConfigAgentModel } from '@orchestrator/model-router';
+import {
+  routeRequest,
+  getOpenTerminalSessionForChat,
+  getAgentModel as getConfigAgentModel,
+  getAllSkills,
+} from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
 import { createSession, terminateSession } from '@orchestrator/sandbox';
 import {
@@ -142,12 +147,19 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     skills: [],
     promptFile: 'file.md',
   },
+
+  deep_research: {
+    model: 'litellm/gemini-3-flash-preview',
+    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'run_skill' }],
+    skills: [],
+    promptFile: 'deep-research.md',
+  },
 };
 
 const buildAgentInstructions = (agentType: AgentType): string => {
   const runtimeContext = getPromptRuntimeContext();
   const config = AGENT_CONFIGS[agentType];
-  return loadPrompt(config.promptFile, {
+  const basePrompt = loadPrompt(config.promptFile, {
     currentDate: runtimeContext.currentDate,
     currentTime: runtimeContext.currentTime,
     currentDateTime: runtimeContext.currentDateTime,
@@ -156,6 +168,14 @@ const buildAgentInstructions = (agentType: AgentType): string => {
     modelBackend: runtimeContext.modelBackend,
     agentType,
   });
+
+  const skills = getAllSkills();
+  if (skills.length === 0) {
+    return basePrompt;
+  }
+
+  const skillLines = skills.map((skill) => `- ${skill.id}: ${skill.description}`);
+  return `${basePrompt}\n\nAvailable skills:\n${skillLines.join('\n')}\nUse run_skill with an exact skill_id when a skill materially improves task quality.`;
 };
 
 // ── Execution context passed from engine ──
@@ -225,7 +245,7 @@ export async function dispatchToAgent(
       input: prompt,
       instructions: buildAgentInstructions(task.agent_type),
       tools: config.tools.length > 0 ? config.tools : undefined,
-      allowed_skills: config.skills,
+      allowed_skills: config.skills.length > 0 ? config.skills : undefined,
       max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
       temperature: task.agent_type === 'write' ? WRITE_TEMPERATURE : RESEARCH_TEMPERATURE,
       trace: ctx.trace,

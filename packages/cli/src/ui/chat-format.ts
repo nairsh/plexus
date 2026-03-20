@@ -180,6 +180,8 @@ export const formatAgentLabel = (agentType: string): string => {
       return 'Coder';
     case 'file':
       return 'File Agent';
+    case 'deep_research':
+      return 'Deep Researcher';
     default:
       return agentType.charAt(0).toUpperCase() + agentType.slice(1);
   }

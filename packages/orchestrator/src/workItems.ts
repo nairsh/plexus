@@ -1,14 +1,7 @@
 import { getDb, getErrorMessage, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
 import type { AgentType, TaskMetadata, TaskRow } from '@orchestrator/shared';
 
-export type WorkItemStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'blocked'
-  | 'cancelled'
-  | 'skipped';
+export type WorkItemStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'skipped';
 
 export interface WorkItem {
   id: string;
@@ -26,8 +19,15 @@ export interface WorkItem {
   completedAt?: string | null;
 }
 
-
 const DEFAULT_METADATA: TaskMetadata = { origin: 'planned' };
+
+export const isWorkItemDependencySatisfied = (status: WorkItemStatus): boolean => {
+  return status === 'completed' || status === 'skipped';
+};
+
+export const isWorkItemSettled = (status: WorkItemStatus): boolean => {
+  return status === 'completed' || status === 'failed' || status === 'skipped' || status === 'cancelled';
+};
 
 function parseMetadata(rawValue: string | null): TaskMetadata {
   if (!rawValue) {
@@ -187,7 +187,12 @@ export function updateWorkItem(input: {
       sets.push("started_at = datetime('now')");
     }
 
-    if (input.status === 'completed' || input.status === 'failed' || input.status === 'skipped' || input.status === 'cancelled') {
+    if (
+      input.status === 'completed' ||
+      input.status === 'failed' ||
+      input.status === 'skipped' ||
+      input.status === 'cancelled'
+    ) {
       sets.push("completed_at = datetime('now')");
     }
   }
@@ -228,22 +233,18 @@ export function updateWorkItem(input: {
 }
 
 export function getReadyWorkItems(workItems: WorkItem[]): WorkItem[] {
+  const byId = new Map(workItems.map((item) => [item.id, item] as const));
   return workItems.filter((item) => {
     if (item.status !== 'pending') return false;
     return item.dependsOn.every((depId) => {
-      const dep = workItems.find((candidate) => candidate.id === depId);
-      return dep?.status === 'completed' || dep?.status === 'skipped';
+      const dep = byId.get(depId);
+      return dep ? isWorkItemDependencySatisfied(dep.status) : false;
     });
   });
 }
 
 export function areWorkItemsSettled(workItems: WorkItem[]): boolean {
-  return workItems.every((item) =>
-    item.status === 'completed' ||
-    item.status === 'failed' ||
-    item.status === 'skipped' ||
-    item.status === 'cancelled'
-  );
+  return workItems.every((item) => isWorkItemSettled(item.status));
 }
 
 export function formatWorkItemsForPrompt(workItems: WorkItem[], maxOutputLength = 1500): string {
@@ -265,9 +266,10 @@ export function formatWorkItemsForPrompt(workItems: WorkItem[], maxOutputLength 
       lines.push(`  artifact: ${item.metadata.output_artifact}`);
     }
     if (item.output && (item.status === 'completed' || item.status === 'failed')) {
-      const preview = item.output.length > maxOutputLength
-        ? `${item.output.substring(0, maxOutputLength)}\n[...truncated...]`
-        : item.output;
+      const preview =
+        item.output.length > maxOutputLength
+          ? `${item.output.substring(0, maxOutputLength)}\n[...truncated...]`
+          : item.output;
       lines.push(`  output: ${preview.replace(/\n/g, ' ')}`);
     }
   }

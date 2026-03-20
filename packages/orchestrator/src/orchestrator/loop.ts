@@ -1,4 +1,5 @@
 import { debitCredits } from '@orchestrator/billing';
+import { recallMemory } from '@orchestrator/memory';
 import { computeCost, resolveOrchestratorModel, routeStreamingRequest } from '@orchestrator/model-router';
 import {
   DEFAULT_TEMPERATURE,
@@ -9,7 +10,7 @@ import {
 } from '@orchestrator/shared';
 import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
-import { getWorkItemDisplayId, listWorkItems } from '../workItems.js';
+import { formatWorkItemsForPrompt, listWorkItems } from '../workItems.js';
 import { completeWorkflow, failWorkflow } from '../subagents/lifecycle.js';
 import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
@@ -23,24 +24,6 @@ import {
   workflows,
 } from '../workflow/state.js';
 import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow } from '../workflow/persistence.js';
-
-const buildTodoContext = (state: WorkflowState): string => {
-  const todos = listWorkItems(state.id);
-  if (todos.length === 0) {
-    return 'No todos yet.';
-  }
-
-  return `Current todos:\n${todos
-    .map(
-      (todo) =>
-        `- ${getWorkItemDisplayId(state.id, todo.id)}: [${todo.status}] ${todo.description} (${todo.agentType})${
-          todo.dependsOn.length > 0
-            ? ` (depends on: ${todo.dependsOn.map((depId) => getWorkItemDisplayId(state.id, depId)).join(', ')})`
-            : ''
-        }`
-    )
-    .join('\n')}`;
-};
 
 const parseStructuredOutputText = (
   text: string
@@ -78,13 +61,33 @@ const parseStructuredOutputText = (
   }
 };
 
+const toToolUseBlock = (data: unknown): OutputBlock | null => {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const record = data as Record<string, unknown>;
+
+  const name = typeof record.name === 'string' ? record.name : null;
+  if (!name) return null;
+
+  const rawArgs = record.arguments;
+  const argsIsObject = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs);
+  if (typeof rawArgs !== 'string' && !argsIsObject) return null;
+
+  return {
+    type: 'tool_use',
+    id: typeof record.id === 'string' ? record.id : undefined,
+    name,
+    arguments: (argsIsObject ? (rawArgs as Record<string, unknown>) : rawArgs) as string | Record<string, unknown>,
+  };
+};
+
 export const callOrchestrator = async (
   state: WorkflowState,
   iteration: number
 ): Promise<{ toolCalls: ToolCall[]; responseText: string; rawOutput: OutputBlock[] }> => {
   const runtimeContext = getPromptRuntimeContext();
+  const workItems = listWorkItems(state.id);
   const instructions = loadPrompt('orchestrator.md', {
-    todoContext: buildTodoContext(state),
+    todoContext: workItems.length === 0 ? 'No todos yet.' : formatWorkItemsForPrompt(workItems),
     conversationHistory: formatConversationHistory(state.conversationHistory),
     currentDate: runtimeContext.currentDate,
     currentTime: runtimeContext.currentTime,
@@ -130,7 +133,10 @@ export const callOrchestrator = async (
     }
 
     if (chunk.type === 'tool_use' && chunk.data && typeof chunk.data === 'object') {
-      rawOutput.push({ type: 'tool_use', ...(chunk.data as Record<string, unknown>) });
+      const block = toToolUseBlock(chunk.data);
+      if (block) {
+        rawOutput.push(block);
+      }
       continue;
     }
 
@@ -264,6 +270,19 @@ export const runWorkflow = async (
       });
       workflows.set(id, state);
     }
+  }
+
+  // Inject relevant memories from past sessions
+  try {
+    const memories = recallMemory(userId, config.objective, 10);
+    if (memories.length > 0) {
+      const memoryLines = memories.map((m) => `- [${m.category}/${m.key}]: ${m.content}`).join('\n');
+      const memoryContext = `\n\n## Relevant Memory from Past Sessions\n${memoryLines}\n`;
+      const trimmed = memoryContext.length > 2000 ? memoryContext.substring(0, 2000) + '...' : memoryContext;
+      state.messages.unshift({ role: 'system', content: trimmed });
+    }
+  } catch (err) {
+    logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Failed to recall memories (non-critical)');
   }
 
   try {

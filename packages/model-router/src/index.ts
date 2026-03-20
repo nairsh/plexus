@@ -1,9 +1,10 @@
 export { routeRequest, routeStreamingRequest, resolveRequest, parseModelId, getAdapter } from './router.js';
 export {
   seedModelRegistry,
+  discoverAvailableModels,
+  replaceModelRegistry,
   getModelInfo,
   getAllModels,
-  getFallbackChain,
   computeCost,
   getPreset,
   getAllPresets,
@@ -13,6 +14,7 @@ export {
   getRuntimeModelConfig,
   getDefaultOrchestratorModel,
   getAllowedOrchestratorModels,
+  hasConfiguredModelMapping,
   resolveOrchestratorModel,
   getSubagentModel,
   getAgentModel,
@@ -22,7 +24,13 @@ export {
   type RuntimeModelConfig,
   type AgentModels,
 } from './config.js';
-export { searchWeb, fetchUrl, type TavilySearchResponse, type TavilySearchResult, type TavilyFetchResponse } from './tools/tavily.js';
+export {
+  searchWeb,
+  fetchUrl,
+  type TavilySearchResponse,
+  type TavilySearchResult,
+  type TavilyFetchResponse,
+} from './tools/tavily.js';
 export {
   executeReadFile,
   executeWriteFile,
@@ -53,10 +61,8 @@ export {
   refreshSkillsCache,
   applySkillToRequest,
   ensureRunSkillTool,
+  upsertSkill,
+  deleteSkill,
+  type UpsertSkillInput,
 } from './skills.js';
-export {
-  checkFileLint,
-  checkProjectLint,
-  formatLintResultsForAgent,
-  detectLanguage,
-} from './tools/linting.js';
+export { checkFileLint, checkProjectLint, formatLintResultsForAgent, detectLanguage } from './tools/linting.js';
