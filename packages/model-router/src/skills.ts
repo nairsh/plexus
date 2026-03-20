@@ -1,12 +1,14 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, Skill, Tool } from '@orchestrator/shared';
 
 const RESERVED_NAMES = new Set(['anthropic', 'claude']);
 const NAME_REGEX = /^[a-z0-9-]{1,64}$/;
-const DEFAULT_SKILLS_DIR = join(homedir(), '.claude', 'skills');
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const BACKEND_ROOT = resolve(MODULE_DIR, '../../..');
+const DEFAULT_SKILLS_DIR = join(BACKEND_ROOT, 'skills');
 
 let cachedSkills: Skill[] | null = null;
 
@@ -15,9 +17,20 @@ interface FrontmatterResult {
   body: string;
 }
 
+export interface UpsertSkillInput {
+  name?: string;
+  description: string;
+  prompt_addendum: string;
+  tools?: Tool[];
+}
+
 export function getSkillsRoot(): string {
-  // Read directly (not via cached getEnv()) so tests can override CLAUDE_SKILLS_PATH at runtime.
-  return process.env['CLAUDE_SKILLS_PATH'] ?? DEFAULT_SKILLS_DIR;
+  // Skills are backend-local by default (repoRoot/skills).
+  // Keep a test-only override so unit tests can isolate filesystem state.
+  if ((process.env['NODE_ENV'] === 'test' || process.env['VITEST']) && process.env['CLAUDE_SKILLS_PATH']) {
+    return process.env['CLAUDE_SKILLS_PATH'];
+  }
+  return DEFAULT_SKILLS_DIR;
 }
 
 export function refreshSkillsCache(): void {
@@ -33,6 +46,59 @@ export function getAllSkills(): Skill[] {
 export function getSkillById(skillId: string): Skill | null {
   const skills = getAllSkills();
   return skills.find((skill) => skill.id === skillId) ?? null;
+}
+
+export function upsertSkill(skillId: string, input: UpsertSkillInput): Skill {
+  assertValidSkillId(skillId);
+
+  const name = (input.name ?? skillId).trim();
+  const description = input.description.trim();
+  const promptAddendum = input.prompt_addendum.trim();
+  const tools = normalizeSkillTools(input.tools ?? []);
+
+  validateSkillMetadata(skillId, name, description);
+
+  const root = getSkillsRoot();
+  mkdirSync(root, { recursive: true });
+
+  const skillDir = join(root, skillId);
+  mkdirSync(skillDir, { recursive: true });
+
+  const content = serializeSkillFile({
+    id: skillId,
+    name,
+    description,
+    prompt_addendum: promptAddendum,
+    tools,
+  });
+
+  writeFileSync(join(skillDir, 'SKILL.md'), content, 'utf-8');
+  refreshSkillsCache();
+
+  return {
+    id: skillId,
+    name,
+    description,
+    prompt_addendum: promptAddendum,
+    tools: tools.length > 0 ? tools : undefined,
+  };
+}
+
+export function deleteSkill(skillId: string): boolean {
+  assertValidSkillId(skillId);
+
+  const skillDir = join(getSkillsRoot(), skillId);
+  try {
+    if (!statSync(skillDir).isDirectory()) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  rmSync(skillDir, { recursive: true, force: true });
+  refreshSkillsCache();
+  return true;
 }
 
 export function ensureRunSkillTool(tools?: Tool[]): Tool[] | undefined {
@@ -90,7 +156,7 @@ function loadSkillsFromDisk(): Skill[] {
 
     validateSkillMetadata(entry.name, name, description);
 
-    const tools = parseTools(meta['tools']);
+    const tools = parseToolsFromMeta(meta);
 
     skills.push({
       id: entry.name,
@@ -130,10 +196,53 @@ function parseFrontmatter(raw: string): FrontmatterResult {
 function parseYamlLike(lines: string[]): Record<string, string | string[]> {
   const meta: Record<string, string | string[]> = {};
   let currentListKey: string | null = null;
+  let blockKey: string | null = null;
+  let blockMode: 'literal' | 'folded' = 'literal';
+  let blockIndent: number | null = null;
+  let blockLines: string[] = [];
 
-  for (const line of lines) {
+  const flushBlock = () => {
+    if (!blockKey) return;
+    const value = blockMode === 'folded'
+      ? blockLines.join('\n').replace(/\n{2,}/g, '\n\n').replace(/\n/g, ' ')
+      : blockLines.join('\n');
+    meta[blockKey] = value.trim();
+    blockKey = null;
+    blockIndent = null;
+    blockLines = [];
+  };
+
+  let idx = 0;
+  while (idx < lines.length) {
+    const line = lines[idx] ?? '';
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    if (blockKey) {
+      if (!trimmed) {
+        blockLines.push('');
+        idx += 1;
+        continue;
+      }
+
+      const indent = line.match(/^\s*/)![0].length;
+      if (blockIndent === null) {
+        blockIndent = indent;
+      }
+
+      if (indent < blockIndent) {
+        flushBlock();
+        continue;
+      }
+
+      blockLines.push(line.slice(blockIndent));
+      idx += 1;
+      continue;
+    }
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      idx += 1;
+      continue;
+    }
 
     const listMatch = trimmed.match(/^-\s+(.*)$/);
     if (listMatch && currentListKey) {
@@ -144,27 +253,43 @@ function parseYamlLike(lines: string[]): Record<string, string | string[]> {
       } else {
         meta[currentListKey] = [value];
       }
+      idx += 1;
       continue;
     }
 
     const kvMatch = line.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
     if (!kvMatch) {
       currentListKey = null;
+      idx += 1;
       continue;
     }
 
     const key = kvMatch[1];
     const rawValue = kvMatch[2].trim();
 
+    if (rawValue === '|' || rawValue === '>') {
+      currentListKey = null;
+      blockKey = key;
+      blockMode = rawValue === '>' ? 'folded' : 'literal';
+      blockIndent = null;
+      blockLines = [];
+      idx += 1;
+      continue;
+    }
+
     if (!rawValue) {
       currentListKey = key;
       meta[key] = [];
+      idx += 1;
       continue;
     }
 
     currentListKey = null;
     meta[key] = stripQuotes(rawValue);
+    idx += 1;
   }
+
+  flushBlock();
 
   return meta;
 }
@@ -222,13 +347,54 @@ function parseTools(value: string | string[] | undefined): Tool[] {
   const tools: Tool[] = [];
   for (const entry of raw) {
     if (!entry) continue;
-    if (!isToolType(entry)) {
+    const normalizedType = normalizeToolType(entry);
+    if (!normalizedType) {
       throw new Error(`Unsupported tool type '${entry}' in SKILL.md tools`);
     }
-    tools.push({ type: entry });
+    tools.push({ type: normalizedType });
   }
 
   return tools;
+}
+
+function parseToolsFromMeta(meta: Record<string, string | string[]>): Tool[] {
+  const directTools = parseTools(meta['tools']);
+  if (directTools.length > 0) return directTools;
+  return parseTools(meta['allowed-tools'] ?? meta['allowed_tools']);
+}
+
+function normalizeToolType(value: string): Tool['type'] | null {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '_');
+
+  const aliasMap: Record<string, Tool['type']> = {
+    web_search: 'web_search',
+    'web-search': 'web_search',
+    websearch: 'web_search',
+    fetch_url: 'fetch_url',
+    'fetch-url': 'fetch_url',
+    fetchurl: 'fetch_url',
+    function: 'function',
+    code_execution: 'code_execution',
+    'code-execution': 'code_execution',
+    file_read: 'file_read',
+    'file-read': 'file_read',
+    read: 'file_read',
+    file_write: 'file_write',
+    'file-write': 'file_write',
+    write: 'file_write',
+    file_edit: 'file_edit',
+    'file-edit': 'file_edit',
+    edit: 'file_edit',
+    bash: 'bash',
+    grep: 'grep',
+    glob: 'glob',
+    run_skill: 'run_skill',
+    'run-skill': 'run_skill',
+    remember: 'remember',
+    recall: 'recall',
+  };
+
+  return aliasMap[normalized] ?? null;
 }
 
 function isToolType(value: string): value is Tool['type'] {
@@ -244,7 +410,58 @@ function isToolType(value: string): value is Tool['type'] {
     'grep',
     'glob',
     'run_skill',
+    'remember',
+    'recall',
   ].includes(value);
+}
+
+function normalizeSkillTools(tools: Tool[]): Tool[] {
+  const normalized: Tool[] = [];
+  const seen = new Set<string>();
+
+  for (const tool of tools) {
+    const type = tool.type;
+    if (!isToolType(type)) {
+      throw new Error(`Unsupported tool type '${String(type)}' in skill tools`);
+    }
+    if (seen.has(type)) continue;
+    seen.add(type);
+    normalized.push({ type });
+  }
+
+  return normalized;
+}
+
+function assertValidSkillId(skillId: string): void {
+  if (!NAME_REGEX.test(skillId)) {
+    throw new Error(`Invalid skill id '${skillId}'`);
+  }
+  if (RESERVED_NAMES.has(skillId)) {
+    throw new Error(`Skill name '${skillId}' is reserved`);
+  }
+}
+
+function serializeSkillFile(skill: Skill): string {
+  const lines: string[] = ['---', `name: ${skill.name}`];
+
+  if (skill.description.includes('\n')) {
+    lines.push('description: |');
+    for (const line of skill.description.split('\n')) {
+      lines.push(`  ${line}`);
+    }
+  } else {
+    lines.push(`description: ${skill.description}`);
+  }
+
+  if (skill.tools && skill.tools.length > 0) {
+    lines.push('tools:');
+    for (const tool of skill.tools) {
+      lines.push(`  - ${tool.type}`);
+    }
+  }
+
+  lines.push('---', '', skill.prompt_addendum.trim(), '');
+  return lines.join('\n');
 }
 
 function mergeTools(base: Tool[], extra: Tool[]): Tool[] {

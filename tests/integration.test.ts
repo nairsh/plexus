@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 
-const BASE_URL = 'http://localhost:8080';
+const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
 let API_KEY = '';
 
 /**
@@ -48,9 +48,7 @@ beforeAll(async () => {
     const res = await fetch(`${BASE_URL}/health`);
     if (!res.ok) throw new Error('Server not healthy');
   } catch {
-    throw new Error(
-      'Server is not running. Start it with: pnpm dev & sleep 2 && pnpm seed'
-    );
+    throw new Error('Server is not running. Start it with: pnpm dev & sleep 2 && pnpm seed');
   }
 
   // Get API key from env or create via seed-style approach
@@ -66,9 +64,12 @@ beforeAll(async () => {
     const userId = crypto.randomUUID();
     const email = `test-${Date.now()}@orchestrator.local`;
 
-    db.prepare(
-      'INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)'
-    ).run(userId, email, 'pro', 100.0);
+    db.prepare('INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
+      userId,
+      email,
+      'pro',
+      100.0
+    );
 
     const rawKey = `sk-test-${crypto.randomUUID().replace(/-/g, '')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
@@ -159,12 +160,12 @@ describe('Billing', () => {
 
   test('POST /v1/billing/top-up adds credits', async () => {
     const before = await api('GET', '/v1/billing/balance');
-    const balanceBefore = (before.data['credits_balance'] as number);
+    const balanceBefore = before.data['credits_balance'] as number;
 
     const { status, data } = await api('POST', '/v1/billing/top-up', { amount: 10 });
     expect(status).toBe(200);
     expect(data['amount_added']).toBe(10);
-    expect((data['credits_balance'] as number)).toBe(balanceBefore + 10);
+    expect(data['credits_balance'] as number).toBe(balanceBefore + 10);
   });
 
   test('GET /v1/billing/transactions returns list', async () => {
@@ -208,11 +209,9 @@ describe('Sandbox API', () => {
   });
 
   test('Execute Python code returns output', async () => {
-    const { status, data } = await api(
-      'POST',
-      `/v1/sandbox/sessions/${pythonSessionId}/execute`,
-      { code: 'import json; print(json.dumps({"result": 42}))' }
-    );
+    const { status, data } = await api('POST', `/v1/sandbox/sessions/${pythonSessionId}/execute`, {
+      code: 'import json; print(json.dumps({"result": 42}))',
+    });
     expect(status).toBe(200);
     expect(data['exit_code']).toBe(0);
     expect(JSON.parse(data['stdout'] as string)).toEqual({ result: 42 });
@@ -220,11 +219,9 @@ describe('Sandbox API', () => {
   });
 
   test('Execute JavaScript code returns output', async () => {
-    const { status, data } = await api(
-      'POST',
-      `/v1/sandbox/sessions/${jsSessionId}/execute`,
-      { code: 'console.log(JSON.stringify({squares: [1,4,9,16,25]}))' }
-    );
+    const { status, data } = await api('POST', `/v1/sandbox/sessions/${jsSessionId}/execute`, {
+      code: 'console.log(JSON.stringify({squares: [1,4,9,16,25]}))',
+    });
     expect(status).toBe(200);
     expect(data['exit_code']).toBe(0);
     expect(JSON.parse(data['stdout'] as string)).toEqual({
@@ -233,85 +230,62 @@ describe('Sandbox API', () => {
   });
 
   test('Execute code that creates a file detects modified files', async () => {
-    const { data } = await api(
-      'POST',
-      `/v1/sandbox/sessions/${pythonSessionId}/execute`,
-      { code: "with open('data.txt', 'w') as f: f.write('hello world')" }
-    );
+    const { data } = await api('POST', `/v1/sandbox/sessions/${pythonSessionId}/execute`, {
+      code: "with open('data.txt', 'w') as f: f.write('hello world')",
+    });
     expect(data['exit_code']).toBe(0);
     expect((data['files_modified'] as string[]).length).toBeGreaterThan(0);
   });
 
   test('File write and read roundtrip works', async () => {
     // Write
-    const writeRes = await api(
-      'PUT',
-      `/v1/sandbox/sessions/${pythonSessionId}/file/roundtrip.txt`,
-      { content: 'roundtrip test data' }
-    );
+    const writeRes = await api('PUT', `/v1/sandbox/sessions/${pythonSessionId}/file/roundtrip.txt`, {
+      content: 'roundtrip test data',
+    });
     expect(writeRes.status).toBe(200);
 
     // Read
-    const readRes = await fetch(
-      `${BASE_URL}/v1/sandbox/sessions/${pythonSessionId}/file/roundtrip.txt`,
-      { headers: { Authorization: `Bearer ${API_KEY}` } }
-    );
+    const readRes = await fetch(`${BASE_URL}/v1/sandbox/sessions/${pythonSessionId}/file/roundtrip.txt`, {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
     expect(readRes.status).toBe(200);
     const text = await readRes.text();
     expect(text).toBe('roundtrip test data');
   });
 
   test('List files returns workspace contents', async () => {
-    const { status, data } = await api(
-      'GET',
-      `/v1/sandbox/sessions/${pythonSessionId}/files`
-    );
+    const { status, data } = await api('GET', `/v1/sandbox/sessions/${pythonSessionId}/files`);
     expect(status).toBe(200);
     expect(Array.isArray(data['files'])).toBe(true);
     expect((data['files'] as string[]).length).toBeGreaterThan(0);
   });
 
   test('Session info returns correct status', async () => {
-    const { status, data } = await api(
-      'GET',
-      `/v1/sandbox/sessions/${pythonSessionId}`
-    );
+    const { status, data } = await api('GET', `/v1/sandbox/sessions/${pythonSessionId}`);
     expect(status).toBe(200);
     expect(data['status']).toBe('ready');
   });
 
   test('Terminate session works', async () => {
-    const { status, data } = await api(
-      'DELETE',
-      `/v1/sandbox/sessions/${pythonSessionId}`
-    );
+    const { status, data } = await api('DELETE', `/v1/sandbox/sessions/${pythonSessionId}`);
     expect(status).toBe(200);
     expect(data['status']).toBe('terminated');
 
     // Verify session is gone
-    const { data: infoData } = await api(
-      'GET',
-      `/v1/sandbox/sessions/${pythonSessionId}`
-    );
+    const { data: infoData } = await api('GET', `/v1/sandbox/sessions/${pythonSessionId}`);
     expect(infoData['status']).toBe('terminated');
   });
 
   test('Execute on terminated session returns error', async () => {
-    const { status, data } = await api(
-      'POST',
-      `/v1/sandbox/sessions/${pythonSessionId}/execute`,
-      { code: 'print("should fail")' }
-    );
+    const { status, data } = await api('POST', `/v1/sandbox/sessions/${pythonSessionId}/execute`, {
+      code: 'print("should fail")',
+    });
     expect(status).toBe(500);
     expect(data).toHaveProperty('error');
   });
 
   test('Code with non-zero exit code returns error info', async () => {
-    const { data } = await api(
-      'POST',
-      `/v1/sandbox/sessions/${jsSessionId}/execute`,
-      { code: 'process.exit(1)' }
-    );
+    const { data } = await api('POST', `/v1/sandbox/sessions/${jsSessionId}/execute`, { code: 'process.exit(1)' });
     expect(data['exit_code']).not.toBe(0);
   });
 
@@ -333,12 +307,10 @@ describe('Concurrent Sandbox Sessions', () => {
 
     // Create 10 sessions
     const createPromises = Array.from({ length: 10 }, (_, i) =>
-      api('POST', '/v1/sandbox/sessions', { language: 'python' }).then(
-        ({ data }) => {
-          sessionIds.push(data['id'] as string);
-          return data['id'] as string;
-        }
-      )
+      api('POST', '/v1/sandbox/sessions', { language: 'python' }).then(({ data }) => {
+        sessionIds.push(data['id'] as string);
+        return data['id'] as string;
+      })
     );
     await Promise.all(createPromises);
     expect(sessionIds.length).toBe(10);
@@ -354,9 +326,7 @@ describe('Concurrent Sandbox Sessions', () => {
     // Verify each session returned its unique value
     results.forEach((result, i) => {
       expect(result.data['exit_code']).toBe(0);
-      expect((result.data['stdout'] as string).trim()).toBe(
-        `session_${i}_value_${i * 100}`
-      );
+      expect((result.data['stdout'] as string).trim()).toBe(`session_${i}_value_${i * 100}`);
     });
 
     // Cleanup
@@ -380,10 +350,7 @@ describe('Error Format', () => {
   });
 
   test('Not found session returns proper error', async () => {
-    const { status, data } = await api(
-      'GET',
-      '/v1/sandbox/sessions/nonexistent-id'
-    );
+    const { status, data } = await api('GET', '/v1/sandbox/sessions/nonexistent-id');
     expect(status).toBe(500);
     expect(data).toHaveProperty('error');
   });
@@ -413,7 +380,7 @@ describe.skipIf(skipLLM)('Agent API (real LLM calls)', () => {
     const usage = data['usage'] as Record<string, unknown>;
     expect(usage).toHaveProperty('total_tokens');
     const cost = usage['cost'] as Record<string, unknown>;
-    expect((cost['total_cost'] as number)).toBeGreaterThan(0);
+    expect(cost['total_cost'] as number).toBeGreaterThan(0);
   }, 30_000);
 
   test('POST /v1/responses with preset resolves correctly', async () => {
@@ -483,10 +450,7 @@ describe.skipIf(skipLLM)('Workflow API (real LLM calls)', () => {
 
     const workflowId = createRes.data['workflow_id'] as string;
 
-    const { status, data } = await api(
-      'DELETE',
-      `/v1/workflows/${workflowId}`
-    );
+    const { status, data } = await api('DELETE', `/v1/workflows/${workflowId}`);
     expect(status).toBe(200);
     expect(data['status']).toBe('cancelled');
   }, 60_000);

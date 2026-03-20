@@ -1,26 +1,17 @@
 {
-  "default_orchestrator_model": "litellm/ali-minimax-m2.5",
+  "default_orchestrator_model": "litellm/ali/MiniMax-M2.5",
   "orchestrator_models": [
-    "litellm/ali-minimax-m2.5",
-    "litellm/ali-kimi-k2.5",
-    "litellm/ali-qwen3.5-plus",
-    "litellm/ali-glm-5",
-    "litellm/gemini-3.1-pro-preview",
+    "litellm/ali/MiniMax-M2.5",
+    "litellm/ali/glm-5",
+    "litellm/ali/kimi-k2.5",
+    "litellm/ali/qwen3-max",
+    "litellm/ali/qwen3.5-plus",
+    "litellm/gemini-3-flash-preview",
     "litellm/gemini-3.1-flash-lite-preview",
-    "litellm/gemini-3-flash-preview"
+    "litellm/gemini-3.1-pro-preview"
   ],
-  "subagent_models": {
-    "llm_completion": "litellm/gemini-3-flash-preview",
-    "code_execution_planner": "litellm/gemini-3.1-flash-lite-preview",
-    "file_operation_planner": "litellm/gemini-3.1-flash-lite-preview"
-  },
-  "agent_models": {
-    "research": "litellm/gemini-3-flash-preview",
-    "analyze": "litellm/ali-minimax-m2.5",
-    "write": "litellm/ali-qwen3.5-plus",
-    "code": "litellm/ali-qwen3.5-plus",
-    "file": "litellm/ali-qwen3.5-plus"
-  },
+  "subagent_models": {},
+  "agent_models": {},
   "tools": {
     "search_provider": "tavily",
     "fetch_provider": "tavily",

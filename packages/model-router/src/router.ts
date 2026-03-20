@@ -1,6 +1,7 @@
 import { getErrorMessage, logger, ModelError } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelAdapter } from '@orchestrator/shared';
-import { getModelInfo, getFallbackChain, getPreset, getDefaultModel } from './registry.js';
+import { getModelInfo, getPreset, getDefaultModel } from './registry.js';
+import { hasConfiguredModelMapping } from './config.js';
 import { ensureRunSkillTool } from './skills.js';
 import { OpenAIAdapter } from './adapters/openai.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
@@ -47,6 +48,10 @@ export function parseModelId(modelId: string): { provider: string; model: string
 }
 
 export function resolveRequest(request: AgentRequest): AgentRequest {
+  if (!hasConfiguredModelMapping()) {
+    throw new ModelError('No model mapping is configured', 'no_model_mapping');
+  }
+
   // If a preset is specified, merge preset config into the request
   if (request.preset) {
     const preset = getPreset(request.preset);
@@ -64,7 +69,12 @@ export function resolveRequest(request: AgentRequest): AgentRequest {
 
   // If no model specified, use default
   if (!request.model) {
-    return { ...request, model: getDefaultModel(), tools: ensureRunSkillTool(request.tools) };
+    const defaultModel = getDefaultModel();
+    if (!defaultModel) {
+      throw new ModelError('No models are configured', 'no_models_configured');
+    }
+
+    return { ...request, model: defaultModel, tools: ensureRunSkillTool(request.tools) };
   }
 
   return { ...request, tools: ensureRunSkillTool(request.tools) };
@@ -74,9 +84,7 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  // Build fallback chain
-  const fallbacks = resolved.model_fallback ?? getFallbackChain(modelId);
-  const chain = [modelId, ...fallbacks];
+  const chain = [modelId];
 
   let lastError: Error | null = null;
 
@@ -84,6 +92,7 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
     try {
       const info = getModelInfo(currentModelId);
       if (!info) {
+        lastError = new ModelError(`Model not found in registry: ${currentModelId}`, 'model_not_found');
         logger.warn({ modelId: currentModelId }, 'Model not found in registry, skipping');
         continue;
       }
@@ -93,17 +102,12 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
       return response;
     } catch (err) {
       lastError = err as Error;
-      logger.warn(
-        { modelId: currentModelId, error: getErrorMessage(err) },
-        'Model call failed, trying fallback'
-      );
+      logger.warn({ modelId: currentModelId, error: getErrorMessage(err) }, 'Model call failed, trying fallback');
     }
   }
 
-  throw new ModelError(
-    `All models in fallback chain failed. Last error: ${lastError?.message}`,
-    'all_models_failed'
-  );
+  const lastErrorMessage = lastError ? getErrorMessage(lastError) : 'unknown error';
+  throw new ModelError(`All models in fallback chain failed. Last error: ${lastErrorMessage}`, 'all_models_failed');
 }
 
 export async function* routeStreamingRequest(
@@ -112,15 +116,17 @@ export async function* routeStreamingRequest(
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  const fallbacks = resolved.model_fallback ?? getFallbackChain(modelId);
-  const chain = [modelId, ...fallbacks];
+  const chain = [modelId];
 
   let lastError: Error | null = null;
 
   for (const currentModelId of chain) {
     try {
       const info = getModelInfo(currentModelId);
-      if (!info) continue;
+      if (!info) {
+        lastError = new ModelError(`Model not found in registry: ${currentModelId}`, 'model_not_found');
+        continue;
+      }
 
       const adapter = getOrCreateAdapter(info.provider);
       yield* adapter.streamResponse({ ...resolved, model: currentModelId });
@@ -134,9 +140,10 @@ export async function* routeStreamingRequest(
     }
   }
 
+  const lastErrorMessage = lastError ? getErrorMessage(lastError) : 'unknown error';
   yield {
     type: 'error',
-    data: { message: `All models failed. Last error: ${lastError?.message}` },
+    data: { message: `All models failed. Last error: ${lastErrorMessage}` },
   };
 }
 

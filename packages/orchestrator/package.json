@@ -6,9 +6,11 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@orchestrator/billing": "workspace:*",
+    "@orchestrator/memory": "workspace:*",
     "@orchestrator/model-router": "workspace:*",
     "@orchestrator/sandbox": "workspace:*",
-    "@orchestrator/shared": "workspace:*"
+    "@orchestrator/shared": "workspace:*",
+    "cron-parser": "^4.9.0"
   },
   "scripts": {
     "lint": "tsc --noEmit -p ../../tsconfig.json",

@@ -14,7 +14,7 @@ import { areDependenciesSatisfied, spawnSubagentRun, waitForRuns } from '../suba
 import type { ToolCall } from './tools.js';
 import { executeToolCall, getOpenTerminalSessionForChat, getSkillById } from '@orchestrator/model-router';
 import { createSession } from '@orchestrator/sandbox';
-import { buildToolTraceHooks } from './tracing.js';
+import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { buildDisplayDescription } from './displayLabel.js';
 
 const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
@@ -170,26 +170,54 @@ export const executeOrchestratorToolCall = async (
   call: ToolCall
 ): Promise<Record<string, unknown>> => {
   const { name, arguments: args } = call;
+  const isBuiltinOrchestratorTool = BUILTIN_ORCHESTRATOR_TOOLS.has(name);
 
   const emitToolCall = (toolInput: Record<string, unknown>) => {
-    emitWorkflowEvent(state, {
-      type: 'tool_call',
-      workflow_id: state.id,
-      data: { tool_name: name, tool_input: toolInput },
-    });
+    // Built-in tools emit tool events and trace via model-router hooks.
+    if (!isBuiltinOrchestratorTool) {
+      emitWorkflowEvent(state, {
+        type: 'tool_call',
+        workflow_id: state.id,
+        data: { tool_name: name, tool_input: toolInput },
+      });
+
+      recordStep(state, {
+        step_type: 'tool_call',
+        model_name: state.orchestratorModel,
+        message_content: null,
+        tool_name: name,
+        tool_input: toolInput,
+        tool_output: null,
+        subagent_id: 'orchestrator',
+      });
+    }
   };
 
   const finish = (result: Record<string, unknown>): Record<string, unknown> => {
     const displayResult = buildToolDisplayResult(state, name, result);
-    emitWorkflowEvent(state, {
-      type: 'tool_result',
-      workflow_id: state.id,
-      data: { tool_name: name, tool_output: displayResult },
-    });
+    // Built-in tools emit tool events and trace via model-router hooks.
+    if (!isBuiltinOrchestratorTool) {
+      emitWorkflowEvent(state, {
+        type: 'tool_result',
+        workflow_id: state.id,
+        data: { tool_name: name, tool_output: displayResult },
+      });
+
+      recordStep(state, {
+        step_type: 'tool_result',
+        model_name: state.orchestratorModel,
+        message_content: null,
+        tool_name: name,
+        tool_input: null,
+        tool_output: displayResult,
+        subagent_id: 'orchestrator',
+      });
+    }
+
     return displayResult;
   };
 
-  if (BUILTIN_ORCHESTRATOR_TOOLS.has(name)) {
+  if (isBuiltinOrchestratorTool) {
     const chatId = state.config.chat_id ?? state.id;
     if (WORKSPACE_ORCHESTRATOR_TOOLS.has(name)) {
       await ensureWorkflowWorkspaceSession(state);

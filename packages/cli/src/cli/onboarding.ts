@@ -18,7 +18,7 @@ import {
   createSpinner,
 } from '../ui/components.js';
 import { setEnvVar, setEnvVars, envFileExists, ENV_KEYS } from '../lib/env-manager.js';
-import { testLiteLLMConnection, testTavilyConnection, fetchLiteLLMModels } from '../lib/connection-tester.js';
+import { testLiteLLMConnection, testTavilyConnection } from '../lib/connection-tester.js';
 import {
   isOnboardingComplete,
   completeOnboarding,
@@ -31,6 +31,7 @@ import {
   normalizeModelId,
   validateAndNormalizeModels,
 } from '../lib/config-manager.js';
+import { discoverAvailableModels, replaceModelRegistry } from '@orchestrator/model-router';
 import {
   promptText,
   promptUrl,
@@ -230,27 +231,41 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
   printSubHeader('Step 3: Configure Models');
   console.log(chalk.dim('Select which models to use for orchestrator and sub-agents.\n'));
 
-  if (!state.litellmUrl || !state.litellmApiKey) {
-    printWarning('LiteLLM not configured. Using default model configuration.');
+  const hasConfiguredCredentials =
+    Boolean(process.env.LITELLM_BASE_URL && process.env.LITELLM_API_KEY) ||
+    Boolean(process.env.OPENAI_API_KEY) ||
+    Boolean(process.env.ANTHROPIC_API_KEY) ||
+    Boolean(process.env.GOOGLE_AI_API_KEY) ||
+    Boolean(state.litellmUrl && state.litellmApiKey);
+
+  if (!hasConfiguredCredentials) {
+    printWarning('No model credentials configured. Using default model configuration.');
     return;
+  }
+
+  if (state.litellmUrl && state.litellmApiKey) {
+    process.env.LITELLM_BASE_URL = state.litellmUrl;
+    process.env.LITELLM_API_KEY = state.litellmApiKey;
   }
 
   // Fetch available models
   let availableModels: string[];
 
-  const spinner = createSpinner('Fetching available models from LiteLLM...').start();
+  const spinner = createSpinner('Fetching configured models...').start();
 
   try {
-    const models = await fetchLiteLLMModels(state.litellmUrl, state.litellmApiKey);
+    const models = await discoverAvailableModels();
     spinner.succeed(chalk.green(`Found ${models.length} models`));
 
     if (models.length === 0) {
-      printWarning('No models found. Using default configuration.');
+      printWarning('No models found from configured credentials. Using default configuration.');
       return;
     }
 
+    replaceModelRegistry(models);
+
     // Normalize models to match registry format
-    const normalizedModels = models.map((m) => normalizeModelId(m));
+    const normalizedModels = models.map((m) => normalizeModelId(m.id));
     const { valid, invalid, normalized } = validateAndNormalizeModels(normalizedModels);
 
     if (normalized.size > 0) {
@@ -269,7 +284,7 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
 
     availableModels = valid;
   } catch (error) {
-    spinner.fail(chalk.yellow('Could not fetch models from LiteLLM'));
+    spinner.fail(chalk.yellow('Could not fetch configured models'));
     printWarning('Using default model configuration.');
     return;
   }

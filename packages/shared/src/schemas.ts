@@ -14,6 +14,8 @@ export const ToolSchema = z.object({
     'grep',
     'glob',
     'run_skill',
+    'remember',
+    'recall',
   ]),
   function: z
     .object({
@@ -126,7 +128,7 @@ export const WorkflowConfigSchema = z.object({
 });
 
 // ── Agent type ──
-export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file']);
+export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file', 'deep_research']);
 
 // ── Legacy DAG Task (kept for backward compat) ──
 export const DAGTaskSchema = z.object({
@@ -145,6 +147,7 @@ export const DAGTaskSchema = z.object({
     'write',
     'code',
     'file',
+    'deep_research',
   ]),
   description: z.string(),
   model: z.string().optional().nullable(),

@@ -15,8 +15,49 @@ interface WorkspaceRecord {
   active_session_id: string | null;
 }
 
+interface WorkspaceMetadata extends Record<string, unknown> {
+  created_files?: string[];
+  session_file_baselines?: Record<string, string[]>;
+}
+
 const ensureDir = (path: string) => {
   mkdirSync(path, { recursive: true });
+};
+
+const toStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+};
+
+const toSessionBaselines = (value: unknown): Record<string, string[]> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+  const baselines = value as Record<string, unknown>;
+  const result: Record<string, string[]> = {};
+  for (const [sessionId, entries] of Object.entries(baselines)) {
+    result[sessionId] = toStringArray(entries);
+  }
+
+  return result;
+};
+
+const readMetadataFile = (metadataPath: string): WorkspaceMetadata => {
+  if (!existsSync(metadataPath)) return {};
+
+  try {
+    const parsed = JSON.parse(readFileSync(metadataPath, 'utf-8')) as Record<string, unknown>;
+    return {
+      ...parsed,
+      created_files: toStringArray(parsed['created_files']),
+      session_file_baselines: toSessionBaselines(parsed['session_file_baselines']),
+    };
+  } catch {
+    return {};
+  }
+};
+
+const writeMetadataFile = (metadataPath: string, metadata: WorkspaceMetadata): void => {
+  writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 };
 
 export const getWorkspacePaths = (chatId: string) => {
@@ -59,10 +100,14 @@ export const ensureWorkspace = (userId: string, chatId: string, language: 'pytho
   ensureDir(paths.filesPath);
 
   if (!existsSync(paths.metadataPath)) {
-    writeFileSync(
-      paths.metadataPath,
-      JSON.stringify({ chat_id: chatId, user_id: userId, language, created_at: new Date().toISOString() }, null, 2)
-    );
+    writeMetadataFile(paths.metadataPath, {
+      chat_id: chatId,
+      user_id: userId,
+      language,
+      created_at: new Date().toISOString(),
+      created_files: [],
+      session_file_baselines: {},
+    });
   }
 
   upsertWorkspace({
@@ -85,6 +130,12 @@ export const activateWorkspace = (userId: string, chatId: string, sessionId: str
   if (existsSync(paths.filesPath)) {
     cpSync(paths.filesPath, targetDir, { recursive: true, force: true });
   }
+
+  const metadata = readMetadataFile(paths.metadataPath);
+  const baselines = toSessionBaselines(metadata.session_file_baselines);
+  baselines[sessionId] = snapshotWorkspaceFiles(paths.filesPath);
+  metadata.session_file_baselines = baselines;
+  writeMetadataFile(paths.metadataPath, metadata);
 
   upsertWorkspace({
     chat_id: chatId,
@@ -125,6 +176,25 @@ export const deactivateWorkspace = (sessionId: string, sessionDir: string, persi
     ensureDir(dirname(paths.filesPath));
     cpSync(sessionDir, paths.filesPath, { recursive: true, force: true });
   }
+
+  const metadata = readMetadataFile(paths.metadataPath);
+  const baselines = toSessionBaselines(metadata.session_file_baselines);
+  const baseline = baselines[sessionId];
+
+  if (baseline) {
+    const currentFiles = snapshotWorkspaceFiles(paths.filesPath);
+    const baselineSet = new Set(baseline);
+    const currentSet = new Set(currentFiles);
+    const createdSinceActivation = currentFiles.filter((filePath) => !baselineSet.has(filePath));
+    const previouslyTracked = toStringArray(metadata.created_files);
+    metadata.created_files = Array.from(new Set([...previouslyTracked, ...createdSinceActivation]))
+      .filter((filePath) => currentSet.has(filePath))
+      .sort();
+  }
+
+  delete baselines[sessionId];
+  metadata.session_file_baselines = baselines;
+  writeMetadataFile(paths.metadataPath, metadata);
 
   db.prepare(
     `UPDATE sandbox_workspaces
@@ -192,5 +262,5 @@ export const readWorkspaceMetadata = (chatId: string) => {
     return null;
   }
 
-  return JSON.parse(readFileSync(metadataPath, 'utf-8')) as Record<string, unknown>;
+  return readMetadataFile(metadataPath);
 };

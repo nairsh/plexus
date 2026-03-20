@@ -325,6 +325,12 @@ export class LiteLLMAdapter extends BaseAdapter {
         }
       }
 
+      // Flush any remaining tool calls not triggered by finish_reason === 'tool_calls'
+      // (Gemini and some models report finish_reason 'stop' even when using tools)
+      for (const toolChunk of toolAccumulator.flush()) {
+        yield toolChunk;
+      }
+
       yield { type: 'done' };
     } catch (err) {
       logger.error(

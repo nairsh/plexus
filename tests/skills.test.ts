@@ -2,7 +2,13 @@ import { describe, expect, test, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getAllSkills, refreshSkillsCache } from '@orchestrator/model-router';
+import {
+  deleteSkill,
+  getAllSkills,
+  getSkillById,
+  refreshSkillsCache,
+  upsertSkill,
+} from '@orchestrator/model-router';
 
 const ORIGINAL_SKILLS_PATH = process.env['CLAUDE_SKILLS_PATH'];
 
@@ -73,5 +79,68 @@ describe('skills loader', () => {
     );
 
     expect(() => getAllSkills()).toThrow(/folder.*match/i);
+  });
+
+  test('loads multiline description and allowed-tools aliases', () => {
+    writeSkill(
+      tempRoot,
+      'qa',
+      [
+        '---',
+        'name: qa',
+        'description: |',
+        '  Systematically QA test a web application.',
+        '  Produces structured reports with evidence.',
+        'allowed-tools:',
+        '  - Bash',
+        '  - Read',
+        '  - Write',
+        '---',
+        'Use this for smoke tests and full regression checks.',
+      ].join('\n')
+    );
+
+    const skill = getSkillById('qa');
+    expect(skill).not.toBeNull();
+    expect(skill?.description).toContain('Systematically QA test a web application.');
+    expect(skill?.description).toContain('Produces structured reports with evidence.');
+    expect(skill?.tools?.map((tool) => tool.type)).toEqual(['bash', 'file_read', 'file_write']);
+  });
+
+  test('upsertSkill creates and updates a skill on disk', () => {
+    const created = upsertSkill('security-review', {
+      description: 'Review code changes for security issues',
+      prompt_addendum: 'Focus on auth, input validation, and data exposure.',
+      tools: [{ type: 'grep' }, { type: 'file_read' }, { type: 'bash' }],
+    });
+
+    expect(created.id).toBe('security-review');
+    expect(created.tools?.map((tool) => tool.type)).toEqual(['grep', 'file_read', 'bash']);
+
+    const updated = upsertSkill('security-review', {
+      description: 'Review code changes for high-impact vulnerabilities',
+      prompt_addendum: 'Prioritize exploitability and trust boundaries.',
+      tools: [{ type: 'grep' }, { type: 'bash' }, { type: 'grep' }],
+    });
+
+    expect(updated.description).toContain('high-impact vulnerabilities');
+    expect(updated.tools?.map((tool) => tool.type)).toEqual(['grep', 'bash']);
+
+    const loaded = getSkillById('security-review');
+    expect(loaded?.description).toContain('high-impact vulnerabilities');
+    expect(loaded?.tools?.map((tool) => tool.type)).toEqual(['grep', 'bash']);
+  });
+
+  test('deleteSkill removes an existing skill', () => {
+    upsertSkill('cleanup-test', {
+      description: 'Temporary skill for deletion tests',
+      prompt_addendum: 'Delete me',
+      tools: [{ type: 'bash' }],
+    });
+
+    expect(getSkillById('cleanup-test')).not.toBeNull();
+    expect(deleteSkill('cleanup-test')).toBe(true);
+    expect(getSkillById('cleanup-test')).toBeNull();
+    expect(deleteSkill('cleanup-test')).toBe(false);
   });
 });

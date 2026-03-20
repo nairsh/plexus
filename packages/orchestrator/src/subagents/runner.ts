@@ -1,7 +1,14 @@
 import { debitCredits } from '@orchestrator/billing';
 import { dispatchToAgent, getAgentModel } from '../agents.js';
 import type { AgentExecutionContext } from '../agents.js';
-import { getWorkItem, getWorkItemDisplayId, listWorkItems, updateWorkItem, type WorkItem } from '../workItems.js';
+import {
+  getWorkItem,
+  getWorkItemDisplayId,
+  isWorkItemDependencySatisfied,
+  listWorkItems,
+  updateWorkItem,
+  type WorkItem,
+} from '../workItems.js';
 import {
   getErrorMessage,
   logger,
@@ -19,11 +26,12 @@ import { buildDisplayDescription } from '../orchestrator/displayLabel.js';
 // ── Per-agent-type timeout configuration ─────────────────────────────────────
 
 const AGENT_TIMEOUTS: Record<AgentType, number> = {
-  research: SUBAGENT_LONG_RUNNING_TIMEOUT_S,  // 30 min — deep research needs time
-  analyze: SUBAGENT_DEFAULT_TIMEOUT_S,         // 5 min
-  write: SUBAGENT_DEFAULT_TIMEOUT_S,           // 5 min
-  code: SUBAGENT_LONG_RUNNING_TIMEOUT_S,       // 30 min — iterative coding needs time
-  file: SUBAGENT_DEFAULT_TIMEOUT_S,            // 5 min
+  research: SUBAGENT_LONG_RUNNING_TIMEOUT_S, // 30 min — deep research needs time
+  analyze: SUBAGENT_DEFAULT_TIMEOUT_S, // 5 min
+  write: SUBAGENT_DEFAULT_TIMEOUT_S, // 5 min
+  code: SUBAGENT_LONG_RUNNING_TIMEOUT_S, // 30 min — iterative coding needs time
+  file: SUBAGENT_DEFAULT_TIMEOUT_S, // 5 min
+  deep_research: SUBAGENT_LONG_RUNNING_TIMEOUT_S,
 };
 
 // ── Exported helpers ──────────────────────────────────────────────────────────
@@ -224,10 +232,7 @@ async function runSubagentWithRetry(
     }
 
     if (attempt > 0) {
-      logger.info(
-        { workflowId: state.id, itemId: item.id, attempt },
-        'Retrying subagent after failure'
-      );
+      logger.info({ workflowId: state.id, itemId: item.id, attempt }, 'Retrying subagent after failure');
       // Enrich prompt with the error from the previous attempt for self-correction
       prompt = `${prompt}\n\n## Previous attempt failed:\n${lastError ?? 'Unknown error'}\n\nPlease fix the issue and try again.`;
     }
@@ -295,10 +300,7 @@ async function runSubagentWithRetry(
       stopHeartbeat();
       lastError = getErrorMessage(err, 'Subagent execution failed');
 
-      logger.warn(
-        { workflowId: state.id, itemId: item.id, attempt, error: lastError },
-        'Subagent attempt failed'
-      );
+      logger.warn({ workflowId: state.id, itemId: item.id, attempt, error: lastError }, 'Subagent attempt failed');
 
       if (attempt >= SUBAGENT_MAX_RETRIES) {
         // All retries exhausted
@@ -344,8 +346,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
     promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (err) => { clearTimeout(timer); reject(err instanceof Error ? err : new Error(String(err))); }
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     );
   });
 }
@@ -357,7 +365,7 @@ function startProgressHeartbeat(
   timeoutSeconds: number
 ): () => void {
   // Emit a progress ping every 30s so the UI knows the agent is alive
-  const intervalMs = Math.min(30_000, Math.floor(timeoutSeconds * 1000 / 4));
+  const intervalMs = Math.min(30_000, Math.floor((timeoutSeconds * 1000) / 4));
   const start = Date.now();
 
   const timer = setInterval(() => {
@@ -400,8 +408,9 @@ export const getSubagentResult = (state: WorkflowState, todoId: string) => {
 
 export const areDependenciesSatisfied = (state: WorkflowState, item: WorkItem): boolean => {
   const todos = listWorkItems(state.id);
+  const byId = new Map(todos.map((todo) => [todo.id, todo] as const));
   return item.dependsOn.every((depId) => {
-    const dep = todos.find((candidate) => candidate.id === depId);
-    return dep?.status === 'completed';
+    const dep = byId.get(depId);
+    return dep ? isWorkItemDependencySatisfied(dep.status) : false;
   });
 };

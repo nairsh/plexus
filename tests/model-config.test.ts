@@ -3,6 +3,7 @@ import {
   getAllowedOrchestratorModels,
   getDefaultOrchestratorModel,
   getRuntimeModelConfig,
+  hasConfiguredModelMapping,
   resolveOrchestratorModel,
 } from '@orchestrator/model-router';
 
@@ -10,6 +11,7 @@ describe('model config', () => {
   test('exposes orchestrator models and default', () => {
     const config = getRuntimeModelConfig();
 
+    expect(hasConfiguredModelMapping()).toBe(true);
     expect(config.orchestrator_models.length).toBeGreaterThan(0);
     expect(config.orchestrator_models).toContain(getDefaultOrchestratorModel());
     expect(getAllowedOrchestratorModels()).toEqual(config.orchestrator_models);

@@ -20,6 +20,10 @@ import { workflowRoutes } from './routes/workflows.js';
 import { registerTeamsRoutes } from './routes/teams.js';
 import { registerTemplatesRoutes } from './routes/templates.js';
 import { registerHealthRoutes } from './routes/agentHealth.js';
+import { schedulesRoutes } from './routes/schedules.js';
+import { memoryRoutes } from './routes/memory.js';
+import { skillsRoutes } from './routes/skills.js';
+import { startScheduler, stopScheduler } from '@orchestrator/orchestrator';
 
 export async function createServer() {
   const fastify = Fastify({
@@ -31,7 +35,7 @@ export async function createServer() {
   await fastify.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control'],
   });
 
   // Health check (no auth)
@@ -57,11 +61,7 @@ export async function createServer() {
     const url = request.url;
 
     // Skip auth for health, models list, and presets list
-    if (
-      url === '/health' ||
-      url === '/v1/models' ||
-      url === '/v1/presets'
-    ) {
+    if (url === '/health' || url === '/v1/models' || url === '/v1/presets') {
       return;
     }
 
@@ -83,11 +83,7 @@ export async function createServer() {
   // Global error handler — must be registered BEFORE routes (register calls)
   // so that plugin-scoped errors propagate here correctly in Fastify v5.
   fastify.setErrorHandler(
-    (
-      error: Error & { validation?: unknown; statusCode?: number; type?: string; code?: string },
-      _request,
-      reply
-    ) => {
+    (error: Error & { validation?: unknown; statusCode?: number; type?: string; code?: string }, _request, reply) => {
       if (error instanceof AppError) {
         reply.status(error.statusCode).send(error.toJSON());
         return;
@@ -159,6 +155,9 @@ export async function createServer() {
   await registerTeamsRoutes(fastify);
   await registerTemplatesRoutes(fastify);
   await registerHealthRoutes(fastify);
+  await fastify.register(schedulesRoutes);
+  await fastify.register(memoryRoutes);
+  await fastify.register(skillsRoutes);
 
   return fastify;
 }
@@ -170,7 +169,7 @@ export async function startServer() {
 
   // Seed model registry
   logger.info('Seeding model registry...');
-  seedModelRegistry();
+  await seedModelRegistry();
 
   // Create and start server
   const server = await createServer();
@@ -181,7 +180,8 @@ export async function startServer() {
   const reaperInterval = startSessionReaper();
   const meterInterval = startCreditMeter();
 
-  logger.info('Background services started (rate limit cleaner, session reaper, credit meter)');
+  startScheduler();
+  logger.info('Background services started (rate limit cleaner, session reaper, credit meter, workflow scheduler)');
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -189,6 +189,7 @@ export async function startServer() {
     clearInterval(cleanerInterval);
     clearInterval(reaperInterval);
     clearInterval(meterInterval);
+    stopScheduler();
     await server.close();
     closeDb();
     process.exit(0);

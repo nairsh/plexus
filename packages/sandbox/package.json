@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
+    "@orchestrator/billing": "workspace:*",
     "@orchestrator/shared": "workspace:*"
   },
   "scripts": {

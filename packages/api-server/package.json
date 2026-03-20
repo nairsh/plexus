@@ -7,6 +7,7 @@
   "dependencies": {
     "@fastify/cors": "^10.0.0",
     "@orchestrator/billing": "workspace:*",
+    "@orchestrator/memory": "workspace:*",
     "@orchestrator/model-router": "workspace:*",
     "@orchestrator/orchestrator": "workspace:*",
     "@orchestrator/sandbox": "workspace:*",

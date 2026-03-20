@@ -8,6 +8,9 @@ describe('buildDisplayDescription', () => {
     );
     expect(buildDisplayDescription('the final report', 'write')).toBe('Writing the final report');
     expect(buildDisplayDescription('settings view and tray icon', 'code')).toBe('Coding settings view and tray icon');
+    expect(buildDisplayDescription('e2e validation for workflows', 'deep_research')).toBe(
+      'Deep researching e2e validation for workflows'
+    );
   });
 
   test('keeps already natural gerund phrasing', () => {

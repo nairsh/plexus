@@ -147,24 +147,10 @@ export function saveModelConfig(config: RuntimeModelConfig): void {
 
 export function getDefaultModelConfig(): RuntimeModelConfig {
   return {
-    default_orchestrator_model: 'litellm/gemini-3.1-flash-lite-preview',
-    orchestrator_models: [
-      'litellm/gemini-3.1-flash-lite-preview',
-      'litellm/gemini-3-flash-preview',
-      'litellm/gemini-3.1-pro-preview',
-    ],
-    subagent_models: {
-      llm_completion: 'litellm/gemini-3-flash-preview',
-      code_execution_planner: 'litellm/gemini-3.1-flash-lite-preview',
-      file_operation_planner: 'litellm/gemini-3.1-flash-lite-preview',
-    },
-    agent_models: {
-      research: 'litellm/gemini-3-flash-preview',
-      analyze: 'litellm/gemini-3-flash-preview',
-      write: 'litellm/gemini-3-flash-preview',
-      code: 'litellm/gemini-3-flash-preview',
-      file: 'litellm/gemini-3.1-flash-lite-preview',
-    },
+    default_orchestrator_model: '',
+    orchestrator_models: [],
+    subagent_models: {},
+    agent_models: {},
     tools: {
       search_provider: 'tavily',
       fetch_provider: 'tavily',
@@ -183,6 +169,8 @@ export function updateOrchestratorModels(models: string[], defaultModel?: string
     config.default_orchestrator_model = defaultModel;
   } else if (models.length > 0) {
     config.default_orchestrator_model = models[0];
+  } else {
+    config.default_orchestrator_model = '';
   }
 
   saveModelConfig(config);
@@ -206,31 +194,8 @@ export function getAllAgentModels(): AgentModels {
 
 // ── Model ID Normalization ──
 
-/**
- * Normalize a model ID to match the registry format.
- *
- * Rules:
- * - Add 'litellm/' prefix if not present
- * - Convert model name to lowercase
- * - Replace '/' with '-' in the model name part (e.g., 'ali/MiniMax' -> 'ali-minimax')
- *
- * Examples:
- * - 'ali/MiniMax-M2.5' -> 'litellm/ali-minimax-m2.5'
- * - 'gemini-3-flash-preview' -> 'litellm/gemini-3-flash-preview'
- * - 'litellm/ali/MiniMax-M2.5' -> 'litellm/ali-minimax-m2.5'
- */
 export function normalizeModelId(modelId: string): string {
-  // Remove litellm/ prefix temporarily if present
-  let normalized = modelId;
-  if (normalized.startsWith('litellm/')) {
-    normalized = normalized.slice(8);
-  }
-
-  // Normalize the model name: lowercase and replace / with -
-  normalized = normalized.toLowerCase().replace(/\//g, '-');
-
-  // Add litellm/ prefix
-  return `litellm/${normalized}`;
+  return modelId.trim();
 }
 
 /**
@@ -302,7 +267,7 @@ export function validateAndNormalizeModels(models: string[]): {
       continue;
     }
 
-    // Try to normalize
+    // Try to canonicalize whitespace only
     const normalizedId = normalizeModelId(modelId);
     if (validIds.includes(normalizedId)) {
       valid.push(normalizedId);

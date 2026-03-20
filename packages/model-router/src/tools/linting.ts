@@ -122,10 +122,7 @@ async function runPyflakes(workspacePath: string, filePath: string): Promise<Lin
  * Returns a LintResult with errors and warnings.
  * Never throws — lint failures are non-fatal and returned as empty results.
  */
-export async function checkFileLint(
-  session: WorkspaceSession,
-  filePath: string
-): Promise<LintResult> {
+export async function checkFileLint(session: WorkspaceSession, filePath: string): Promise<LintResult> {
   const language = detectLanguage(filePath);
 
   if (!language) {
@@ -134,20 +131,19 @@ export async function checkFileLint(
 
   let all: LintError[] = [];
 
+  const localPath = filePath.startsWith('/home/user/') ? filePath.replace(/^\/home\/user\/?/, '') : filePath;
+
   if (language === 'typescript' || language === 'javascript') {
-    all = await runTsc(session.workspacePath, filePath);
+    all = await runTsc(session.workspacePath, localPath);
   } else if (language === 'python') {
-    all = await runPyflakes(session.workspacePath, filePath);
+    all = await runPyflakes(session.workspacePath, localPath);
   }
 
   const errors = all.filter((e) => e.severity === 'error');
   const warnings = all.filter((e) => e.severity === 'warning');
 
   if (errors.length > 0) {
-    logger.info(
-      { filePath, language, errorCount: errors.length },
-      'Lint check found errors in file'
-    );
+    logger.info({ filePath, language, errorCount: errors.length }, 'Lint check found errors in file');
   }
 
   return { language, filePath, errors, warnings };
@@ -182,9 +178,7 @@ export function formatLintResultsForAgent(results: LintResult[]): string {
     r.errors.map((e) => `  ${r.filePath}:${e.line}:${e.column} [${e.rule ?? 'lint'}] ${e.message}`)
   );
   const allWarnings = results.flatMap((r) =>
-    r.warnings.map(
-      (e) => `  ${r.filePath}:${e.line}:${e.column} [${e.rule ?? 'lint'}] ${e.message}`
-    )
+    r.warnings.map((e) => `  ${r.filePath}:${e.line}:${e.column} [${e.rule ?? 'lint'}] ${e.message}`)
   );
 
   if (allErrors.length === 0 && allWarnings.length === 0) {

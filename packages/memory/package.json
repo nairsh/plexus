@@ -1,0 +1,14 @@
+{
+  "name": "@orchestrator/memory",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@orchestrator/shared": "workspace:*"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
+  }
+}

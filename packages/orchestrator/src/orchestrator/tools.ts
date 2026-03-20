@@ -28,7 +28,7 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
           description: { type: 'string', description: 'What needs to be done' },
           agent_type: {
             type: 'string',
-            enum: ['research', 'analyze', 'write', 'code', 'file'],
+            enum: ['research', 'analyze', 'write', 'code', 'file', 'deep_research'],
             description: 'Which specialist agent should handle this',
           },
           depends_on: {
@@ -82,7 +82,7 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
           },
           agent_type: {
             type: 'string',
-            enum: ['research', 'analyze', 'write', 'code', 'file'],
+            enum: ['research', 'analyze', 'write', 'code', 'file', 'deep_research'],
             description: 'Filter by agent type',
           },
         },
