@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { connectWorkflowStream } from '../api/sse.js';
 import { getWorkflowDetails } from '../api/client.js';
-import type { AppConfig } from './useConfig.js';
+import type { ApiConfig } from '../api/client.js';
 import type {
   WorkflowEvent,
   WorkflowTask,
@@ -71,7 +71,7 @@ const upsertTask = (tasks: LiveTask[], next: LiveTask): LiveTask[] => {
   return tasks.map((task, taskIndex) => (taskIndex === index ? { ...task, ...next } : task));
 };
 
-export function useWorkflowStream(config: AppConfig, workflowId: string, isActive: boolean): WorkflowLiveState {
+export function useWorkflowStream(config: ApiConfig, workflowId: string, isActive: boolean): WorkflowLiveState {
   const [state, setState] = useState<WorkflowLiveState>({
     tasks: [],
     pills: [],
@@ -463,18 +463,26 @@ export function useWorkflowStream(config: AppConfig, workflowId: string, isActiv
 
     activeToolPillsRef.current = {};
 
-    connectionRef.current = connectWorkflowStream(config.baseUrl, config.apiKey, workflowId, handleEvent, (err) => {
-      setState((prev) => ({
-        ...prev,
-        current_activity: `Stream error: ${err.message}`,
-      }));
-    });
+    connectionRef.current = connectWorkflowStream(
+      {
+        baseUrl: config.baseUrl,
+        getAuthToken: config.getAuthToken,
+      },
+      workflowId,
+      handleEvent,
+      (err) => {
+        setState((prev) => ({
+          ...prev,
+          current_activity: `Stream error: ${err.message}`,
+        }));
+      }
+    );
 
     return () => {
       connectionRef.current?.close();
       connectionRef.current = null;
     };
-  }, [config.baseUrl, config.apiKey, workflowId, isActive, handleEvent]);
+  }, [config.baseUrl, config.getAuthToken, workflowId, isActive, handleEvent]);
 
   return {
     ...state,

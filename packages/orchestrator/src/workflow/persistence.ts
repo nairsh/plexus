@@ -76,7 +76,7 @@ export const hydrateWorkflowState = (workflowId: string): WorkflowState | null =
     id: row.id,
     userId: row.user_id,
     config,
-    orchestratorModel: row.orchestrator_model ?? resolveOrchestratorModel(undefined),
+    orchestratorModel: row.orchestrator_model ?? resolveOrchestratorModel(undefined, row.user_id),
     status: row.status,
     creditsConsumed: row.credits_consumed ?? 0,
     lastOutput: output ?? undefined,

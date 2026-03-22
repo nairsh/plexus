@@ -38,11 +38,11 @@ export class AppError extends Error {
 }
 
 export class AuthenticationError extends AppError {
-  constructor(message = 'Invalid or missing API key') {
+  constructor(message = 'Invalid or missing authentication token') {
     super({
       type: 'authentication_error',
       message,
-      code: 'invalid_api_key',
+      code: 'invalid_auth_token',
       statusCode: 401,
     });
   }

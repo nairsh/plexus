@@ -1,6 +1,11 @@
 import { debitCredits } from '@orchestrator/billing';
 import { recallMemory } from '@orchestrator/memory';
-import { computeCost, resolveOrchestratorModel, routeStreamingRequest } from '@orchestrator/model-router';
+import {
+  computeCost,
+  getOpenTerminalSessionForChat,
+  resolveOrchestratorModel,
+  routeStreamingRequest,
+} from '@orchestrator/model-router';
 import {
   DEFAULT_TEMPERATURE,
   ORCHESTRATOR_MAX_OUTPUT_TOKENS,
@@ -24,6 +29,54 @@ import {
   workflows,
 } from '../workflow/state.js';
 import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow } from '../workflow/persistence.js';
+import { ensureEnvironmentSession } from '../agents.js';
+
+const ensureWorkflowEnvironmentReady = async (state: WorkflowState): Promise<void> => {
+  const chatId = state.config.chat_id ?? state.id;
+  const existing = await getOpenTerminalSessionForChat(state.userId, chatId);
+
+  emitWorkflowEvent(state, {
+    type: 'tool_call',
+    workflow_id: state.id,
+    data: {
+      tool_name: 'start_environment',
+      tool_input: {
+        chat_id: chatId,
+        mode: existing ? 'reuse' : 'create',
+      },
+    },
+  });
+
+  if (!existing) {
+    await ensureEnvironmentSession(
+      {
+        workflowId: state.id,
+        userId: state.userId,
+        orchestratorModel: state.orchestratorModel,
+        config: state.config,
+        sandboxSessionIds: state.sandboxSessionIds,
+        abortSignal: state.abortController.signal,
+        creditsCallback: () => undefined,
+        trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
+      },
+      undefined
+    );
+  }
+
+  const ready = await getOpenTerminalSessionForChat(state.userId, chatId);
+  emitWorkflowEvent(state, {
+    type: 'tool_result',
+    workflow_id: state.id,
+    data: {
+      tool_name: 'start_environment',
+      tool_output: {
+        status: 'ready',
+        chat_id: chatId,
+        open_terminal_url: ready?.baseUrl ?? null,
+      },
+    },
+  });
+};
 
 const parseStructuredOutputText = (
   text: string
@@ -240,7 +293,7 @@ export const runWorkflow = async (
 ): Promise<{ workflowId: string; output: string; status: WorkflowStatus }> => {
   const isContinuing = !!workflowId && workflows.has(workflowId);
   const id = workflowId ?? crypto.randomUUID();
-  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator);
+  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator, userId);
 
   let state: WorkflowState;
 
@@ -286,6 +339,8 @@ export const runWorkflow = async (
   }
 
   try {
+    await ensureWorkflowEnvironmentReady(state);
+
     for (let iteration = 1; iteration <= MAX_TURNS; iteration++) {
       if (state.abortController.signal.aborted) {
         throw new WorkflowError('Workflow cancelled');

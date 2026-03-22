@@ -23,6 +23,7 @@ import { registerHealthRoutes } from './routes/agentHealth.js';
 import { schedulesRoutes } from './routes/schedules.js';
 import { memoryRoutes } from './routes/memory.js';
 import { skillsRoutes } from './routes/skills.js';
+import { modelPreferencesRoutes } from './routes/modelPreferences.js';
 import { startScheduler, stopScheduler } from '@orchestrator/orchestrator';
 
 export async function createServer() {
@@ -158,6 +159,7 @@ export async function createServer() {
   await fastify.register(schedulesRoutes);
   await fastify.register(memoryRoutes);
   await fastify.register(skillsRoutes);
+  await fastify.register(modelPreferencesRoutes);
 
   return fastify;
 }

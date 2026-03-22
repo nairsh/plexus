@@ -30,7 +30,7 @@ orchestrator-platform/
 │   │   └── src/
 │   │       ├── server.ts
 │   │       ├── middleware/
-│   │       │   ├── auth.ts         # API key verification
+│   │       │   ├── auth.ts         # Clerk JWT verification
 │   │       │   ├── rateLimit.ts    # In-memory token bucket rate limiter
 │   │       │   └── creditCheck.ts  # Pre-flight credit balance check
 │   │       └── routes/
@@ -60,24 +60,12 @@ orchestrator-platform/
 Database schema (SQLite)
 Create these tables via a simple migration script that runs on startup:
 
--- Users & auth
+-- Users
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,               -- UUID generated in app code
   email TEXT UNIQUE,
   tier TEXT NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro', 'max', 'enterprise')),
   credits_balance REAL NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS api_keys (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  key_hash TEXT NOT NULL UNIQUE,     -- bcrypt hash of the API key
-  key_prefix TEXT NOT NULL,          -- first 8 chars for identification (e.g., "sk-live-abc...")
-  name TEXT,
-  permissions TEXT NOT NULL DEFAULT '["all"]', -- JSON string
-  last_used_at TEXT,
-  revoked_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -384,11 +372,10 @@ Presets
 }
 
 Authentication middleware
-1. Extract Bearer <key> from the Authorization header.
-2. Hash the key with bcrypt and look up the hash in api_keys table.
-3. Check revoked_at IS NULL.
-4. Load the associated user and attach to request context.
-5. Update last_used_at.
+1. Extract Bearer <token> from the Authorization header.
+2. Verify Clerk JWT signature and claims (`exp`, `sub`, audience/authorized parties as configured).
+3. Upsert the user by `sub` into local `users` table.
+4. Attach the authenticated user to request context.
 Rate limiting
 In-memory token bucket per user. Store buckets in a Map<string, { tokens: number, lastRefill: number }>. Limits by tier:
 • Free: 20 req/min
@@ -401,7 +388,7 @@ Billing endpoints
 • POST /v1/billing/top-up — body: { amount }, adds credits (just increment the balance for now)
 Success criteria for Phase 1
 • [ ] pnpm install && pnpm dev starts the server, SQLite DB is created, migrations run automatically
-• [ ] API key can be created via a seed script and used to authenticate requests
+• [ ] Authenticated requests use Clerk JWT bearer tokens
 • [ ] POST /v1/responses with model: "openai/gpt-4o" returns a well-formed AgentResponse with correct usage/cost
 • [ ] POST /v1/responses with model: "anthropic/claude-sonnet-4-20250514" works through the Anthropic adapter
 • [ ] POST /v1/responses with tools: [{ "type": "web_search" }] performs a real web search and the model responds with grounded information

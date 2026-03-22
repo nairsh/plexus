@@ -1,4 +1,4 @@
-import { getDb, logger, BillingError } from '@orchestrator/shared';
+import { getEnv, getStorage, logger } from '@orchestrator/shared';
 
 export interface CreditTransaction {
   id: string;
@@ -20,46 +20,15 @@ function adjustBalance(
   referenceId?: string,
   metadata?: Record<string, unknown>
 ): number {
-  const db = getDb();
-
-  const result = db.transaction(() => {
-    const user = db
-      .prepare('SELECT credits_balance FROM users WHERE id = ?')
-      .get(userId) as { credits_balance: number } | undefined;
-
-    if (!user) {
-      throw new BillingError('User not found', 'user_not_found');
-    }
-
-    if (delta < 0 && user.credits_balance < -delta) {
-      throw new BillingError(
-        `Insufficient credits. Balance: ${user.credits_balance}, Required: ${-delta}`,
-        'insufficient_credits'
-      );
-    }
-
-    const newBalance = Math.round((user.credits_balance + delta) * 1_000_000) / 1_000_000;
-
-    db.prepare('UPDATE users SET credits_balance = ? WHERE id = ?').run(newBalance, userId);
-
-    db.prepare(
-      `INSERT INTO credit_transactions (id, user_id, amount, balance_after, description, reference_type, reference_id, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      crypto.randomUUID(),
-      userId,
-      delta,
-      newBalance,
-      description,
-      referenceType ?? null,
-      referenceId ?? null,
-      metadata ? JSON.stringify(metadata) : null
-    );
-
-    return newBalance;
-  })();
-
-  return result;
+  const storage = getStorage();
+  return storage.adjustBalance({
+    userId,
+    delta,
+    description,
+    referenceType,
+    referenceId,
+    metadata,
+  }) as unknown as number;
 }
 
 /**
@@ -74,6 +43,12 @@ export function debitCredits(
   referenceId?: string,
   metadata?: Record<string, unknown>
 ): number {
+  if (getEnv().BILLING_MODE !== 'enforced') {
+    const balance = getBalance(userId);
+    logger.debug({ userId, amount, description, balance }, 'Billing mode is non-enforced, skipping debit');
+    return balance;
+  }
+
   const absAmount = Math.abs(amount);
   const newBalance = adjustBalance(userId, -absAmount, description, referenceType, referenceId, metadata);
   logger.info({ userId, amount: absAmount, description, newBalance }, 'Credits debited');
@@ -101,12 +76,7 @@ export function creditBalance(
  * Get user's credit balance.
  */
 export function getBalance(userId: string): number {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT credits_balance FROM users WHERE id = ?')
-    .get(userId) as { credits_balance: number } | undefined;
-
-  return row?.credits_balance ?? 0;
+  return getStorage().getBalance(userId) as unknown as number;
 }
 
 /**
@@ -117,10 +87,5 @@ export function getTransactions(
   limit = 50,
   offset = 0
 ): CreditTransaction[] {
-  const db = getDb();
-  return db
-    .prepare(
-      'SELECT * FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
-    )
-    .all(userId, limit, offset) as CreditTransaction[];
+  return getStorage().getTransactions(userId, limit, offset) as unknown as CreditTransaction[];
 }

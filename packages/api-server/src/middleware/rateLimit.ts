@@ -9,7 +9,7 @@ interface TokenBucket {
 const buckets = new Map<string, TokenBucket>();
 
 const TIER_LIMITS: Record<string, number> = {
-  free: 20,
+  free: 60,
   pro: 100,
   max: 500,
   enterprise: 1000,

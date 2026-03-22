@@ -12,7 +12,7 @@ import {
   executeReadFile,
   executeWriteFile,
 } from './fileOperations.js';
-import { applySkillToRequest, getSkillById } from '../skills.js';
+import { applySkillToRequest, getSkillById, getSkillByIdForUser } from '../skills.js';
 import { fetchUrl, searchWeb } from './tavily.js';
 import { getOpenTerminalSessionForChat } from './workspaceAccess.js';
 import { CANONICAL_TOOL_DEFS } from './defs.js';
@@ -74,7 +74,7 @@ export const executeToolCall = async (
       if (request.allowed_skills && !request.allowed_skills.includes(skillId)) {
         return { output: JSON.stringify({ error: 'skill not allowed' }), cost: 0 };
       }
-      const skill = getSkillById(skillId);
+      const skill = request.user_id ? getSkillByIdForUser(request.user_id, skillId) : getSkillById(skillId);
       if (!skill) {
         return { output: JSON.stringify({ error: 'skill not found' }), cost: 0 };
       }
@@ -135,7 +135,16 @@ export const executeToolCall = async (
         return { output: JSON.stringify(FILE_CONTEXT_ERROR), cost: 0 };
       }
 
-      const session = await getOpenTerminalSessionForChat(request.chat_id);
+      if (!request.user_id) {
+        return {
+          output: JSON.stringify({
+            error: 'File operations require a user context. Please rerun with authenticated user context.',
+          }),
+          cost: 0,
+        };
+      }
+
+      const session = await getOpenTerminalSessionForChat(request.user_id, request.chat_id);
       if (!session) {
         return { output: JSON.stringify(WORKSPACE_MISSING_ERROR), cost: 0 };
       }

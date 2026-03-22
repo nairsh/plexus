@@ -3,7 +3,7 @@
  * Polls every 60 seconds for due scheduled workflows and executes them.
  */
 import { createRequire } from 'node:module';
-import { getDb, logger, getErrorMessage } from '@orchestrator/shared';
+import { getDb, logger, getErrorMessage, getEnv } from '@orchestrator/shared';
 import type { WorkflowConfig } from '@orchestrator/shared';
 import { getBalance } from '@orchestrator/billing';
 import { planWorkflow, executeWorkflowToCompletion } from './engine.js';
@@ -39,11 +39,14 @@ async function runDueSchedules(): Promise<void> {
 
   for (const schedule of dueSchedules) {
     try {
-      const balance = getBalance(schedule.user_id);
-      if (balance < 0.01) {
-        db.prepare(`UPDATE scheduled_workflows SET last_error = ?, updated_at = datetime('now') WHERE id = ?`)
-          .run('Insufficient credits', schedule.id);
-        continue;
+      if (getEnv().BILLING_MODE === 'enforced') {
+        const balance = getBalance(schedule.user_id);
+        if (balance < 0.01) {
+          db
+            .prepare(`UPDATE scheduled_workflows SET last_error = ?, updated_at = datetime('now') WHERE id = ?`)
+            .run('Insufficient credits', schedule.id);
+          continue;
+        }
       }
 
       const config = JSON.parse(schedule.workflow_config) as WorkflowConfig;

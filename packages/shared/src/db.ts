@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
+import { existsSync, renameSync } from 'node:fs';
 import { logger } from './logger.js';
 
 let db: Database.Database | null = null;
@@ -10,12 +11,67 @@ export function getDb(): Database.Database {
   const dbPath = process.env['DATABASE_PATH'] || './data/orchestrator.db';
   const resolvedPath = resolve(dbPath);
 
-  db = new Database(resolvedPath);
+  const applyPragmas = (database: Database.Database): void => {
+    database.pragma('journal_mode = WAL');
+    database.pragma('foreign_keys = ON');
+    database.pragma('busy_timeout = 10000');
+  };
 
-  // Enable WAL mode for better concurrent read performance
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 10000');
+  try {
+    db = new Database(resolvedPath);
+    applyPragmas(db);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isCorrupt =
+      message.includes('malformed database schema') ||
+      message.includes('database disk image is malformed');
+
+    if (!isCorrupt || process.env['NODE_ENV'] === 'production') {
+      throw error;
+    }
+
+    try {
+      if (db) {
+        db.close();
+      }
+    } catch {
+      // Ignore close failures while recovering corrupted DB.
+    }
+    db = null;
+
+    if (existsSync(resolvedPath)) {
+      const stamp = Date.now();
+      const backupPath = `${resolvedPath}.corrupt-${stamp}`;
+      try {
+        renameSync(resolvedPath, backupPath);
+      } catch {
+        // Another process may have already moved the file.
+      }
+
+      const walPath = `${resolvedPath}-wal`;
+      if (existsSync(walPath)) {
+        try {
+          renameSync(walPath, `${walPath}.corrupt-${stamp}`);
+        } catch {
+          // Another process may have already moved the WAL file.
+        }
+      }
+
+      const shmPath = `${resolvedPath}-shm`;
+      if (existsSync(shmPath)) {
+        try {
+          renameSync(shmPath, `${shmPath}.corrupt-${stamp}`);
+        } catch {
+          // Another process may have already moved the SHM file.
+        }
+      }
+
+      logger.warn({ path: resolvedPath, backupPath, error: message }, 'Corrupted SQLite database moved aside');
+    }
+
+    db = new Database(resolvedPath);
+    applyPragmas(db);
+  }
 
   logger.info({ path: resolvedPath }, 'SQLite database connected');
 
@@ -33,24 +89,12 @@ export function runMigrations(): void {
   };
 
   database.exec(`
-    -- Users & auth
+    -- Users
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE,
       tier TEXT NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro', 'max', 'enterprise')),
       credits_balance REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS api_keys (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id),
-      key_hash TEXT NOT NULL UNIQUE,
-      key_prefix TEXT NOT NULL,
-      name TEXT,
-      permissions TEXT NOT NULL DEFAULT '["all"]',
-      last_used_at TEXT,
-      revoked_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -143,8 +187,8 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_time ON workflow_steps(workflow_id, timestamp, created_at);
 
     CREATE TABLE IF NOT EXISTS sandbox_workspaces (
-      chat_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id),
+      chat_id TEXT NOT NULL,
       active_session_id TEXT REFERENCES sandbox_sessions(id),
       language TEXT NOT NULL CHECK (language IN ('python', 'javascript', 'sql')),
       workspace_path TEXT NOT NULL,
@@ -153,15 +197,17 @@ export function runMigrations(): void {
       last_activated_at TEXT,
       last_deactivated_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, chat_id)
     );
+    CREATE INDEX IF NOT EXISTS idx_sandbox_workspaces_chat ON sandbox_workspaces(chat_id);
 
     -- Sandbox sessions
     CREATE TABLE IF NOT EXISTS sandbox_sessions (
       id TEXT PRIMARY KEY,
       task_id TEXT REFERENCES tasks(id),
       user_id TEXT NOT NULL REFERENCES users(id),
-      chat_id TEXT REFERENCES sandbox_workspaces(chat_id),
+      chat_id TEXT,
       language TEXT NOT NULL CHECK (language IN ('python', 'javascript', 'sql')),
       working_dir TEXT,
       open_terminal_url TEXT,
@@ -191,10 +237,113 @@ export function runMigrations(): void {
   addColumnIfMissing('tasks', 'model', 'TEXT');
   addColumnIfMissing('tasks', 'tools', 'TEXT');
   // Note: updated_at column will be added via table recreation below
-  addColumnIfMissing('sandbox_sessions', 'chat_id', 'TEXT REFERENCES sandbox_workspaces(chat_id)');
+  addColumnIfMissing('sandbox_sessions', 'chat_id', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'open_terminal_url', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'open_terminal_api_key', 'TEXT');
   addColumnIfMissing('sandbox_sessions', 'environment_status', "TEXT NOT NULL DEFAULT 'running'");
+
+  const workspaceTableInfo = database.prepare('PRAGMA table_info(sandbox_workspaces)').all() as Array<{
+    name: string;
+    pk: number;
+  }>;
+  const hasLegacyWorkspacePk =
+    workspaceTableInfo.length > 0 &&
+    workspaceTableInfo.some((column) => column.name === 'chat_id' && column.pk === 1) &&
+    !workspaceTableInfo.some((column) => column.name === 'user_id' && column.pk > 0);
+
+  if (hasLegacyWorkspacePk) {
+    logger.info('Migrating sandbox_workspaces to composite (user_id, chat_id) primary key...');
+
+    database.exec('PRAGMA foreign_keys = OFF');
+    try {
+      database.exec(`
+        DROP TABLE IF EXISTS sandbox_workspaces_new;
+
+        CREATE TABLE sandbox_workspaces_new (
+          user_id TEXT NOT NULL REFERENCES users(id),
+          chat_id TEXT NOT NULL,
+          active_session_id TEXT,
+          language TEXT NOT NULL CHECK (language IN ('python', 'javascript', 'sql')),
+          workspace_path TEXT NOT NULL,
+          metadata_path TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'inactive' CHECK (status IN ('inactive','activating','active','error')),
+          last_activated_at TEXT,
+          last_deactivated_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (user_id, chat_id)
+        );
+
+        INSERT OR REPLACE INTO sandbox_workspaces_new (
+          user_id, chat_id, active_session_id, language, workspace_path, metadata_path,
+          status, last_activated_at, last_deactivated_at, created_at, updated_at
+        )
+        SELECT
+          user_id, chat_id, active_session_id, language, workspace_path, metadata_path,
+          status, last_activated_at, last_deactivated_at, created_at, updated_at
+        FROM sandbox_workspaces;
+
+        DROP TABLE sandbox_workspaces;
+        ALTER TABLE sandbox_workspaces_new RENAME TO sandbox_workspaces;
+
+        CREATE INDEX IF NOT EXISTS idx_sandbox_workspaces_chat ON sandbox_workspaces(chat_id);
+      `);
+      logger.info('sandbox_workspaces migration completed');
+    } finally {
+      database.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  const sandboxSessionsSqlRow = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sandbox_sessions'")
+    .get() as { sql?: string } | undefined;
+  const hasLegacySessionWorkspaceFk = Boolean(
+    sandboxSessionsSqlRow?.sql?.includes('REFERENCES sandbox_workspaces(chat_id)')
+  );
+
+  if (hasLegacySessionWorkspaceFk) {
+    logger.info('Migrating sandbox_sessions to remove chat_id foreign key constraint...');
+
+    database.exec('PRAGMA foreign_keys = OFF');
+    try {
+      database.exec(`
+        DROP TABLE IF EXISTS sandbox_sessions_new;
+
+        CREATE TABLE sandbox_sessions_new (
+          id TEXT PRIMARY KEY,
+          task_id TEXT REFERENCES tasks(id),
+          user_id TEXT NOT NULL REFERENCES users(id),
+          chat_id TEXT,
+          language TEXT NOT NULL CHECK (language IN ('python', 'javascript', 'sql')),
+          working_dir TEXT,
+          open_terminal_url TEXT,
+          open_terminal_api_key TEXT,
+          environment_status TEXT NOT NULL DEFAULT 'running' CHECK (environment_status IN ('stopped','starting','running')),
+          status TEXT NOT NULL DEFAULT 'creating' CHECK (status IN ('creating','ready','executing','terminated','error')),
+          config TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          terminated_at TEXT
+        );
+
+        INSERT INTO sandbox_sessions_new (
+          id, task_id, user_id, chat_id, language, working_dir,
+          open_terminal_url, open_terminal_api_key, environment_status,
+          status, config, created_at, terminated_at
+        )
+        SELECT
+          id, task_id, user_id, chat_id, language, working_dir,
+          open_terminal_url, open_terminal_api_key, environment_status,
+          status, config, created_at, terminated_at
+        FROM sandbox_sessions;
+
+        DROP TABLE sandbox_sessions;
+        ALTER TABLE sandbox_sessions_new RENAME TO sandbox_sessions;
+      `);
+      logger.info('sandbox_sessions migration completed');
+    } finally {
+      database.exec('PRAGMA foreign_keys = ON');
+    }
+  }
 
   // Update task_type CHECK constraint to include new agent types
   // Note: SQLite doesn't support ALTER TABLE for CHECK constraints
@@ -365,6 +514,30 @@ export function runMigrations(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id, category);
     CREATE INDEX IF NOT EXISTS idx_user_memories_key ON user_memories(user_id, key);
+
+    -- User-defined skills (overrides/global extensions per user)
+    CREATE TABLE IF NOT EXISTS user_skills (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      prompt_addendum TEXT NOT NULL,
+      tools TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_skills_user ON user_skills(user_id, updated_at DESC);
+
+    -- User model preferences (overrides global model config)
+    CREATE TABLE IF NOT EXISTS user_model_preferences (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      default_orchestrator_model TEXT,
+      orchestrator_models TEXT,
+      agent_models TEXT,
+      subagent_models TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
     -- Agent health tracking
     CREATE TABLE IF NOT EXISTS agent_health (

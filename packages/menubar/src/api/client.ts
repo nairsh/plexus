@@ -15,7 +15,8 @@ interface WorkflowDetails {
 
 export interface ApiConfig {
   baseUrl: string;
-  apiKey: string;
+  getAuthToken?: () => Promise<string | null>;
+  hasAuth?: boolean;
 }
 
 export class ApiError extends Error {
@@ -28,15 +29,34 @@ export class ApiError extends Error {
   }
 }
 
+function normalizeApiErrorMessage(message: string): string {
+  const lowered = message.toLowerCase();
+  if (
+    lowered.includes('invalid api key') ||
+    lowered.includes('invalid or missing api key') ||
+    lowered.includes('invalid or expired clerk token') ||
+    lowered.includes('invalid auth token') ||
+    lowered.includes('missing authentication token')
+  ) {
+    return 'Sign in with Clerk to continue.';
+  }
+  return message;
+}
+
 async function request<T>(config: ApiConfig, path: string, init?: RequestInit): Promise<T> {
   const url = `${config.baseUrl.replace(/\/$/, '')}${path}`;
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+
+  const token = await resolveAuthToken(config);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(url, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -47,10 +67,18 @@ async function request<T>(config: ApiConfig, path: string, init?: RequestInit): 
     } catch {
       // ignore parse failure
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, normalizeApiErrorMessage(message));
   }
 
   return response.json() as Promise<T>;
+}
+
+async function resolveAuthToken(config: ApiConfig): Promise<string | null> {
+  const clerkToken = config.getAuthToken ? await config.getAuthToken() : null;
+  if (clerkToken && clerkToken.trim().length > 0) {
+    return clerkToken.trim();
+  }
+  return null;
 }
 
 export async function createWorkflow(config: ApiConfig, objective: string): Promise<CreateWorkflowResponse> {

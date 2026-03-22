@@ -1,10 +1,10 @@
 import { WorkflowCard } from './WorkflowCard.js';
-import type { AppConfig } from '../hooks/useConfig.js';
+import type { ApiConfig } from '../api/client.js';
 import type { Workflow } from '../api/types.js';
 
 interface Props {
   workflows: Workflow[];
-  config: AppConfig;
+  config: ApiConfig;
   onCancel: (id: string) => void;
 }
 

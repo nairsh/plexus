@@ -12,6 +12,7 @@
     "generate-icons": "bash scripts/generate-icons.sh"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.37.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-autostart": "^2.0.0",
     "@tauri-apps/plugin-global-shortcut": "^2.0.0",

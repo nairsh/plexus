@@ -20,6 +20,7 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
 
     const agentRequest = parseResult.data as AgentRequest;
     const userId = request.user!.id;
+    agentRequest.user_id = userId;
 
     // Handle streaming
     if (agentRequest.stream) {

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { listWorkflows } from '../api/client.js';
-import type { AppConfig } from './useConfig.js';
+import type { ApiConfig } from '../api/client.js';
 import type { Workflow } from '../api/types.js';
 
 const POLL_INTERVAL_ACTIVE = 3_000;
 const POLL_INTERVAL_IDLE = 10_000;
 
-export function useWorkflows(config: AppConfig, enabled: boolean) {
+export function useWorkflows(config: ApiConfig, enabled: boolean) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

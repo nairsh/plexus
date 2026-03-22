@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { InvalidRequestError, getErrorMessage, logger } from '@orchestrator/shared';
-import { deleteSkill, getAllSkills, getSkillById, upsertSkill } from '@orchestrator/model-router';
+import { deleteSkillForUser, getAllSkillsForUser, getSkillByIdForUser, upsertSkillForUser } from '@orchestrator/model-router';
 import type { Skill, Tool } from '@orchestrator/shared';
 
 const ToolTypeSchema = z.enum([
@@ -44,13 +44,13 @@ function toApiSkill(skill: Skill): {
 }
 
 export async function skillsRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/v1/skills', async () => {
-    const skills = getAllSkills();
+  fastify.get('/v1/skills', async (request: FastifyRequest) => {
+    const skills = getAllSkillsForUser(request.user!.id);
     return { skills: skills.map(toApiSkill) };
   });
 
   fastify.get('/v1/skills/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-    const skill = getSkillById(request.params.id);
+    const skill = getSkillByIdForUser(request.user!.id, request.params.id);
     if (!skill) {
       reply.status(404);
       return {
@@ -76,11 +76,11 @@ export async function skillsRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
-      const existing = getSkillById(request.params.id);
+      const existing = getSkillByIdForUser(request.user!.id, request.params.id);
       const body = parseResult.data;
 
       try {
-        const skill = upsertSkill(request.params.id, {
+        const skill = upsertSkillForUser(request.user!.id, request.params.id, {
           name: body.name,
           description: body.description,
           prompt_addendum: body.prompt_addendum,
@@ -97,9 +97,9 @@ export async function skillsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/v1/skills/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
-        const deleted = deleteSkill(request.params.id);
+        const deleted = deleteSkillForUser(request.user!.id, request.params.id);
         if (!deleted) {
           reply.status(404);
           return {

@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getErrorMessage, logger } from '@orchestrator/shared';
+import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, Skill, Tool } from '@orchestrator/shared';
 
 const RESERVED_NAMES = new Set(['anthropic', 'claude']);
@@ -11,6 +11,14 @@ const BACKEND_ROOT = resolve(MODULE_DIR, '../../..');
 const DEFAULT_SKILLS_DIR = join(BACKEND_ROOT, 'skills');
 
 let cachedSkills: Skill[] | null = null;
+
+interface UserSkillRow {
+  id: string;
+  name: string;
+  description: string;
+  prompt_addendum: string;
+  tools: string | null;
+}
 
 interface FrontmatterResult {
   meta: Record<string, string | string[]>;
@@ -46,6 +54,81 @@ export function getAllSkills(): Skill[] {
 export function getSkillById(skillId: string): Skill | null {
   const skills = getAllSkills();
   return skills.find((skill) => skill.id === skillId) ?? null;
+}
+
+export function getAllSkillsForUser(userId: string): Skill[] {
+  const builtIn = getAllSkills();
+  const userSkills = loadUserSkills(userId);
+
+  if (userSkills.length === 0) {
+    return builtIn;
+  }
+
+  const merged = new Map<string, Skill>();
+  for (const skill of builtIn) {
+    merged.set(skill.id, skill);
+  }
+  for (const skill of userSkills) {
+    merged.set(skill.id, skill);
+  }
+  return Array.from(merged.values());
+}
+
+export function getSkillByIdForUser(userId: string, skillId: string): Skill | null {
+  assertValidSkillId(skillId);
+  const row = getDb()
+    .prepare('SELECT id, name, description, prompt_addendum, tools FROM user_skills WHERE user_id = ? AND id = ?')
+    .get(userId, skillId) as UserSkillRow | undefined;
+
+  if (row) {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      prompt_addendum: row.prompt_addendum,
+      tools: parseToolsJson(row.tools),
+    };
+  }
+
+  return getSkillById(skillId);
+}
+
+export function upsertSkillForUser(userId: string, skillId: string, input: UpsertSkillInput): Skill {
+  assertValidSkillId(skillId);
+
+  const name = (input.name ?? skillId).trim();
+  const description = input.description.trim();
+  const promptAddendum = input.prompt_addendum.trim();
+  const tools = normalizeSkillTools(input.tools ?? []);
+
+  validateSkillMetadata(skillId, name, description);
+
+  getDb()
+    .prepare(
+      `INSERT INTO user_skills (user_id, id, name, description, prompt_addendum, tools, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(user_id, id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         prompt_addendum = excluded.prompt_addendum,
+         tools = excluded.tools,
+         updated_at = datetime('now')`
+    )
+    .run(userId, skillId, name, description, promptAddendum, JSON.stringify(tools));
+
+  return {
+    id: skillId,
+    name,
+    description,
+    prompt_addendum: promptAddendum,
+    tools: tools.length > 0 ? tools : undefined,
+  };
+}
+
+export function deleteSkillForUser(userId: string, skillId: string): boolean {
+  assertValidSkillId(skillId);
+  const result = getDb().prepare('DELETE FROM user_skills WHERE user_id = ? AND id = ?').run(userId, skillId);
+  return result.changes > 0;
 }
 
 export function upsertSkill(skillId: string, input: UpsertSkillInput): Skill {
@@ -168,6 +251,43 @@ function loadSkillsFromDisk(): Skill[] {
   }
 
   return skills;
+}
+
+function loadUserSkills(userId: string): Skill[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, name, description, prompt_addendum, tools
+       FROM user_skills
+       WHERE user_id = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(userId) as UserSkillRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    prompt_addendum: row.prompt_addendum,
+    tools: parseToolsJson(row.tools),
+  }));
+}
+
+function parseToolsJson(raw: string | null): Tool[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const tools = normalizeSkillTools(
+      parsed
+        .filter((entry): entry is { type: Tool['type'] } => {
+          return Boolean(entry) && typeof entry === 'object' && 'type' in (entry as Record<string, unknown>);
+        })
+        .map((entry) => ({ type: entry.type }))
+    );
+    return tools.length > 0 ? tools : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseFrontmatter(raw: string): FrontmatterResult {

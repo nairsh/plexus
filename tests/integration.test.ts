@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
+import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
-let API_KEY = '';
+let AUTH_TOKEN = '';
 
 /**
  * These integration tests assume a running server (pnpm dev) with seeded data (pnpm seed).
@@ -23,7 +24,7 @@ async function api(
     method,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+      ...(AUTH_TOKEN ? authHeaders(AUTH_TOKEN) : {}),
       ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -51,36 +52,7 @@ beforeAll(async () => {
     throw new Error('Server is not running. Start it with: pnpm dev & sleep 2 && pnpm seed');
   }
 
-  // Get API key from env or create via seed-style approach
-  API_KEY = process.env['TEST_API_KEY'] || '';
-  if (!API_KEY) {
-    // Create a test user + key directly
-    const { createHash } = await import('node:crypto');
-    const { getDb, runMigrations } = await import('@orchestrator/shared');
-
-    runMigrations();
-    const db = getDb();
-
-    const userId = crypto.randomUUID();
-    const email = `test-${Date.now()}@orchestrator.local`;
-
-    db.prepare('INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId,
-      email,
-      'pro',
-      100.0
-    );
-
-    const rawKey = `sk-test-${crypto.randomUUID().replace(/-/g, '')}`;
-    const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    const keyId = crypto.randomUUID();
-
-    db.prepare(
-      'INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, permissions) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(keyId, userId, keyHash, rawKey.substring(0, 12), 'Test Key', '["all"]');
-
-    API_KEY = rawKey;
-  }
+  AUTH_TOKEN = await prepareTestAuth({ baseUrl: BASE_URL, testLabel: 'integration' });
 });
 
 // ── Health & Discovery ──
@@ -120,10 +92,10 @@ describe('Health & Discovery', () => {
 
 describe('Authentication', () => {
   test('Request without auth returns 401', async () => {
-    const savedKey = API_KEY;
-    API_KEY = '';
+    const savedToken = AUTH_TOKEN;
+    AUTH_TOKEN = '';
     const { status, data } = await api('GET', '/v1/billing/balance');
-    API_KEY = savedKey;
+    AUTH_TOKEN = savedToken;
 
     expect(status).toBe(401);
     expect(data).toHaveProperty('error');
@@ -131,16 +103,16 @@ describe('Authentication', () => {
     expect(error['type']).toBe('authentication_error');
   });
 
-  test('Request with invalid key returns 401', async () => {
-    const savedKey = API_KEY;
-    API_KEY = 'sk-invalid-key';
-    const { status, data } = await api('GET', '/v1/billing/balance');
-    API_KEY = savedKey;
+  test('Request with invalid bearer token returns 401', async () => {
+    const savedToken = AUTH_TOKEN;
+    AUTH_TOKEN = 'invalid-test-token';
+    const { status } = await api('GET', '/v1/billing/balance');
+    AUTH_TOKEN = savedToken;
 
     expect(status).toBe(401);
   });
 
-  test('Request with valid key succeeds', async () => {
+  test('Request with valid credentials succeeds', async () => {
     const { status } = await api('GET', '/v1/billing/balance');
     expect(status).toBe(200);
   });
@@ -246,7 +218,7 @@ describe('Sandbox API', () => {
 
     // Read
     const readRes = await fetch(`${BASE_URL}/v1/sandbox/sessions/${pythonSessionId}/file/roundtrip.txt`, {
-      headers: { Authorization: `Bearer ${API_KEY}` },
+      headers: authHeaders(AUTH_TOKEN),
     });
     expect(readRes.status).toBe(200);
     const text = await readRes.text();

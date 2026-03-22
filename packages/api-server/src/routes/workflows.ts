@@ -20,6 +20,7 @@ import {
   executeWorkflow,
   executeWorkflowToCompletion,
   cancelWorkflow,
+  deleteWorkflow,
   resumeWorkflow,
   continueWorkflow,
   retryWorkflow,
@@ -28,6 +29,41 @@ import {
   getWorkflowTrace,
   listWorkflows,
 } from '@orchestrator/orchestrator';
+
+const ensureWorkflowOwned = (workflowId: string, userId: string): void => {
+  const row = getDb().prepare('SELECT 1 FROM workflows WHERE id = ? AND user_id = ?').get(workflowId, userId) as
+    | { 1: number }
+    | undefined;
+
+  if (!row) {
+    throw new WorkflowError(`Workflow not found: ${workflowId}`, 'workflow_not_found');
+  }
+};
+
+const ensureTaskOwned = (workflowId: string, taskId: string, userId: string): void => {
+  const row = getDb()
+    .prepare(
+      `SELECT 1
+       FROM tasks t
+       JOIN workflows w ON w.id = t.workflow_id
+       WHERE t.workflow_id = ? AND t.id = ? AND w.user_id = ?`
+    )
+    .get(workflowId, taskId, userId) as { 1: number } | undefined;
+
+  if (!row) {
+    throw new InvalidRequestError('Task not found', 'not_found');
+  }
+};
+
+const ensureGitSandboxInWorkflow = (workflowId: string, sandboxId: string): void => {
+  const row = getDb()
+    .prepare('SELECT 1 FROM git_snapshots WHERE id = ? AND workflow_id = ?')
+    .get(sandboxId, workflowId) as { 1: number } | undefined;
+
+  if (!row) {
+    throw new InvalidRequestError('Sandbox not found', 'not_found');
+  }
+};
 
 export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /**
@@ -87,7 +123,10 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/workflows/:id/continue',
     async (request: FastifyRequest<{ Params: { id: string }; Body: { objective?: string } }>) => {
       const { id } = request.params;
+      const userId = request.user!.id;
       const objective = request.body?.objective?.trim();
+
+      ensureWorkflowOwned(id, userId);
 
       if (!objective) {
         throw new InvalidRequestError('objective is required');
@@ -141,6 +180,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get('/v1/workflows/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
     const details = getWorkflowDetails(id);
     if (!details) {
       throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
@@ -150,6 +190,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/v1/workflows/:id/trace', async (request: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
     const details = getWorkflowDetails(id);
     if (!details) {
       throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
@@ -168,6 +209,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/workflows/:id/stream',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
       const emitter = getWorkflowEmitter(id);
       if (!emitter) {
         throw new WorkflowError(`Workflow not found or not active: ${id}`, 'workflow_not_found');
@@ -218,6 +260,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post('/v1/workflows/:id/approve', async (request: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
     const parseResult = WorkflowApprovalSchema.safeParse(request.body);
     if (!parseResult.success) {
       throw new InvalidRequestError(
@@ -250,6 +293,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/workflows/:id/retry',
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
       const result = await retryWorkflow(id);
 
       // Run in background
@@ -269,6 +313,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/workflows/:id/tasks/:taskId',
     async (request: FastifyRequest<{ Params: { id: string; taskId: string } }>) => {
       const { id, taskId } = request.params;
+      ensureTaskOwned(id, taskId, request.user!.id);
       const db = getDb();
 
       const row = db
@@ -297,6 +342,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/workflows/:id/git-sandboxes',
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
       const sandboxes = listGitSandboxes(id);
       return { sandboxes };
     }
@@ -308,7 +354,9 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/v1/workflows/:id/git-sandboxes/:sandboxId/diff',
     async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>) => {
-      const { sandboxId } = request.params;
+      const { id, sandboxId } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+      ensureGitSandboxInWorkflow(id, sandboxId);
       return getGitSandboxDiff(sandboxId);
     }
   );
@@ -319,7 +367,9 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
     '/v1/workflows/:id/git-sandboxes/:sandboxId/rollback',
     async (request: FastifyRequest<{ Params: { id: string; sandboxId: string } }>, reply: FastifyReply) => {
-      const { sandboxId } = request.params;
+      const { id, sandboxId } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+      ensureGitSandboxInWorkflow(id, sandboxId);
       const result = await rollbackGitSandbox(sandboxId);
       if (!result.success) {
         throw new InvalidRequestError(result.error ?? 'Rollback failed', 'rollback_failed');
@@ -329,24 +379,30 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
-   * DELETE /v1/workflows/:id — Cancel a workflow.
+   * DELETE /v1/workflows/:id — Cancel (if running) and permanently delete a workflow.
    */
   fastify.delete(
     '/v1/workflows/:id',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const { id } = request.params;
-      cancelWorkflow(id);
+      ensureWorkflowOwned(id, request.user!.id);
+
+      const details = getWorkflowDetails(id);
+      if (details?.workflow.status === 'executing' || details?.workflow.status === 'paused') {
+        cancelWorkflow(id);
+      }
+      deleteWorkflow(id);
 
       try {
         getDb()
           .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
-          .run(crypto.randomUUID(), request.user!.id, 'workflow_cancel', JSON.stringify({ workflow_id: id }));
+          .run(crypto.randomUUID(), request.user!.id, 'workflow_delete', JSON.stringify({ workflow_id: id }));
       } catch (err) {
         logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(200);
-      return { status: 'cancelled', workflow_id: id };
+      return { status: 'deleted', workflow_id: id };
     }
   );
 }

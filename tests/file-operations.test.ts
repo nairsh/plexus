@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
+import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
-let API_KEY = '';
+let AUTH_TOKEN = '';
 
 /**
  * Test file operation tools through orchestration
@@ -17,7 +18,7 @@ async function api(
     method,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+      ...(AUTH_TOKEN ? authHeaders(AUTH_TOKEN) : {}),
       ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -43,35 +44,7 @@ beforeAll(async () => {
     throw new Error('Server is not running. Start it with: pnpm dev & sleep 2 && pnpm seed');
   }
 
-  // Get API key from env or create test key
-  API_KEY = process.env['TEST_API_KEY'] || '';
-  if (!API_KEY) {
-    const { createHash } = await import('node:crypto');
-    const { getDb, runMigrations } = await import('@orchestrator/shared');
-
-    runMigrations();
-    const db = getDb();
-
-    const userId = crypto.randomUUID();
-    const email = `test-fileops-${Date.now()}@orchestrator.local`;
-
-    db.prepare('INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId,
-      email,
-      'pro',
-      100.0
-    );
-
-    const rawKey = `sk-test-${crypto.randomUUID().replace(/-/g, '')}`;
-    const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    const keyId = crypto.randomUUID();
-
-    db.prepare(
-      'INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, permissions) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(keyId, userId, keyHash, rawKey.substring(0, 12), 'Test FileOps Key', '["all"]');
-
-    API_KEY = rawKey;
-  }
+  AUTH_TOKEN = await prepareTestAuth({ baseUrl: BASE_URL, testLabel: 'file-operations' });
 });
 
 describe('File Operations Tools Integration', () => {

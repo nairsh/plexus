@@ -45,29 +45,34 @@ pnpm install
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your provider keys + Clerk settings
 
 # Start the server (runs migrations, seeds models automatically)
 pnpm dev
 
-# Create test user and API key
+# Seed model registry + dev user record
 pnpm seed
 ```
 
-The seed script outputs an API key you can use for all requests.
+The API is Clerk-only for auth. Send a Clerk JWT as `Authorization: Bearer <clerk_jwt>`.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_PATH` | No | SQLite database path (default: `./data/orchestrator.db`) |
+| `CLERK_SECRET_KEY` | Yes** | Clerk secret key for token verification |
+| `CLERK_JWT_KEY` | Optional | Clerk JWT public key for offline verification |
+| `CLERK_AUDIENCE` | Optional | Comma-separated accepted JWT audiences |
+| `CLERK_AUTHORIZED_PARTIES` | Optional | Comma-separated accepted authorized parties |
+| `CLERK_CLOCK_SKEW_MS` | No | Clock skew allowance for JWT verification (default: `5000`) |
 | `OPENAI_API_KEY` | Yes* | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Yes* | Anthropic API key |
 | `GOOGLE_AI_API_KEY` | Yes* | Google AI API key |
 | `TAVILY_API_KEY` | No | Tavily API key for `search_web` and `fetch_url` |
 | `TAVILY_BASE_URL` | No | Tavily API base URL (default: `https://api.tavily.com`) |
 | `TAVILY_RATE_LIMIT_MS` | No | Minimum delay between Tavily calls in ms |
-| `PORT` | No | Server port (default: `3000`) |
+| `PORT` | No | Server port (default: `8080`) |
 | `LOG_LEVEL` | No | Log level (default: `info`) |
 | `SANDBOX_DEFAULT_TIMEOUT` | No | Default sandbox timeout in seconds (default: `300`) |
 | `SANDBOX_MAX_TIMEOUT` | No | Max sandbox timeout in seconds (default: `3600`) |
@@ -76,6 +81,8 @@ The seed script outputs an API key you can use for all requests.
 | `OPEN_TERMINAL_HOST` | No | Host used for Open Terminal port publishing |
 
 \* At least one LLM provider key is required.
+
+\** Either `CLERK_SECRET_KEY` or `CLERK_JWT_KEY` must be set.
 
 ## API Endpoints
 
@@ -127,8 +134,8 @@ The seed script outputs an API key you can use for all requests.
 ### Agent API — Simple completion
 
 ```bash
-curl -X POST http://localhost:3000/v1/responses \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "openai/gpt-4o",
@@ -139,8 +146,8 @@ curl -X POST http://localhost:3000/v1/responses \
 ### Agent API — With web search
 
 ```bash
-curl -X POST http://localhost:3000/v1/responses \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "openai/gpt-4o",
@@ -152,8 +159,8 @@ curl -X POST http://localhost:3000/v1/responses \
 ### Agent API — Using a preset
 
 ```bash
-curl -X POST http://localhost:3000/v1/responses \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "preset": "pro-search",
@@ -164,8 +171,8 @@ curl -X POST http://localhost:3000/v1/responses \
 ### Agent API — Streaming
 
 ```bash
-curl -N -X POST http://localhost:3000/v1/responses \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -N -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "openai/gpt-4o-mini",
@@ -178,42 +185,42 @@ curl -N -X POST http://localhost:3000/v1/responses \
 
 ```bash
 # Create session
-SESSION_ID=$(curl -s -X POST http://localhost:3000/v1/sandbox/sessions \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+SESSION_ID=$(curl -s -X POST http://localhost:8080/v1/sandbox/sessions \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"language": "python"}' | jq -r '.id')
 
 # Execute code
-curl -X POST "http://localhost:3000/v1/sandbox/sessions/$SESSION_ID/execute" \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -X POST "http://localhost:8080/v1/sandbox/sessions/$SESSION_ID/execute" \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "import json\nresult = sum(range(100))\nprint(json.dumps({\"sum\": result}))"
   }'
 
 # Terminate when done
-curl -X DELETE "http://localhost:3000/v1/sandbox/sessions/$SESSION_ID" \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY"
+curl -X DELETE "http://localhost:8080/v1/sandbox/sessions/$SESSION_ID" \
+  -H "Authorization: Bearer <clerk_jwt>"
 ```
 
 ### Workflow — Orchestrate a complex task
 
 ```bash
 # Start workflow
-curl -X POST http://localhost:3000/v1/workflows \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY" \
+curl -X POST http://localhost:8080/v1/workflows \
+  -H "Authorization: Bearer <clerk_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "objective": "Research the top 5 programming languages by popularity in 2025, calculate their year-over-year growth rates, and format the results as a markdown table"
   }'
 
 # Stream progress (SSE)
-curl -N "http://localhost:3000/v1/workflows/WORKFLOW_ID/stream" \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY"
+curl -N "http://localhost:8080/v1/workflows/WORKFLOW_ID/stream" \
+  -H "Authorization: Bearer <clerk_jwt>"
 
 # Check status
-curl "http://localhost:3000/v1/workflows/WORKFLOW_ID" \
-  -H "Authorization: Bearer sk-dev-YOUR_KEY"
+curl "http://localhost:8080/v1/workflows/WORKFLOW_ID" \
+  -H "Authorization: Bearer <clerk_jwt>"
 ```
 
 ## Available Models

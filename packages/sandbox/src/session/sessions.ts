@@ -73,7 +73,7 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
       state.environmentStatus = 'running';
 
       try {
-        const workspace = getWorkspacePaths(chatId);
+        const workspace = getWorkspacePaths(userId, chatId);
         const openTerminal = await startOpenTerminal(chatId, workspace.filesPath);
         state.openTerminal = openTerminal;
         db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ?, open_terminal_api_key = ? WHERE id = ?').run(
@@ -129,7 +129,7 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
       language: config.language,
       chat_id: chatId ?? undefined,
       environment_status: state.environmentStatus,
-      workspace_path: chatId ? getWorkspacePaths(chatId).filesPath : workspaceDir,
+      workspace_path: chatId ? getWorkspacePaths(userId, chatId).filesPath : workspaceDir,
       created_at: new Date(state.createdAt).toISOString(),
     };
   } catch (err) {

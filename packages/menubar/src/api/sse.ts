@@ -8,14 +8,18 @@ export interface SseConnection {
   close: () => void;
 }
 
+export interface SseConfig {
+  baseUrl: string;
+  getAuthToken?: () => Promise<string | null>;
+}
+
 /**
  * Connect to the SSE stream for a workflow using fetch + eventsource-parser.
  * Native EventSource does not support custom headers (needed for auth), so we
  * use fetch with a ReadableStream instead — the same pattern used by ChatGPT.
  */
 export function connectWorkflowStream(
-  baseUrl: string,
-  apiKey: string,
+  config: SseConfig,
   workflowId: string,
   onEvent: SseEventHandler,
   onError: SseErrorHandler,
@@ -26,16 +30,21 @@ export function connectWorkflowStream(
   // Forward external signal cancellation
   signal?.addEventListener('abort', () => abortController.abort());
 
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/workflows/${workflowId}/stream`;
+  const url = `${config.baseUrl.replace(/\/$/, '')}/v1/workflows/${workflowId}/stream`;
 
   (async () => {
     try {
+      const token = await resolveAuthToken(config);
+      const headers: Record<string, string> = {
+        Accept: 'text/event-stream',
+        'Cache-Control': 'no-cache',
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'text/event-stream',
-          'Cache-Control': 'no-cache',
-        },
+        headers,
         signal: abortController.signal,
       });
 
@@ -75,4 +84,12 @@ export function connectWorkflowStream(
   return {
     close: () => abortController.abort(),
   };
+}
+
+async function resolveAuthToken(config: SseConfig): Promise<string | null> {
+  const clerkToken = config.getAuthToken ? await config.getAuthToken() : null;
+  if (clerkToken && clerkToken.trim().length > 0) {
+    return clerkToken.trim();
+  }
+  return null;
 }

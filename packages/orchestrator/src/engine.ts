@@ -42,7 +42,7 @@ export async function planWorkflow(
   config: WorkflowConfig,
 ): Promise<{ workflowId: string; tasks: OrchestratorTask[] }> {
   const workflowId = crypto.randomUUID();
-  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator);
+  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator, userId);
 
   insertWorkflow(workflowId, userId, config, orchestratorModel);
 
@@ -191,6 +191,45 @@ export function cancelWorkflow(workflowId: string): void {
     workflow_id: workflowId,
     data: { error: 'Workflow cancelled by user' },
   });
+}
+
+export function deleteWorkflow(workflowId: string): void {
+  const state = workflows.get(workflowId) ?? hydrateWorkflowState(workflowId);
+  if (state) {
+    state.abortController.abort();
+    cleanupSessions(state);
+
+    for (const pending of state.approvalState.pending.values()) {
+      pending.resolve('deny');
+    }
+    state.approvalState.pending.clear();
+    state.subagentRuns.clear();
+    state.emitter.removeAllListeners();
+    workflows.delete(workflowId);
+  }
+
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT json_extract(config, '$.chat_id') AS chat_id FROM workflows WHERE id = ?`)
+    .get(workflowId) as { chat_id: string | null } | undefined;
+  const chatId = row?.chat_id?.trim() || workflowId;
+
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE sandbox_workspaces
+       SET active_session_id = NULL, status = 'inactive', updated_at = datetime('now')
+       WHERE active_session_id IN (
+         SELECT id FROM sandbox_sessions WHERE task_id IN (SELECT id FROM tasks WHERE workflow_id = ?) OR chat_id = ?
+       )`
+    ).run(workflowId, chatId);
+
+    db.prepare('DELETE FROM sandbox_sessions WHERE task_id IN (SELECT id FROM tasks WHERE workflow_id = ?) OR chat_id = ?').run(
+      workflowId,
+      chatId
+    );
+
+    db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
+  })();
 }
 
 export function resolveWorkflowApproval(

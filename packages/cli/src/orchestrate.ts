@@ -17,6 +17,7 @@ import { CLI_VERSION } from './version.js';
 import { printAsciiLogo, prettifyModelLabel, formatJsonOutput } from './orchestrate/output.js';
 import { runInteractiveChat } from './orchestrate/interactive.js';
 import { runNonInteractive } from './orchestrate/non-interactive.js';
+import { getCliAuthSubject } from './cli/auth.js';
 
 interface CliOptions {
   prompt?: string;
@@ -83,6 +84,7 @@ const options = program.opts<{
 const [positionalObjective] = program.args;
 const objective = options.prompt || positionalObjective;
 const isInteractive = !objective && !options.continue && !options.models;
+const userIdProvided = process.argv.includes('--user-id') || process.argv.includes('-u');
 
 logger.level = options.verbose ? 'info' : 'warn';
 
@@ -124,6 +126,13 @@ const validateModel = (model: string): void => {
 const run = async (): Promise<void> => {
   if (options.models) {
     printModels();
+  }
+
+  if (!userIdProvided) {
+    const subject = await getCliAuthSubject();
+    if (subject) {
+      options.userId = subject;
+    }
   }
 
   await ensureUserExists(options.userId);

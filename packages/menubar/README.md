@@ -50,7 +50,8 @@ pnpm build
 
 On first launch the app shows the Settings view. Enter:
 - **Server URL** — e.g. `http://localhost:8080`
-- **API Key** — `sk-dev-...` (obtain with `pnpm seed` at workspace root)
+
+Then sign in with Clerk (when `VITE_CLERK_PUBLISHABLE_KEY` is configured).
 
 Click **Test Connection** to verify, then **Get Started**.
 
@@ -63,7 +64,7 @@ src/
 │   ├── sse.ts          # SSE via fetch + eventsource-parser (supports auth headers)
 │   └── types.ts        # WorkflowEvent types mirrored from @orchestrator/shared
 ├── hooks/
-│   ├── useConfig.ts    # Persists server URL + API key via tauri-plugin-store
+│   ├── useConfig.ts    # Persists server URL via tauri-plugin-store
 │   ├── useWorkflows.ts # Polls GET /v1/workflows (adaptive: 3s active, 10s idle)
 │   └── useWorkflowStream.ts  # SSE per active workflow
 ├── components/

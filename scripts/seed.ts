@@ -1,8 +1,7 @@
 /**
- * Seed script: creates a test user and API key for development.
+ * Seed script: creates a development user record and seeds model registry.
  * Run with: pnpm seed
  */
-import { createHash } from 'node:crypto';
 import { runMigrations, getDb, logger } from '@orchestrator/shared';
 import { seedModelRegistry } from '@orchestrator/model-router';
 
@@ -35,19 +34,6 @@ async function seed() {
     logger.info({ userId: finalUserId, email: userEmail }, 'Test user created');
   }
 
-  // Create API key
-  const rawKey = `sk-dev-${crypto.randomUUID().replace(/-/g, '')}`;
-  const keyHash = createHash('sha256').update(rawKey).digest('hex');
-  const keyPrefix = rawKey.substring(0, 12);
-  const keyId = crypto.randomUUID();
-
-  // Remove old dev keys
-  db.prepare("DELETE FROM api_keys WHERE user_id = ? AND name = 'Development Key'").run(finalUserId);
-
-  db.prepare(
-    'INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, permissions) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(keyId, finalUserId, keyHash, keyPrefix, 'Development Key', '["all"]');
-
   console.log('\n========================================');
   console.log('  Seed data created successfully!');
   console.log('========================================\n');
@@ -55,13 +41,13 @@ async function seed() {
   console.log(`  Email:      ${userEmail}`);
   console.log(`  Tier:       pro`);
   console.log(`  Credits:    100.00`);
-  console.log(`  API Key:    ${rawKey}`);
-  console.log(`  Key Prefix: ${keyPrefix}`);
-  console.log('\n  Use this API key in requests:');
-  console.log(`  curl -H "Authorization: Bearer ${rawKey}" http://localhost:8080/v1/billing/balance`);
+  console.log('\n  Auth mode:  Clerk-only bearer tokens');
+  console.log('  Seed no longer creates API keys.');
+  console.log('\n  To call APIs, send a Clerk JWT in Authorization header:');
+  console.log('  curl -H "Authorization: Bearer <clerk_jwt>" http://localhost:8080/v1/billing/balance');
   console.log('\n  Example Agent API call:');
   console.log(`  curl -X POST http://localhost:8080/v1/responses \\`);
-  console.log(`    -H "Authorization: Bearer ${rawKey}" \\`);
+  console.log('    -H "Authorization: Bearer <clerk_jwt>" \\');
   console.log(`    -H "Content-Type: application/json" \\`);
   console.log(`    -d '{"model":"openai/gpt-4o","input":"Hello, world!"}'`);
   console.log('\n========================================\n');

@@ -23,6 +23,7 @@ vi.mock('@orchestrator/model-router', async () => {
 
 vi.mock('../packages/orchestrator/src/agents.js', () => ({
   dispatchToAgent: vi.fn(),
+  ensureEnvironmentSession: vi.fn(async () => undefined),
   getAgentModel: vi.fn((agentType: string) => `litellm/${agentType}-model`),
   terminateSession: vi.fn(),
 }));
@@ -194,7 +195,11 @@ describe('orchestrator behavior', () => {
     }
     await stream.done;
 
-    const started = events.filter((event) => event.type === 'task_started');
+    const started = events.filter((event) => {
+      if (event.type !== 'task_started') return false;
+      const data = event.data as { type?: string };
+      return data.type !== 'environment' && data.type !== 'heartbeat';
+    });
     expect(started).toHaveLength(3);
     started.forEach((event) => {
       const data = event.data as { description: string; display_description?: string };
@@ -418,7 +423,11 @@ describe('orchestrator behavior', () => {
     });
 
     const { getOpenTerminalSessionForChat } = await import('@orchestrator/model-router');
-    vi.mocked(getOpenTerminalSessionForChat).mockResolvedValueOnce(null);
+    vi
+      .mocked(getOpenTerminalSessionForChat)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
 
     const { workflowId } = await planWorkflow('user-1', {
       objective: 'Run pwd directly',

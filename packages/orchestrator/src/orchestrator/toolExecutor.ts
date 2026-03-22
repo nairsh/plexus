@@ -155,7 +155,7 @@ const buildToolDisplayResult = (
 
 const ensureWorkflowWorkspaceSession = async (state: WorkflowState): Promise<void> => {
   const chatId = state.config.chat_id ?? state.id;
-  const existing = await getOpenTerminalSessionForChat(chatId);
+  const existing = await getOpenTerminalSessionForChat(state.userId, chatId);
   if (existing) return;
 
   const session = await createSession(state.userId, {
@@ -246,6 +246,7 @@ export const executeOrchestratorToolCall = async (
           },
         ],
         chat_id: chatId,
+        user_id: state.userId,
         signal: state.abortController.signal,
         trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
       },

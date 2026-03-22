@@ -27,6 +27,16 @@ function toModelInfo(id: string, provider: string, displayName?: string): ModelI
   };
 }
 
+function toConfiguredModelInfo(id: string): ModelInfo | null {
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  const slash = trimmed.indexOf('/');
+  if (slash <= 0) return null;
+  const provider = trimmed.slice(0, slash);
+  const displayName = trimmed.slice(slash + 1) || trimmed;
+  return toModelInfo(trimmed, provider, displayName);
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown | null> {
   try {
     const response = await fetch(url, {
@@ -216,9 +226,27 @@ export function replaceModelRegistry(models: ModelInfo[]): void {
 }
 
 export async function seedModelRegistry(): Promise<void> {
-  const models = await discoverAvailableModels();
+  const discoveredModels = await discoverAvailableModels();
+  const runtime = getRuntimeModelConfig();
+  const configuredIds = [runtime.default_orchestrator_model, ...runtime.orchestrator_models].filter(
+    (id): id is string => typeof id === 'string' && id.trim().length > 0
+  );
+
+  const merged = new Map<string, ModelInfo>();
+  for (const model of discoveredModels) {
+    merged.set(model.id, model);
+  }
+  for (const id of configuredIds) {
+    if (merged.has(id)) continue;
+    const fallback = toConfiguredModelInfo(id);
+    if (fallback) {
+      merged.set(fallback.id, fallback);
+    }
+  }
+
+  const models = [...merged.values()];
   replaceModelRegistry(models);
-  if (!models.length) {
+  if (!discoveredModels.length) {
     logger.warn('No configured models discovered');
   }
 }
