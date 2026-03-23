@@ -3,6 +3,7 @@ import type { OpenTerminalConnection } from '@orchestrator/shared';
 export interface WorkspaceSession extends OpenTerminalConnection {
   containerName: string;
   workspacePath: string;
+  workingDirectory?: string;
 }
 
 export interface FileReadResult {

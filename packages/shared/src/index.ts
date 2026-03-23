@@ -5,6 +5,7 @@ export * from './constants.js';
 export * from './openTerminalClient.js';
 export * from './db-schemas.js';
 export * from './storage.js';
+export * from './crypto.js';
 export { getDb, runMigrations, closeDb } from './db.js';
 export { logger } from './logger.js';
 export { getEnv, resetEnvCache } from './env.js';

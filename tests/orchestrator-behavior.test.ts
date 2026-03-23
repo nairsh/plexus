@@ -457,4 +457,110 @@ describe('orchestrator behavior', () => {
     expect(toolCallEvents.length).toBeGreaterThan(0);
     expect(toolResultEvents.length).toBeGreaterThan(0);
   });
+
+  test('does not create duplicate workspace sessions when chat workspace already exists', async () => {
+    vi.mocked(routeStreamingRequest)
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Run a shell command directly in the existing workspace.',
+            tool_calls: [{ name: 'bash', arguments: { command: 'pwd' } }],
+          })
+        )
+      )
+      .mockReturnValueOnce(toChunks('Done'));
+
+    vi.mocked(executeToolCall).mockImplementation(async () => ({
+      output: JSON.stringify({ stdout: '/workspace\n', stderr: '', exit_code: 0 }),
+      cost: 0,
+    }));
+
+    const { getOpenTerminalSessionForChat } = await import('@orchestrator/model-router');
+    vi.mocked(getOpenTerminalSessionForChat).mockResolvedValue({
+      containerName: 'local-chat',
+      apiKey: '',
+      baseUrl: '',
+      workspacePath: '/tmp/workspace',
+      workingDirectory: '/tmp/workspace',
+    });
+
+    const { workflowId } = await planWorkflow('user-1', {
+      objective: 'Use existing workspace session',
+      orchestrator_model: 'test-orchestrator-model',
+      chat_id: 'chat-existing',
+      max_credits: 5,
+    });
+
+    const stream = executeWorkflow(workflowId);
+    for await (const _event of stream) {
+      // consume
+    }
+    await stream.done;
+
+    expect(vi.mocked(createSession)).toHaveBeenCalledTimes(0);
+  });
+
+  test('emits workflow completion only after running subagents settle', async () => {
+    vi.mocked(routeStreamingRequest)
+      .mockReturnValueOnce(
+        toChunks(
+          JSON.stringify({
+            thinking: 'Plan one delegated task and launch it.',
+            tool_calls: [
+              {
+                name: 'write_todo',
+                arguments: {
+                  todo_id: 'read_repo',
+                  description: 'Read repository metadata',
+                  agent_type: 'research',
+                },
+              },
+              {
+                name: 'spawn_subagent',
+                arguments: {
+                  todo_id: 'read_repo',
+                },
+              },
+            ],
+          })
+        )
+      )
+      .mockReturnValueOnce(toChunks('Premature final answer'))
+      .mockReturnValueOnce(toChunks('Final answer after delegated task completes'));
+
+    vi.mocked(dispatchToAgent).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                output: 'Repository metadata read',
+                model: 'research-model',
+                usage: zeroCostUsage,
+              }),
+            150
+          );
+        })
+    );
+
+    const { workflowId } = await planWorkflow('user-1', {
+      objective: 'Delegate one task and then summarize',
+      orchestrator_model: 'test-orchestrator-model',
+      max_credits: 5,
+    });
+
+    const events: Array<{ type: string; data: unknown }> = [];
+    const stream = executeWorkflow(workflowId);
+    for await (const event of stream) {
+      events.push({ type: event.type, data: event.data });
+    }
+    await stream.done;
+
+    const taskCompletedIdx = events.findIndex((event) => event.type === 'task_completed');
+    const workflowCompletedIdx = events.findIndex((event) => event.type === 'workflow_completed');
+
+    expect(taskCompletedIdx).toBeGreaterThanOrEqual(0);
+    expect(workflowCompletedIdx).toBeGreaterThanOrEqual(0);
+    expect(taskCompletedIdx).toBeLessThan(workflowCompletedIdx);
+  });
 });

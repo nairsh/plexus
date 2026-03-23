@@ -71,4 +71,25 @@ export {
   deleteSkillForUser,
   type UpsertSkillInput,
 } from './skills.js';
+export {
+  beginConnectorOAuth,
+  completeConnectorOAuth,
+  disconnectConnectorForUser,
+  getConnectorCredentials,
+  getConnectorForUser,
+  listConnectorsForUser,
+  listConnectorProviders,
+  validateConnectorForUser,
+} from './connectors.js';
+export {
+  chunkKnowledgeText,
+  deleteKnowledgeDocumentForUser,
+  getKnowledgeDocumentForUser,
+  inferKnowledgeExtractionMode,
+  ingestKnowledgeDocument,
+  listKnowledgeDocumentsForUser,
+  searchKnowledgeForUser,
+  type KnowledgeSearchMatch,
+  type KnowledgeUploadInput,
+} from './knowledge.js';
 export { checkFileLint, checkProjectLint, formatLintResultsForAgent, detectLanguage } from './tools/linting.js';

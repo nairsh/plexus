@@ -2,12 +2,16 @@ import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SandboxError } from '@orchestrator/shared';
 import type { WorkspaceSession } from './types.js';
+import { assertPathWithinScope } from '../folderScope.js';
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.packages', 'dist']);
 
 export const isLocalWorkspace = (session: WorkspaceSession): boolean => !session.baseUrl;
 
 export const resolveWorkspacePath = (session: WorkspaceSession, filePath: string): string => {
+  if (session.workingDirectory) {
+    assertPathWithinScope(session.workingDirectory, filePath);
+  }
   const target = resolve(session.workspacePath, filePath.replace(/^\/home\/user\/?/, ''));
   if (!target.startsWith(resolve(session.workspacePath))) {
     throw new SandboxError('Path traversal detected for workspace file operation', 'path_traversal');

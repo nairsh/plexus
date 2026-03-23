@@ -5,6 +5,7 @@
  * The orchestrator dispatches tasks to these agents; they return their output as a string.
  */
 
+import { mkdirSync } from 'node:fs';
 import {
   routeRequest,
   getOpenTerminalSessionForChat,
@@ -30,6 +31,7 @@ import type {
   Tool,
 } from '@orchestrator/shared';
 import { getPromptRuntimeContext, loadPrompt } from './promptLoader.js';
+import { normalizeWorkingDirectory } from './folderScope.js';
 
 // ── Agent health recording ──
 
@@ -234,6 +236,7 @@ export async function dispatchToAgent(
   );
 
   const chatId = ctx.config.chat_id ?? ctx.workflowId;
+  const workingDirectory = normalizeWorkingDirectory(ctx.config.working_directory);
 
   const startMs = Date.now();
   let response: Awaited<ReturnType<typeof routeRequest>>;
@@ -249,6 +252,7 @@ export async function dispatchToAgent(
       trace: ctx.trace,
       chat_id: chatId,
       user_id: ctx.userId,
+      working_directory: workingDirectory,
       signal: ctx.abortSignal,
     });
   } catch (err) {
@@ -288,11 +292,13 @@ async function ensureWorkspaceSession(
   chatId: string,
   taskId?: string
 ): Promise<void> {
+  const workingDirectory = normalizeWorkingDirectory(ctx.config.working_directory);
   const hasReusableWorkflowSession = (): boolean =>
     ctx.sandboxSessionIds.some((sessionId) => {
       const session = getSessionInfo(sessionId);
       if (!session) return false;
       if (session.chat_id !== chatId) return false;
+      if ((session.working_directory ?? undefined) !== workingDirectory) return false;
       if (session.environment_status !== 'running') return false;
       return session.status === 'ready' || session.status === 'executing';
     });
@@ -310,11 +316,19 @@ async function ensureWorkspaceSession(
     if (hasReusableWorkflowSession()) return;
 
     const existing = await getOpenTerminalSessionForChat(ctx.userId, chatId);
-    if (existing) return;
+    const matchesRequestedWorkingDirectory = workingDirectory
+      ? existing?.workingDirectory === workingDirectory
+      : Boolean(existing);
+    if (matchesRequestedWorkingDirectory) return;
+
+    if (workingDirectory) {
+      mkdirSync(workingDirectory, { recursive: true });
+    }
 
     const session = await createSession(ctx.userId, {
       language: 'javascript',
       chat_id: chatId,
+      ...(workingDirectory ? { working_directory: workingDirectory } : {}),
       ...(taskId ? { task_id: taskId } : {}),
     });
 

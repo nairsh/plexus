@@ -11,6 +11,7 @@ const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   LOG_LEVEL: z.string().default('info'),
   PORT: z.coerce.number().int().positive().default(8080),
+  PUBLIC_BASE_URL: z.string().default('http://localhost:8080'),
 
   // ── Database ──
   DATABASE_PATH: z.string().default('./data/orchestrator.db'),
@@ -35,8 +36,20 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_AI_API_KEY: z.string().optional(),
+  GOOGLE_EMBEDDING_MODEL: z.string().default('models/gemini-embedding-2-preview'),
+  GOOGLE_OCR_MODEL: z.string().default('gemini-2.5-flash'),
   LITELLM_BASE_URL: z.string().default('http://localhost:4000'),
   LITELLM_API_KEY: z.string().default('sk-litellm'),
+
+  // ── Connectors / OAuth ──
+  CONNECTOR_ENCRYPTION_KEY: z.string().default('orchestrator-dev-connector-key'),
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  LINEAR_OAUTH_CLIENT_ID: z.string().optional(),
+  LINEAR_OAUTH_CLIENT_SECRET: z.string().optional(),
+  NOTION_OAUTH_CLIENT_ID: z.string().optional(),
+  NOTION_OAUTH_CLIENT_SECRET: z.string().optional(),
+  NOTION_API_VERSION: z.string().default('2022-06-28'),
 
   // ── Search tools ──
   TAVILY_API_KEY: z.string().optional(),

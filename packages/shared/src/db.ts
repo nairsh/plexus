@@ -234,6 +234,7 @@ export function runMigrations(): void {
   addColumnIfMissing('workflows', 'orchestrator_model', 'TEXT');
   addColumnIfMissing('workflows', 'started_at', 'TEXT');
   addColumnIfMissing('workflows', 'ended_at', 'TEXT');
+  addColumnIfMissing('workflows', 'schedule_id', 'TEXT');
   addColumnIfMissing('tasks', 'model', 'TEXT');
   addColumnIfMissing('tasks', 'tools', 'TEXT');
   // Note: updated_at column will be added via table recreation below
@@ -553,6 +554,68 @@ export function runMigrations(): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(agent_type, model)
     );
+
+    CREATE TABLE IF NOT EXISTS connectors (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK (provider IN ('github', 'linear', 'notion')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'connected', 'error', 'disconnected')),
+      display_name TEXT NOT NULL,
+      external_id TEXT,
+      scopes TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      credentials_encrypted TEXT,
+      last_validated_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_connectors_user_provider ON connectors(user_id, provider, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS connector_oauth_states (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK (provider IN ('github', 'linear', 'notion')),
+      redirect_uri TEXT NOT NULL,
+      state_token TEXT NOT NULL UNIQUE,
+      code_verifier TEXT,
+      requested_scopes TEXT NOT NULL DEFAULT '[]',
+      frontend_origin TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_connector_oauth_state_lookup ON connector_oauth_states(state_token, provider);
+
+    CREATE TABLE IF NOT EXISTS knowledge_documents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      source_type TEXT NOT NULL DEFAULT 'upload' CHECK (source_type IN ('upload')),
+      status TEXT NOT NULL DEFAULT 'processing' CHECK (status IN ('processing', 'ready', 'failed')),
+      extraction_mode TEXT NOT NULL CHECK (extraction_mode IN ('text', 'ocr', 'document')),
+      byte_size INTEGER NOT NULL DEFAULT 0,
+      chunk_count INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_documents_user ON knowledge_documents(user_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document ON knowledge_chunks(document_id, chunk_index);
   `);
 
   // ── Scheduled workflows ──────────────────────────────────────────────────
@@ -560,18 +623,37 @@ export function runMigrations(): void {
     CREATE TABLE IF NOT EXISTS scheduled_workflows (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      cron_expression TEXT NOT NULL,
+      cron_expression TEXT,
+      schedule_type TEXT NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('cron', 'interval')),
+      interval_value INTEGER,
+      interval_unit TEXT CHECK (interval_unit IN ('minutes', 'hours', 'days', 'weeks', 'months')),
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      overlap_policy TEXT NOT NULL DEFAULT 'skip' CHECK (overlap_policy IN ('skip', 'queue')),
+      start_at TEXT,
+      end_at TEXT,
       workflow_config TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','deleted')),
       last_run_at TEXT,
       next_run_at TEXT,
       run_count INTEGER NOT NULL DEFAULT 0,
+      active_workflow_id TEXT,
+      last_run_status TEXT,
       last_error TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_next_run ON scheduled_workflows(status, next_run_at);
   `);
+
+  addColumnIfMissing('scheduled_workflows', 'schedule_type', "TEXT NOT NULL DEFAULT 'cron'");
+  addColumnIfMissing('scheduled_workflows', 'interval_value', 'INTEGER');
+  addColumnIfMissing('scheduled_workflows', 'interval_unit', 'TEXT');
+  addColumnIfMissing('scheduled_workflows', 'timezone', "TEXT NOT NULL DEFAULT 'UTC'");
+  addColumnIfMissing('scheduled_workflows', 'overlap_policy', "TEXT NOT NULL DEFAULT 'skip'");
+  addColumnIfMissing('scheduled_workflows', 'start_at', 'TEXT');
+  addColumnIfMissing('scheduled_workflows', 'end_at', 'TEXT');
+  addColumnIfMissing('scheduled_workflows', 'active_workflow_id', 'TEXT');
+  addColumnIfMissing('scheduled_workflows', 'last_run_status', 'TEXT');
 
   logger.info('Database migrations completed');
 }

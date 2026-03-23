@@ -15,12 +15,13 @@ import {
 } from '@orchestrator/shared';
 import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
-import { formatWorkItemsForPrompt, listWorkItems } from '../workItems.js';
+import { formatWorkItemsForPrompt, isWorkItemSettled, listWorkItems } from '../workItems.js';
 import { completeWorkflow, failWorkflow } from '../subagents/lifecycle.js';
 import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { extractToolCallsFromOutput, normalizeToolCall, ORCHESTRATOR_TOOLS, type ToolCall } from './tools.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
+import { waitForRuns } from '../subagents/runner.js';
 import {
   createWorkflowState,
   MAX_TURNS,
@@ -131,6 +132,64 @@ const toToolUseBlock = (data: unknown): OutputBlock | null => {
     name,
     arguments: (argsIsObject ? (rawArgs as Record<string, unknown>) : rawArgs) as string | Record<string, unknown>,
   };
+};
+
+const pushUserMessage = (state: WorkflowState, content: string): void => {
+  const last = state.messages[state.messages.length - 1];
+  if (last?.role === 'user' && last.content === content) {
+    return;
+  }
+
+  state.messages.push({ role: 'user', content });
+  state.conversationHistory.push({
+    role: 'user',
+    content,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+const ensureWorkflowCanComplete = async (
+  state: WorkflowState,
+  candidateOutput: string,
+  iteration: number
+): Promise<boolean> => {
+  const runningTodoIds = Array.from(state.subagentRuns.values())
+    .filter((run) => run.status === 'running')
+    .map((run) => run.workItemId);
+
+  if (runningTodoIds.length > 0) {
+    await waitForRuns(state, runningTodoIds, 5);
+  }
+
+  const unsettled = listWorkItems(state.id).filter((item) => !isWorkItemSettled(item.status));
+  if (unsettled.length === 0) {
+    return true;
+  }
+
+  const summary = unsettled.map((item) => {
+    const todoId = item.id.replace(`${state.id}_`, '');
+    return `${todoId} [${item.status}] - ${item.description}`;
+  });
+
+  const guardMessage =
+    'Workflow completion blocked: unresolved tasks remain.\n' +
+    summary.map((line) => `- ${line}`).join('\n') +
+    '\nResolve these tasks first using spawn_subagent/await_subagents/edit_todo, then return the final answer.';
+
+  pushUserMessage(state, guardMessage);
+
+  logger.warn(
+    {
+      workflowId: state.id,
+      iteration,
+      unresolvedTaskCount: unsettled.length,
+      runningSubagents: runningTodoIds.length,
+      blockedOutputPreview: candidateOutput.slice(0, 200),
+    },
+    'Prevented premature workflow completion while tasks were unresolved'
+  );
+
+  return false;
 };
 
 export const callOrchestrator = async (
@@ -356,8 +415,12 @@ export const runWorkflow = async (
       });
 
       if (toolCalls.length === 0) {
-        completeWorkflow(state, responseText);
-        return { workflowId: id, output: responseText, status: 'completed' };
+        const canComplete = await ensureWorkflowCanComplete(state, responseText, iteration);
+        if (canComplete) {
+          completeWorkflow(state, responseText);
+          return { workflowId: id, output: responseText, status: 'completed' };
+        }
+        continue;
       }
 
       const toolResults: Array<Record<string, unknown>> = [];
@@ -373,8 +436,11 @@ export const runWorkflow = async (
       }
 
       if (explicitOutput) {
-        completeWorkflow(state, explicitOutput);
-        return { workflowId: id, output: explicitOutput, status: 'completed' };
+        const canComplete = await ensureWorkflowCanComplete(state, explicitOutput, iteration);
+        if (canComplete) {
+          completeWorkflow(state, explicitOutput);
+          return { workflowId: id, output: explicitOutput, status: 'completed' };
+        }
       }
 
       const resultsMessage = `Tool results:\n${toolResults.map((result) => `- ${result.tool}: ${JSON.stringify(result)}`).join('\n')}`;

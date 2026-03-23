@@ -2,6 +2,7 @@ import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
 import type { OrchestratorTask, WorkflowConfig } from '@orchestrator/shared';
 import { resolveOrchestratorModel } from '@orchestrator/model-router';
 import type { WorkItem } from '../workItems.js';
+import { normalizeWorkingDirectory } from '../folderScope.js';
 import {
   createWorkflowState,
   type TaskSummary,
@@ -143,10 +144,21 @@ export const insertWorkflow = (
   orchestratorModel: string
 ): void => {
   const db = getDb();
+  const normalizedConfig: WorkflowConfig = {
+    ...config,
+    ...(config.working_directory ? { working_directory: normalizeWorkingDirectory(config.working_directory) } : {}),
+  };
   db.prepare(
     `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at)
      VALUES (?, ?, ?, ?, ?, 'executing', ?, datetime('now'))`
-  ).run(workflowId, userId, config.objective, config.objective, orchestratorModel, JSON.stringify(config));
+  ).run(
+    workflowId,
+    userId,
+    normalizedConfig.objective,
+    normalizedConfig.objective,
+    orchestratorModel,
+    JSON.stringify(normalizedConfig)
+  );
 };
 
 export const updateWorkflowObjectiveForContinuation = (workflowId: string, followUpQuery: string): void => {

@@ -143,4 +143,13 @@ describe('skills loader', () => {
     expect(getSkillById('cleanup-test')).toBeNull();
     expect(deleteSkill('cleanup-test')).toBe(false);
   });
+
+  test('rejects reserved names', () => {
+    expect(() =>
+      upsertSkill('claude', {
+        description: 'Reserved identifier',
+        prompt_addendum: 'Do not allow this.',
+      })
+    ).toThrow(/reserved/i);
+  });
 });

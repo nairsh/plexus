@@ -1,5 +1,5 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DEFAULT_CREDIT_BALANCE, getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession } from '@orchestrator/shared';
@@ -12,8 +12,10 @@ import { sessions, type SessionState } from './store.js';
 export async function createSession(userId: string, config: SandboxConfig): Promise<SandboxSession> {
   const sessionId = crypto.randomUUID();
   const baseDir = join(tmpdir(), `sandbox-${sessionId}`);
-  const workspaceDir = join(baseDir, 'workspace');
+  const requestedWorkingDirectory = config.working_directory?.trim();
+  const workspaceDir = requestedWorkingDirectory ? realpathSync(resolve(requestedWorkingDirectory)) : join(baseDir, 'workspace');
   const chatId = config.chat_id ?? null;
+  const ephemeral = !requestedWorkingDirectory;
 
   try {
     mkdirSync(workspaceDir, { recursive: true });
@@ -27,8 +29,9 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
     chatId,
     language: config.language,
     workingDir: workspaceDir,
+    ephemeral,
     status: 'creating',
-    environmentStatus: chatId ? 'starting' : 'running',
+    environmentStatus: chatId && !requestedWorkingDirectory ? 'starting' : 'running',
     config,
     createdAt: Date.now(),
     runningProcess: null,
@@ -47,7 +50,7 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
   }
 
   // Ensure workspace exists BEFORE inserting session (foreign key constraint)
-  if (chatId) {
+  if (chatId && !requestedWorkingDirectory) {
     ensureWorkspace(userId, chatId, config.language);
   }
 
@@ -68,7 +71,7 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
   );
 
   try {
-    if (chatId) {
+    if (chatId && !requestedWorkingDirectory) {
       activateWorkspace(userId, chatId, sessionId, config.language, workspaceDir);
       state.environmentStatus = 'running';
 
@@ -129,7 +132,8 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
       language: config.language,
       chat_id: chatId ?? undefined,
       environment_status: state.environmentStatus,
-      workspace_path: chatId ? getWorkspacePaths(userId, chatId).filesPath : workspaceDir,
+      workspace_path: requestedWorkingDirectory ? workspaceDir : chatId ? getWorkspacePaths(userId, chatId).filesPath : workspaceDir,
+      working_directory: requestedWorkingDirectory ? workspaceDir : undefined,
       created_at: new Date(state.createdAt).toISOString(),
     };
   } catch (err) {
@@ -153,19 +157,21 @@ export function terminateSession(sessionId: string): void {
     session.runningProcess = null;
   }
 
-  if (session.openTerminal) {
-    deactivateWorkspace(sessionId, session.workingDir, false);
-    stopOpenTerminal(session.openTerminal);
-    session.openTerminal = null;
-  }
+    if (session.openTerminal) {
+      deactivateWorkspace(sessionId, session.workingDir, false);
+      stopOpenTerminal(session.openTerminal);
+      session.openTerminal = null;
+    }
 
   try {
-    if (session.chatId && !usedOpenTerminal) {
+    if (session.chatId && !usedOpenTerminal && session.ephemeral) {
       deactivateWorkspace(sessionId, session.workingDir);
     }
 
-    const baseDir = join(session.workingDir, '..');
-    rmSync(baseDir, { recursive: true, force: true });
+    if (session.ephemeral) {
+      const tempBaseDir = join(session.workingDir, '..');
+      rmSync(tempBaseDir, { recursive: true, force: true });
+    }
   } catch (err) {
     logger.warn({ sessionId, error: getErrorMessage(err) }, 'Failed to clean up sandbox directory');
   }
@@ -210,6 +216,7 @@ export function getSessionInfo(sessionId: string): SandboxSession | null {
       chat_id: row.chat_id,
       environment_status: (row.environment_status as SandboxSession['environment_status']) ?? 'stopped',
       workspace_path: row.working_dir,
+      working_directory: row.working_dir,
       created_at: row.created_at,
     };
   }
@@ -221,6 +228,7 @@ export function getSessionInfo(sessionId: string): SandboxSession | null {
     chat_id: session.chatId ?? undefined,
     environment_status: session.environmentStatus,
     workspace_path: session.workingDir,
+    working_directory: session.config.working_directory,
     created_at: new Date(session.createdAt).toISOString(),
   };
 }
