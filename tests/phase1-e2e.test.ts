@@ -6,17 +6,17 @@
  * Run: npx vitest run tests/phase1-e2e.test.ts --timeout=120000
  */
 import { describe, test, expect, beforeAll } from 'vitest';
+import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
-let API_KEY = '';
-let userId = '';
+let AUTH_TOKEN = '';
 
 async function api(method: string, path: string, body?: unknown) {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+      ...(AUTH_TOKEN ? authHeaders(AUTH_TOKEN) : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(90_000),
@@ -43,27 +43,7 @@ beforeAll(async () => {
   const health = await fetch(`${BASE_URL}/health`).catch(() => null);
   if (!health?.ok) throw new Error('Server not running');
 
-  API_KEY = process.env['TEST_API_KEY'] || '';
-  if (!API_KEY) {
-    const { createHash } = await import('node:crypto');
-    const { getDb, runMigrations } = await import('@orchestrator/shared');
-    runMigrations();
-    const db = getDb();
-    userId = crypto.randomUUID();
-    const email = `e2e-${Date.now()}@orchestrator.local`;
-    db.prepare('INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId,
-      email,
-      'pro',
-      50.0
-    );
-    const rawKey = `sk-test-${crypto.randomUUID().replace(/-/g, '')}`;
-    const keyHash = (await import('node:crypto')).createHash('sha256').update(rawKey).digest('hex');
-    db.prepare(
-      'INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, permissions) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(crypto.randomUUID(), userId, keyHash, rawKey.substring(0, 12), 'E2E Test', '["all"]');
-    API_KEY = rawKey;
-  }
+  AUTH_TOKEN = await prepareTestAuth({ baseUrl: BASE_URL, testLabel: 'phase1-e2e' });
 }, 15_000);
 
 // ── Task 1: Research with web search (Perplexity-style) ──

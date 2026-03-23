@@ -24,6 +24,8 @@ const ensureDir = (path: string) => {
   mkdirSync(path, { recursive: true });
 };
 
+const safePathSegment = (value: string): string => value.replace(/[^a-zA-Z0-9._-]/g, '_');
+
 const toStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === 'string');
@@ -60,8 +62,8 @@ const writeMetadataFile = (metadataPath: string, metadata: WorkspaceMetadata): v
   writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 };
 
-export const getWorkspacePaths = (chatId: string) => {
-  const basePath = join(getWorkspaceRoot(), chatId);
+export const getWorkspacePaths = (userId: string, chatId: string) => {
+  const basePath = join(getWorkspaceRoot(), safePathSegment(userId), safePathSegment(chatId));
   return {
     basePath,
     filesPath: join(basePath, 'files'),
@@ -76,7 +78,7 @@ const upsertWorkspace = (record: WorkspaceRecord) => {
       chat_id, user_id, active_session_id, language, workspace_path, metadata_path,
       status, last_activated_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    ON CONFLICT(chat_id) DO UPDATE SET
+    ON CONFLICT(user_id, chat_id) DO UPDATE SET
       user_id = excluded.user_id,
       active_session_id = excluded.active_session_id,
       language = excluded.language,
@@ -96,7 +98,12 @@ const upsertWorkspace = (record: WorkspaceRecord) => {
 };
 
 export const ensureWorkspace = (userId: string, chatId: string, language: 'python' | 'javascript' | 'sql') => {
-  const paths = getWorkspacePaths(chatId);
+  const db = getDb();
+  const existing = db
+    .prepare('SELECT 1 FROM sandbox_workspaces WHERE user_id = ? AND chat_id = ?')
+    .get(userId, chatId) as { 1: number } | undefined;
+
+  const paths = getWorkspacePaths(userId, chatId);
   ensureDir(paths.filesPath);
 
   if (!existsSync(paths.metadataPath)) {
@@ -202,8 +209,8 @@ export const deactivateWorkspace = (sessionId: string, sessionDir: string, persi
          status = 'inactive',
          last_deactivated_at = datetime('now'),
          updated_at = datetime('now')
-     WHERE chat_id = ?`
-  ).run(row.chat_id);
+     WHERE user_id = ? AND chat_id = ?`
+  ).run(row.user_id, row.chat_id);
 
   db.prepare(
     `UPDATE sandbox_sessions
@@ -214,11 +221,11 @@ export const deactivateWorkspace = (sessionId: string, sessionDir: string, persi
   logger.info({ chatId: row.chat_id, sessionId }, 'Sandbox workspace deactivated');
 };
 
-export const getWorkspaceInfo = (chatId: string) => {
+export const getWorkspaceInfo = (userId: string, chatId: string) => {
   const db = getDb();
   const row = db.prepare(
-    `SELECT * FROM sandbox_workspaces WHERE chat_id = ?`
-  ).get(chatId) as Record<string, unknown> | undefined;
+    `SELECT * FROM sandbox_workspaces WHERE user_id = ? AND chat_id = ?`
+  ).get(userId, chatId) as Record<string, unknown> | undefined;
 
   if (!row) {
     return null;
@@ -251,8 +258,8 @@ export const snapshotWorkspaceFiles = (workspacePath: string): string[] => {
   return results;
 };
 
-export const readWorkspaceMetadata = (chatId: string) => {
-  const info = getWorkspaceInfo(chatId);
+export const readWorkspaceMetadata = (userId: string, chatId: string) => {
+  const info = getWorkspaceInfo(userId, chatId);
   if (!info) {
     throw new SandboxError(`Workspace not found for chat: ${chatId}`, 'workspace_not_found');
   }

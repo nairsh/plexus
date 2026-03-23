@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { useWorkflowStream } from '../hooks/useWorkflowStream.js';
-import type { AppConfig } from '../hooks/useConfig.js';
+import type { ApiConfig } from '../api/client.js';
 import type { Workflow } from '../api/types.js';
 import { ComputerIcon } from './icons/ComputerIcon.js';
 import type { PillStatus, StepPill } from '../progress/stepPills.js';
 
 interface Props {
   workflow: Workflow;
-  config: AppConfig;
+  config: ApiConfig;
   onCancel: (id: string) => void;
 }
 

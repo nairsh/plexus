@@ -26,6 +26,26 @@ const toStringArray = (value: unknown): string[] => {
   return value.filter((entry): entry is string => typeof entry === 'string');
 };
 
+const ensureSessionOwned = (sessionId: string, userId: string): void => {
+  const row = getDb().prepare('SELECT 1 FROM sandbox_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId) as
+    | { 1: number }
+    | undefined;
+
+  if (!row) {
+    throw new SandboxError(`Session not found: ${sessionId}`, 'session_not_found');
+  }
+};
+
+const ensureWorkspaceOwned = (chatId: string, userId: string): void => {
+  const row = getDb().prepare('SELECT 1 FROM sandbox_workspaces WHERE chat_id = ? AND user_id = ?').get(chatId, userId) as
+    | { 1: number }
+    | undefined;
+
+  if (!row) {
+    throw new SandboxError(`Workspace not found: ${chatId}`, 'workspace_not_found');
+  }
+};
+
 export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /v1/sandbox/sessions — Create a sandbox session.
@@ -60,6 +80,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post('/v1/sandbox/sessions/:id/execute', async (request: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = request.params;
+    ensureSessionOwned(id, request.user!.id);
     const parseResult = ExecuteCodeSchema.safeParse(request.body);
     if (!parseResult.success) {
       throw new InvalidRequestError('Invalid request body. Required: { code: string, timeout_seconds?: number }');
@@ -90,6 +111,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/sandbox/sessions/:id/files',
     async (request: FastifyRequest<{ Params: { id: string }; Querystring: { directory?: string } }>) => {
       const { id } = request.params;
+      ensureSessionOwned(id, request.user!.id);
       const directory = request.query.directory;
       const files = await listSandboxFiles(id, directory);
       return { files };
@@ -103,6 +125,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/sandbox/sessions/:id/file/*',
     async (request: FastifyRequest<{ Params: { id: string; '*': string } }>, reply: FastifyReply) => {
       const { id } = request.params;
+      ensureSessionOwned(id, request.user!.id);
       const filePath = request.params['*'];
       if (!filePath) {
         throw new InvalidRequestError('File path is required');
@@ -141,6 +164,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/sandbox/sessions/:id/file/*',
     async (request: FastifyRequest<{ Params: { id: string; '*': string } }>, reply: FastifyReply) => {
       const { id } = request.params;
+      ensureSessionOwned(id, request.user!.id);
       const filePath = request.params['*'];
       if (!filePath) {
         throw new InvalidRequestError('File path is required');
@@ -175,6 +199,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get('/v1/sandbox/sessions/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = request.params;
+    ensureSessionOwned(id, request.user!.id);
     const session = getSessionInfo(id);
     if (!session) {
       throw new SandboxError(`Session not found: ${id}`, 'session_not_found');
@@ -183,12 +208,14 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.get('/v1/sandbox/workspaces/:chatId', async (request: FastifyRequest<{ Params: { chatId: string } }>) => {
-    const workspace = getWorkspaceInfo(request.params.chatId);
+    const userId = request.user!.id;
+    ensureWorkspaceOwned(request.params.chatId, userId);
+    const workspace = getWorkspaceInfo(userId, request.params.chatId);
     if (!workspace) {
       throw new SandboxError(`Workspace not found: ${request.params.chatId}`, 'workspace_not_found');
     }
 
-    const metadata = readWorkspaceMetadata(request.params.chatId);
+    const metadata = readWorkspaceMetadata(userId, request.params.chatId);
     const files = snapshotWorkspaceFiles(workspace['workspace_path'] as string);
     const fileSet = new Set(files);
     const createdFiles = toStringArray(metadata?.['created_files']).filter((filePath) => fileSet.has(filePath));
@@ -208,6 +235,7 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     '/v1/sandbox/sessions/:id',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const { id } = request.params;
+      ensureSessionOwned(id, request.user!.id);
       terminateSession(id);
 
       try {

@@ -5,14 +5,15 @@
  * The orchestrator dispatches tasks to these agents; they return their output as a string.
  */
 
+import { mkdirSync } from 'node:fs';
 import {
   routeRequest,
   getOpenTerminalSessionForChat,
   getAgentModel as getConfigAgentModel,
-  getAllSkills,
+  getAllSkillsForUser,
 } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
-import { createSession, terminateSession } from '@orchestrator/sandbox';
+import { createSession, getSessionInfo, terminateSession } from '@orchestrator/sandbox';
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   RESEARCH_TEMPERATURE,
@@ -30,6 +31,7 @@ import type {
   Tool,
 } from '@orchestrator/shared';
 import { getPromptRuntimeContext, loadPrompt } from './promptLoader.js';
+import { normalizeWorkingDirectory } from './folderScope.js';
 
 // ── Agent health recording ──
 
@@ -156,7 +158,7 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   },
 };
 
-const buildAgentInstructions = (agentType: AgentType): string => {
+const buildAgentInstructions = (agentType: AgentType, userId: string): string => {
   const runtimeContext = getPromptRuntimeContext();
   const config = AGENT_CONFIGS[agentType];
   const basePrompt = loadPrompt(config.promptFile, {
@@ -169,7 +171,7 @@ const buildAgentInstructions = (agentType: AgentType): string => {
     agentType,
   });
 
-  const skills = getAllSkills();
+  const skills = getAllSkillsForUser(userId);
   if (skills.length === 0) {
     return basePrompt;
   }
@@ -177,6 +179,10 @@ const buildAgentInstructions = (agentType: AgentType): string => {
   const skillLines = skills.map((skill) => `- ${skill.id}: ${skill.description}`);
   return `${basePrompt}\n\nAvailable skills:\n${skillLines.join('\n')}\nUse run_skill with an exact skill_id when a skill materially improves task quality.`;
 };
+
+const workspaceBootstrapLocks = new Map<string, Promise<void>>();
+
+const workspaceLockKey = (userId: string, chatId: string): string => `${userId}:${chatId}`;
 
 // ── Execution context passed from engine ──
 
@@ -204,7 +210,7 @@ export async function dispatchToAgent(
 ): Promise<SubagentExecutionResult> {
   const config = AGENT_CONFIGS[task.agent_type];
   // Use the getAgentModel function which checks config first, then falls back to hardcoded
-  const model = getAgentModel(task.agent_type, ctx.config.model_overrides);
+  const model = getAgentModel(task.agent_type, ctx.config.model_overrides, ctx.userId);
 
   // Dry-run mode: return mock result without calling LLM
   if (process.env.DRY_RUN === '1') {
@@ -229,13 +235,8 @@ export async function dispatchToAgent(
     'Dispatching to sub-agent'
   );
 
-  const chatId = (task.agent_type === 'code' || task.agent_type === 'file')
-    ? (ctx.config.chat_id ?? ctx.workflowId)
-    : undefined;
-
-  if (chatId) {
-    await ensureWorkspaceSession(ctx, chatId, task.task_id);
-  }
+  const chatId = ctx.config.chat_id ?? ctx.workflowId;
+  const workingDirectory = normalizeWorkingDirectory(ctx.config.working_directory);
 
   const startMs = Date.now();
   let response: Awaited<ReturnType<typeof routeRequest>>;
@@ -243,13 +244,15 @@ export async function dispatchToAgent(
     response = await routeRequest({
       model,
       input: prompt,
-      instructions: buildAgentInstructions(task.agent_type),
+      instructions: buildAgentInstructions(task.agent_type, ctx.userId),
       tools: config.tools.length > 0 ? config.tools : undefined,
       allowed_skills: config.skills.length > 0 ? config.skills : undefined,
       max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
       temperature: task.agent_type === 'write' ? WRITE_TEMPERATURE : RESEARCH_TEMPERATURE,
       trace: ctx.trace,
       chat_id: chatId,
+      user_id: ctx.userId,
+      working_directory: workingDirectory,
       signal: ctx.abortSignal,
     });
   } catch (err) {
@@ -287,26 +290,78 @@ export async function dispatchToAgent(
 async function ensureWorkspaceSession(
   ctx: AgentExecutionContext,
   chatId: string,
-  taskId: string
+  taskId?: string
 ): Promise<void> {
-  const existing = await getOpenTerminalSessionForChat(chatId);
-  if (existing) return;
+  const workingDirectory = normalizeWorkingDirectory(ctx.config.working_directory);
+  const hasReusableWorkflowSession = (): boolean =>
+    ctx.sandboxSessionIds.some((sessionId) => {
+      const session = getSessionInfo(sessionId);
+      if (!session) return false;
+      if (session.chat_id !== chatId) return false;
+      if ((session.working_directory ?? undefined) !== workingDirectory) return false;
+      if (session.environment_status !== 'running') return false;
+      return session.status === 'ready' || session.status === 'executing';
+    });
 
-  const session = await createSession(ctx.userId, {
-    language: 'javascript',
-    chat_id: chatId,
-    task_id: taskId,
-  });
-  ctx.sandboxSessionIds.push(session.id);
+  if (hasReusableWorkflowSession()) return;
+
+  const lockKey = workspaceLockKey(ctx.userId, chatId);
+  const inFlight = workspaceBootstrapLocks.get(lockKey);
+  if (inFlight) {
+    await inFlight;
+    return;
+  }
+
+  const bootstrapPromise = (async () => {
+    if (hasReusableWorkflowSession()) return;
+
+    const existing = await getOpenTerminalSessionForChat(ctx.userId, chatId);
+    const matchesRequestedWorkingDirectory = workingDirectory
+      ? existing?.workingDirectory === workingDirectory
+      : Boolean(existing);
+    if (matchesRequestedWorkingDirectory) return;
+
+    if (workingDirectory) {
+      mkdirSync(workingDirectory, { recursive: true });
+    }
+
+    const session = await createSession(ctx.userId, {
+      language: 'javascript',
+      chat_id: chatId,
+      ...(workingDirectory ? { working_directory: workingDirectory } : {}),
+      ...(taskId ? { task_id: taskId } : {}),
+    });
+
+    if (!ctx.sandboxSessionIds.includes(session.id)) {
+      ctx.sandboxSessionIds.push(session.id);
+    }
+  })();
+
+  workspaceBootstrapLocks.set(lockKey, bootstrapPromise);
+  try {
+    await bootstrapPromise;
+  } finally {
+    if (workspaceBootstrapLocks.get(lockKey) === bootstrapPromise) {
+      workspaceBootstrapLocks.delete(lockKey);
+    }
+  }
 }
 
-export function getAgentModel(agentType: AgentType, overrides?: Record<string, string>): string {
+export async function ensureEnvironmentSession(
+  ctx: AgentExecutionContext,
+  taskId?: string
+): Promise<void> {
+  const chatId = ctx.config.chat_id ?? ctx.workflowId;
+  await ensureWorkspaceSession(ctx, chatId, taskId);
+}
+
+export function getAgentModel(agentType: AgentType, overrides?: Record<string, string>, userId?: string): string {
   // First check overrides (from workflow config)
   if (overrides?.[agentType]) {
     return overrides[agentType];
   }
   // Then check runtime config (from CLI onboarding)
-  const configModel = getConfigAgentModel(agentType);
+  const configModel = getConfigAgentModel(agentType, userId);
   if (configModel) {
     return configModel;
   }

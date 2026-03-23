@@ -1,6 +1,6 @@
 import { getErrorMessage, logger, ModelError } from '@orchestrator/shared';
 import type { AgentRequest, AgentResponse, ModelAdapter } from '@orchestrator/shared';
-import { getModelInfo, getPreset, getDefaultModel } from './registry.js';
+import { getModelInfo, getPreset, getDefaultModel, getAllModels } from './registry.js';
 import { hasConfiguredModelMapping } from './config.js';
 import { ensureRunSkillTool } from './skills.js';
 import { OpenAIAdapter } from './adapters/openai.js';
@@ -84,7 +84,7 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  const chain = [modelId];
+  const chain = buildFallbackChain(modelId);
 
   let lastError: Error | null = null;
 
@@ -116,7 +116,7 @@ export async function* routeStreamingRequest(
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  const chain = [modelId];
+  const chain = buildFallbackChain(modelId);
 
   let lastError: Error | null = null;
 
@@ -149,4 +149,23 @@ export async function* routeStreamingRequest(
 
 export function getAdapter(provider: string): ModelAdapter {
   return getOrCreateAdapter(provider);
+}
+
+function buildFallbackChain(requestedModelId: string): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (id: string | null | undefined) => {
+    if (!id) return;
+    const trimmed = id.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    chain.push(trimmed);
+  };
+
+  push(requestedModelId);
+  push(getDefaultModel());
+  push(getAllModels()[0]?.id);
+
+  return chain;
 }

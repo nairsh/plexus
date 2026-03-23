@@ -3,10 +3,13 @@ import type { WorkspaceSession } from './fileOperations.js';
 
 const activeSessions = new Map<string, WorkspaceSession>();
 
-export async function getOpenTerminalSessionForChat(chatId: string): Promise<WorkspaceSession | null> {
+const cacheKey = (userId: string, chatId: string): string => `${userId}:${chatId}`;
+
+export async function getOpenTerminalSessionForChat(userId: string, chatId: string): Promise<WorkspaceSession | null> {
+  const key = cacheKey(userId, chatId);
   // Check cache first
-  if (activeSessions.has(chatId)) {
-    const cached = activeSessions.get(chatId)!;
+  if (activeSessions.has(key)) {
+    const cached = activeSessions.get(key)!;
     if (!cached.baseUrl) return cached; // local workspace — no health check needed
     // Verify remote session is still healthy
     try {
@@ -18,7 +21,7 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
       }
     } catch {
       // Session is dead, remove from cache
-      activeSessions.delete(chatId);
+      activeSessions.delete(key);
     }
   }
 
@@ -28,13 +31,13 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
     SandboxSessionRowSchema,
     db
       .prepare(
-        `SELECT s.id, s.open_terminal_url, s.open_terminal_api_key, s.chat_id, s.status, s.environment_status, w.workspace_path
-       FROM sandbox_sessions s
-       LEFT JOIN sandbox_workspaces w ON w.chat_id = s.chat_id
-       WHERE s.chat_id = ? AND s.status IN ('ready', 'executing')
-       ORDER BY s.created_at DESC LIMIT 1`
+        `SELECT s.id, s.open_terminal_url, s.open_terminal_api_key, s.chat_id, s.status, s.environment_status, s.working_dir, w.workspace_path
+         FROM sandbox_sessions s
+        LEFT JOIN sandbox_workspaces w ON w.chat_id = s.chat_id AND w.user_id = s.user_id
+        WHERE s.chat_id = ? AND s.user_id = ? AND s.status IN ('ready', 'executing')
+        ORDER BY s.created_at DESC LIMIT 1`
       )
-      .get(chatId)
+      .get(chatId, userId)
   );
 
   if (!row) {
@@ -47,7 +50,8 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
   }
 
   if (!row.open_terminal_url) {
-    if (!row.workspace_path) {
+    const localWorkspacePath = row.workspace_path ?? row.working_dir;
+    if (!localWorkspacePath) {
       return null;
     }
     // Local workspace mode (no container)
@@ -55,7 +59,10 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
       containerName: `local-${chatId}`,
       apiKey: '',
       baseUrl: '',
-      workspacePath: row.workspace_path,
+      workspacePath: localWorkspacePath,
+      // workingDirectory should only be set when the user explicitly scopes to one.
+      // For default chat workspaces we run directly in workspacePath.
+      workingDirectory: undefined,
     };
   }
 
@@ -73,14 +80,17 @@ export async function getOpenTerminalSessionForChat(chatId: string): Promise<Wor
     apiKey,
     baseUrl: row.open_terminal_url,
     workspacePath,
+    // Open Terminal commands run inside the container workspace.
+    // Host-side absolute paths are not valid container paths.
+    workingDirectory: undefined,
   };
 
   // Cache it
-  activeSessions.set(chatId, session);
+  activeSessions.set(key, session);
 
   return session;
 }
 
-export function invalidateSessionCache(chatId: string): void {
-  activeSessions.delete(chatId);
+export function invalidateSessionCache(userId: string, chatId: string): void {
+  activeSessions.delete(cacheKey(userId, chatId));
 }

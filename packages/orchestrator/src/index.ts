@@ -6,6 +6,7 @@ export {
   pauseWorkflow,
   resumeWorkflow,
   cancelWorkflow,
+  deleteWorkflow,
   getWorkflowState,
   getWorkflowSummaryById,
   getWorkflowEmitter,

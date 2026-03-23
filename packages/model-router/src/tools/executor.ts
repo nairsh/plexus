@@ -3,6 +3,7 @@
  */
 import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, OutputBlock } from '@orchestrator/shared';
+import type { ToolApprovalDecision } from '@orchestrator/shared';
 import { saveMemory, recallMemory } from '@orchestrator/memory';
 import {
   executeBash,
@@ -12,11 +13,12 @@ import {
   executeReadFile,
   executeWriteFile,
 } from './fileOperations.js';
-import { applySkillToRequest, getSkillById } from '../skills.js';
+import { applySkillToRequest, getSkillById, getSkillByIdForUser } from '../skills.js';
 import { fetchUrl, searchWeb } from './tavily.js';
 import { getOpenTerminalSessionForChat } from './workspaceAccess.js';
 import { CANONICAL_TOOL_DEFS } from './defs.js';
 import { requestCommandApproval } from './approval.js';
+import { getFolderApprovalReason } from './folderScope.js';
 import type { ToolCallResult } from './defs.js';
 
 const FILE_CONTEXT_ERROR = {
@@ -74,7 +76,7 @@ export const executeToolCall = async (
       if (request.allowed_skills && !request.allowed_skills.includes(skillId)) {
         return { output: JSON.stringify({ error: 'skill not allowed' }), cost: 0 };
       }
-      const skill = getSkillById(skillId);
+      const skill = request.user_id ? getSkillByIdForUser(request.user_id, skillId) : getSkillById(skillId);
       if (!skill) {
         return { output: JSON.stringify({ error: 'skill not found' }), cost: 0 };
       }
@@ -135,14 +137,49 @@ export const executeToolCall = async (
         return { output: JSON.stringify(FILE_CONTEXT_ERROR), cost: 0 };
       }
 
-      const session = await getOpenTerminalSessionForChat(request.chat_id);
+      if (!request.user_id) {
+        return {
+          output: JSON.stringify({
+            error: 'File operations require a user context. Please rerun with authenticated user context.',
+          }),
+          cost: 0,
+        };
+      }
+
+      const session = await getOpenTerminalSessionForChat(request.user_id, request.chat_id);
       if (!session) {
         return { output: JSON.stringify(WORKSPACE_MISSING_ERROR), cost: 0 };
       }
 
+      const approvalRequired = (pathValue: unknown) => {
+        if (!request.working_directory || typeof pathValue !== 'string') return null;
+        return getFolderApprovalReason(request.working_directory, pathValue);
+      };
+
+      const maybeRequestPathApproval = async (pathValue: unknown): Promise<ToolApprovalDecision | null> => {
+        const reason = approvalRequired(pathValue);
+        if (!reason) return null;
+        if (!request.trace?.onToolApprovalRequest) return 'deny';
+        return request.trace.onToolApprovalRequest({
+          name,
+          input: { path: pathValue },
+          reason,
+          command_key: 'folder-scope',
+          model: request.trace.model,
+          workflow_id: request.trace.workflow_id,
+          subagent_id: request.trace.subagent_id,
+        });
+      };
+
       if (name === 'file_read') {
         const input = { filePath: args['filePath'], limit: args['limit'], offset: args['offset'] };
         await traceToolCall(request, name, input);
+        const decision = await maybeRequestPathApproval(args['filePath']);
+        if (decision === 'deny') {
+          const denied = { error: 'Path denied by user', path: String(args['filePath'] ?? '') };
+          await traceToolResult(request, name, { filePath: args['filePath'] }, denied);
+          return { output: JSON.stringify(denied), cost: 0 };
+        }
         const result = await executeReadFile(
           session,
           String(args['filePath'] ?? ''),
@@ -160,6 +197,12 @@ export const executeToolCall = async (
           contentLength: typeof args['content'] === 'string' ? args['content'].length : undefined,
         };
         await traceToolCall(request, name, input);
+        const decision = await maybeRequestPathApproval(args['filePath']);
+        if (decision === 'deny') {
+          const denied = { error: 'Path denied by user', path: String(args['filePath'] ?? '') };
+          await traceToolResult(request, name, { filePath: args['filePath'] }, denied);
+          return { output: JSON.stringify(denied), cost: 0 };
+        }
         const result = await executeWriteFile(
           session,
           String(args['filePath'] ?? ''),
@@ -177,6 +220,12 @@ export const executeToolCall = async (
           newStringLength: typeof args['newString'] === 'string' ? args['newString'].length : undefined,
         };
         await traceToolCall(request, name, input);
+        const decision = await maybeRequestPathApproval(args['filePath']);
+        if (decision === 'deny') {
+          const denied = { error: 'Path denied by user', path: String(args['filePath'] ?? '') };
+          await traceToolResult(request, name, { filePath: args['filePath'] }, denied);
+          return { output: JSON.stringify(denied), cost: 0 };
+        }
         const result = await executeEditFile(
           session,
           String(args['filePath'] ?? ''),
@@ -218,6 +267,12 @@ export const executeToolCall = async (
       if (name === 'grep') {
         const input = { pattern: args['pattern'], path: args['path'], include: args['include'] };
         await traceToolCall(request, name, input);
+        const decision = await maybeRequestPathApproval(args['path']);
+        if (decision === 'deny') {
+          const denied = { error: 'Path denied by user', path: String(args['path'] ?? '') };
+          await traceToolResult(request, name, { path: args['path'] }, denied);
+          return { output: JSON.stringify(denied), cost: 0 };
+        }
         const result = await executeGrep(
           session,
           String(args['pattern'] ?? ''),
@@ -232,6 +287,12 @@ export const executeToolCall = async (
       if (name === 'glob') {
         const input = { pattern: args['pattern'], path: args['path'] };
         await traceToolCall(request, name, input);
+        const decision = await maybeRequestPathApproval(args['path']);
+        if (decision === 'deny') {
+          const denied = { error: 'Path denied by user', path: String(args['path'] ?? '') };
+          await traceToolResult(request, name, input, denied);
+          return { output: JSON.stringify(denied), cost: 0 };
+        }
         const result = await executeGlob(
           session,
           String(args['pattern'] ?? ''),

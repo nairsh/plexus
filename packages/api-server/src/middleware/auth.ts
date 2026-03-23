@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { getDb, AuthenticationError, logger } from '@orchestrator/shared';
+import { createClerkClient } from '@clerk/backend';
+import { getDb, getEnv, AuthenticationError, InternalError, logger } from '@orchestrator/shared';
 import type { AuthUser } from '@orchestrator/shared';
 
 declare module 'fastify' {
@@ -10,64 +10,146 @@ declare module 'fastify' {
 }
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const authHeader = request.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    const err = new AuthenticationError('Missing or invalid Authorization header. Expected: Bearer <api_key>');
+  const env = getEnv();
+  if (!env.CLERK_SECRET_KEY && !env.CLERK_JWT_KEY) {
+    const err = new InternalError('Server auth is misconfigured: set CLERK_SECRET_KEY or CLERK_JWT_KEY');
     reply.status(err.statusCode).send(err.toJSON());
     return;
   }
 
-  const apiKey = authHeader.substring(7);
-  if (!apiKey) {
-    const err = new AuthenticationError('Empty API key');
+  const clerkUser = await authenticateWithClerk(request);
+  if (!clerkUser) {
+    const err = new AuthenticationError('Invalid or expired Clerk token');
     reply.status(err.statusCode).send(err.toJSON());
     return;
   }
 
-  const keyHash = createHash('sha256').update(apiKey).digest('hex');
+  request.user = clerkUser;
+}
 
+async function authenticateWithClerk(request: FastifyRequest): Promise<AuthUser | null> {
+  const env = getEnv();
+  try {
+    const audience = splitCsv(env.CLERK_AUDIENCE);
+    const authorizedParties = resolveAuthorizedParties(request, env.CLERK_AUTHORIZED_PARTIES);
+
+    const clerkClient = createClerkClient({
+      ...(env.CLERK_SECRET_KEY ? { secretKey: env.CLERK_SECRET_KEY } : {}),
+      ...(env.CLERK_PUBLISHABLE_KEY ? { publishableKey: env.CLERK_PUBLISHABLE_KEY } : {}),
+      ...(env.CLERK_JWT_KEY ? { jwtKey: env.CLERK_JWT_KEY } : {}),
+    });
+
+    const authState = await clerkClient.authenticateRequest(toWebRequest(request), {
+      acceptsToken: 'session_token',
+      ...(audience.length > 0 ? { audience } : {}),
+      ...(authorizedParties.length > 0 ? { authorizedParties } : {}),
+      clockSkewInMs: env.CLERK_CLOCK_SKEW_MS,
+    });
+
+    if (!authState.isAuthenticated) {
+      logger.warn(
+        {
+          reason: authState.reason,
+          message: authState.message,
+          path: request.url,
+          origin: request.headers.origin,
+        },
+        'Clerk authentication failed'
+      );
+      return null;
+    }
+
+    const auth = authState.toAuth() as { userId?: string | null; sessionClaims?: Record<string, unknown> | null };
+    const clerkUserId = typeof auth.userId === 'string' ? auth.userId : null;
+    if (!clerkUserId) {
+      return null;
+    }
+
+    const email = extractEmail(auth.sessionClaims ?? {});
+    return upsertClerkUser(clerkUserId, email);
+  } catch (error) {
+    logger.debug({ error: error instanceof Error ? error.message : String(error) }, 'Clerk token verification failed');
+    return null;
+  }
+}
+
+function toWebRequest(request: FastifyRequest): Request {
+  const proto = (request.headers['x-forwarded-proto'] as string | undefined) ?? request.protocol ?? 'http';
+  const host = request.headers.host ?? 'localhost:8080';
+  const url = `${proto}://${host}${request.url}`;
+
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        headers.append(key, entry);
+      }
+      continue;
+    }
+    headers.set(key, String(value));
+  }
+
+  return new Request(url, { method: request.method, headers });
+}
+
+function splitCsv(input?: string): string[] {
+  if (!input) return [];
+  return input
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function resolveAuthorizedParties(request: FastifyRequest, configured?: string): string[] {
+  const explicit = splitCsv(configured);
+  if (explicit.length > 0) {
+    return explicit;
+  }
+
+  const origin = request.headers.origin;
+  if (typeof origin === 'string' && origin.trim().length > 0) {
+    return [origin.trim()];
+  }
+
+  return [];
+}
+
+function extractEmail(claims: Record<string, unknown>): string | null {
+  if (typeof claims['email'] === 'string') return claims['email'];
+  if (typeof claims['email_address'] === 'string') return claims['email_address'];
+  return null;
+}
+
+function upsertClerkUser(clerkUserId: string, email: string | null): AuthUser {
   const db = getDb();
 
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, tier, credits_balance, created_at) VALUES (?, 'free', 0, datetime('now'))"
+  ).run(clerkUserId);
+
+  if (email) {
+    try {
+      db.prepare("UPDATE users SET email = ? WHERE id = ? AND (email IS NULL OR email = '')").run(email, clerkUserId);
+    } catch {
+      // Ignore email uniqueness collisions during migration.
+    }
+  }
+
   const row = db
-    .prepare(
-      `SELECT ak.id as key_id, ak.user_id, ak.permissions, ak.revoked_at,
-              u.id, u.email, u.tier, u.credits_balance
-       FROM api_keys ak
-       JOIN users u ON ak.user_id = u.id
-       WHERE ak.key_hash = ?`
-    )
-    .get(keyHash) as
-    | {
-        key_id: string;
-        user_id: string;
-        permissions: string;
-        revoked_at: string | null;
-        id: string;
-        email: string | null;
-        tier: string;
-        credits_balance: number;
-      }
+    .prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?')
+    .get(clerkUserId) as
+    | { id: string; email: string | null; tier: AuthUser['tier']; credits_balance: number }
     | undefined;
 
   if (!row) {
-    const err = new AuthenticationError('Invalid API key');
-    reply.status(err.statusCode).send(err.toJSON());
-    return;
+    throw new Error(`failed_to_upsert_user:${clerkUserId}`);
   }
 
-  if (row.revoked_at) {
-    const err = new AuthenticationError('API key has been revoked');
-    reply.status(err.statusCode).send(err.toJSON());
-    return;
-  }
-
-  // Update last_used_at
-  db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.key_id);
-
-  request.user = {
-    id: row.user_id,
+  return {
+    id: row.id,
     email: row.email,
-    tier: row.tier as AuthUser['tier'],
+    tier: row.tier,
     credits_balance: row.credits_balance,
   };
 }

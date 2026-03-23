@@ -13,7 +13,7 @@ info:
     name: MIT
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:8080
     description: Development server
 
 security:
@@ -24,7 +24,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: API key authentication. Pass your key as `Bearer sk-...`
+      description: Clerk JWT authentication. Pass token as `Bearer <clerk_jwt>`
 
   schemas:
     # ── Error ──

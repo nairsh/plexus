@@ -56,6 +56,7 @@ export const SandboxSessionRowSchema = z.object({
   chat_id: z.string(),
   status: z.string(),
   environment_status: z.string(),
+  working_dir: z.string().nullable(),
   workspace_path: z.string().nullable(),
 });
 export type SandboxSessionRow = z.infer<typeof SandboxSessionRowSchema>;

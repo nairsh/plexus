@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { SettingsView } from './components/SettingsView.js';
 import { WorkflowList } from './components/WorkflowList.js';
 import { InputBar } from './components/InputBar.js';
@@ -6,24 +6,51 @@ import { EmptyState } from './components/EmptyState.js';
 import { useConfig } from './hooks/useConfig.js';
 import { useWorkflows } from './hooks/useWorkflows.js';
 import { createWorkflow, cancelWorkflow } from './api/client.js';
+import type { ApiConfig } from './api/client.js';
 
 type View = 'main' | 'settings';
 
-export function App() {
-  const { config, saveConfig, isLoaded, isConfigured } = useConfig();
+interface AppProps {
+  clerkEnabled?: boolean;
+  getAuthToken?: () => Promise<string | null>;
+  hasSessionAuth?: boolean;
+  userLabel?: string | null;
+  onSignIn?: () => Promise<void>;
+  onSignOut?: () => Promise<void>;
+}
+
+export function App({
+  clerkEnabled = false,
+  getAuthToken,
+  hasSessionAuth = false,
+  userLabel,
+  onSignIn,
+  onSignOut,
+}: AppProps) {
+  const { config, saveConfig, isLoaded } = useConfig();
   const [view, setView] = useState<View>('main');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const runtimeConfig: ApiConfig = useMemo(
+    () => ({
+      ...config,
+      getAuthToken,
+      hasAuth: hasSessionAuth,
+    }),
+    [config, getAuthToken, hasSessionAuth]
+  );
+  const isConfigured = config.baseUrl.trim().length > 0 && hasSessionAuth;
+
   const showMain = isLoaded && isConfigured && view === 'main';
-  const { workflows, refresh } = useWorkflows(config, showMain);
+  const { workflows, refresh } = useWorkflows(runtimeConfig, showMain);
 
   const handleSubmit = useCallback(
     async (objective: string) => {
       setIsSubmitting(true);
       setSubmitError(null);
       try {
-        await createWorkflow(config, objective);
+        await createWorkflow(runtimeConfig, objective);
         refresh();
       } catch (err) {
         setSubmitError(err instanceof Error ? err.message : 'Failed to create workflow');
@@ -31,19 +58,19 @@ export function App() {
         setIsSubmitting(false);
       }
     },
-    [config, refresh]
+    [runtimeConfig, refresh]
   );
 
   const handleCancel = useCallback(
     async (id: string) => {
       try {
-        await cancelWorkflow(config, id);
+        await cancelWorkflow(runtimeConfig, id);
         refresh();
       } catch {
         /* */
       }
     },
-    [config, refresh]
+    [runtimeConfig, refresh]
   );
 
   if (!isLoaded) {
@@ -56,6 +83,13 @@ export function App() {
         <SettingsView
           config={config}
           onSave={saveConfig}
+          getAuthToken={getAuthToken}
+          clerkEnabled={clerkEnabled}
+          isSignedIn={hasSessionAuth}
+          userLabel={userLabel}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+          requiresAuth={!hasSessionAuth}
           onDismiss={isConfigured ? () => setView('main') : undefined}
           isFirstLaunch={!isConfigured}
         />
@@ -80,7 +114,7 @@ export function App() {
         {workflows.length === 0 ? (
           <EmptyState onOpenSettings={() => setView('settings')} />
         ) : (
-          <WorkflowList workflows={workflows} config={config} onCancel={(id) => void handleCancel(id)} />
+          <WorkflowList workflows={workflows} config={runtimeConfig} onCancel={(id) => void handleCancel(id)} />
         )}
       </div>
     </div>

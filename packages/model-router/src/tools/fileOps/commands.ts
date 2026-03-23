@@ -8,6 +8,7 @@ import {
   shouldIgnorePath,
 } from './paths.js';
 import type { BashResult, GlobResult, GrepResult, WorkspaceSession } from './types.js';
+import { assertPathWithinScope, getFolderApprovalReason, resolveScopedPath } from '../folderScope.js';
 
 const execFileAsync = (command: string, args: string[], options: { cwd: string; timeout: number }) => {
   return new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolvePromise) => {
@@ -32,11 +33,15 @@ export async function executeBash(
   signal?: AbortSignal
 ): Promise<BashResult> {
   try {
+    const commandToRun = session.workingDirectory && isLocalWorkspace(session)
+      ? `cd ${shellQuote(session.workingDirectory)} && ${command}`
+      : command;
+
     if (isLocalWorkspace(session)) {
       const result = await new Promise<BashResult>((resolvePromise) => {
         const child = execFile(
           'bash',
-          ['-lc', command],
+          ['-lc', commandToRun],
           {
             cwd: session.workspacePath,
             timeout: Math.max(1, timeoutSeconds) * 1000,
@@ -51,7 +56,7 @@ export async function executeBash(
                   : error
                     ? 1
                     : 0,
-              command,
+              command: commandToRun,
               interrupted: signal?.aborted === true,
             });
           }
@@ -80,7 +85,7 @@ export async function executeBash(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify({ command: commandToRun }),
         signal,
       },
       Math.max(30_000, (Math.max(1, timeoutSeconds) + 5) * 1000)
@@ -99,7 +104,7 @@ export async function executeBash(
       stdout,
       stderr,
       exit_code: response.exit_code ?? (response.status === 'done' ? 0 : 1),
-      command,
+      command: commandToRun,
       interrupted: signal?.aborted === true,
     };
   } catch (err) {
@@ -116,6 +121,9 @@ export async function executeGrep(
 ): Promise<GrepResult> {
   try {
     const searchPath = path || '.';
+    if (session.workingDirectory) {
+      assertPathWithinScope(session.workingDirectory, searchPath);
+    }
     if (searchPath.includes('..') || searchPath.startsWith('/')) {
       throw new SandboxError('Path must be relative and cannot contain ".."', 'invalid_path');
     }
@@ -186,6 +194,9 @@ export async function executeGrep(
 export async function executeGlob(session: WorkspaceSession, pattern: string, path?: string): Promise<GlobResult> {
   try {
     const searchPath = path || '.';
+    if (session.workingDirectory) {
+      assertPathWithinScope(session.workingDirectory, searchPath);
+    }
     if (searchPath.includes('..') || searchPath.startsWith('/')) {
       throw new SandboxError('Path must be relative and cannot contain ".."', 'invalid_path');
     }
@@ -237,3 +248,12 @@ export async function executeGlob(session: WorkspaceSession, pattern: string, pa
     throw err;
   }
 }
+
+export const getFolderApprovalReasonForCommand = (session: WorkspaceSession, command: string): string | null => {
+  if (!session.workingDirectory) return null;
+  const cdMatch = command.match(/\bcd\s+([^&;]+)/);
+  if (!cdMatch) return null;
+  const rawTarget = cdMatch[1]?.trim().replace(/^['"]|['"]$/g, '');
+  if (!rawTarget) return null;
+  return getFolderApprovalReason(session.workingDirectory, resolveScopedPath(session.workingDirectory, rawTarget));
+};

@@ -1,5 +1,5 @@
 import { debitCredits } from '@orchestrator/billing';
-import { dispatchToAgent, getAgentModel } from '../agents.js';
+import { dispatchToAgent, ensureEnvironmentSession, getAgentModel } from '../agents.js';
 import type { AgentExecutionContext } from '../agents.js';
 import {
   getWorkItem,
@@ -180,6 +180,23 @@ export const spawnSubagentRun = async (
     data: { run_id: runId, agent_type: item.agentType },
   });
 
+  const prompt = promptOverride ?? buildAgentTaskPrompt(state, item);
+  const agentCtx = buildAgentContext(state, item.id);
+
+  emitWorkflowEvent(state, {
+    type: 'task_started',
+    workflow_id: state.id,
+    task_id: item.id,
+    data: {
+      type: 'environment',
+      description: 'Starting environment…',
+      display_description: 'Starting environment…',
+      task_type: item.agentType,
+      agent_type: item.agentType,
+      run_id: runId,
+    },
+  });
+
   emitWorkflowEvent(state, {
     type: 'task_started',
     workflow_id: state.id,
@@ -192,13 +209,26 @@ export const spawnSubagentRun = async (
       origin: item.metadata.origin,
       output_artifact: item.metadata.output_artifact,
       run_id: runId,
-      model: getAgentModel(item.agentType),
+      model: getAgentModel(item.agentType, state.config.model_overrides, state.userId),
       timeout_s: agentTimeout,
     },
   });
 
-  const prompt = promptOverride ?? buildAgentTaskPrompt(state, item);
-  const agentCtx = buildAgentContext(state, item.id);
+  await ensureEnvironmentSession(agentCtx, item.id);
+
+  emitWorkflowEvent(state, {
+    type: 'task_started',
+    workflow_id: state.id,
+    task_id: item.id,
+    data: {
+      type: 'environment',
+      description: 'Environment ready',
+      display_description: 'Environment ready',
+      task_type: item.agentType,
+      agent_type: item.agentType,
+      run_id: runId,
+    },
+  });
 
   const promise = runSubagentWithRetry(state, item, runId, prompt, agentCtx, agentTimeout);
 

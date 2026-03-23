@@ -54,8 +54,8 @@ describe('sandbox workspaces', () => {
     activateWorkspace('user-1', 'chat-1', 'session-1', 'python', sessionDir);
     deactivateWorkspace('session-1', sessionDir, true);
 
-    const info = getWorkspaceInfo('chat-1');
-    const metadata = readWorkspaceMetadata('chat-1');
+    const info = getWorkspaceInfo('user-1', 'chat-1');
+    const metadata = readWorkspaceMetadata('user-1', 'chat-1');
     expect(info?.['status']).toBe('inactive');
     expect(snapshotWorkspaceFiles(workspace.filesPath)).toContain('artifact.txt');
     expect(readFileSync(join(workspace.filesPath, 'artifact.txt'), 'utf-8')).toBe('hello workspace');
@@ -82,6 +82,6 @@ describe('sandbox workspaces', () => {
     expect(snapshotWorkspaceFiles(workspace.filesPath)).toEqual(
       expect.arrayContaining(['existing.txt', 'created-open-terminal.txt'])
     );
-    expect(readWorkspaceMetadata('chat-2')?.['created_files']).toEqual(['created-open-terminal.txt']);
+    expect(readWorkspaceMetadata('user-1', 'chat-2')?.['created_files']).toEqual(['created-open-terminal.txt']);
   });
 });

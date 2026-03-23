@@ -17,6 +17,7 @@ export interface AgentRequest {
   trace?: ToolTraceHooks;
   chat_id?: string;
   user_id?: string;
+  working_directory?: string;
   signal?: AbortSignal;
 }
 
@@ -183,6 +184,7 @@ export interface SandboxConfig {
   language: 'python' | 'javascript' | 'sql';
   chat_id?: string;
   task_id?: string;
+  working_directory?: string;
   timeout_seconds?: number;
   packages?: string[];
   files?: Array<{ path: string; content_base64: string }>;
@@ -195,6 +197,7 @@ export interface SandboxSession {
   chat_id?: string;
   environment_status?: 'stopped' | 'starting' | 'running';
   workspace_path?: string;
+  working_directory?: string;
   created_at: string;
 }
 
@@ -230,12 +233,90 @@ export interface WorkflowConfig {
   orchestrator_model?: string;
   chat_id?: string;
   model_overrides?: Record<string, string>;
+  working_directory?: string;
   tools?: string[];
   max_credits?: number;
   callback_url?: string;
   human_approval?: boolean;
   context_files?: Array<{ filename: string; content_base64: string; media_type: string }>;
   background?: boolean;
+}
+
+export type ConnectorProvider = 'github' | 'linear' | 'notion';
+
+export type ConnectorStatus = 'pending' | 'connected' | 'error' | 'disconnected';
+
+export interface ConnectorRecord {
+  id: string;
+  user_id: string;
+  provider: ConnectorProvider;
+  status: ConnectorStatus;
+  display_name: string;
+  scopes: string[];
+  external_id: string | null;
+  metadata: Record<string, unknown>;
+  last_validated_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ScheduleType = 'cron' | 'interval';
+
+export type ScheduleIntervalUnit = 'minutes' | 'hours' | 'days' | 'weeks' | 'months';
+
+export type ScheduleOverlapPolicy = 'skip' | 'queue';
+
+export interface ScheduledWorkflowRecord {
+  id: string;
+  user_id: string;
+  cron_expression: string | null;
+  schedule_type: ScheduleType;
+  interval_value: number | null;
+  interval_unit: ScheduleIntervalUnit | null;
+  timezone: string;
+  overlap_policy: ScheduleOverlapPolicy;
+  start_at: string | null;
+  end_at: string | null;
+  workflow_config: string;
+  status: 'active' | 'paused' | 'deleted' | string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  run_count: number;
+  active_workflow_id: string | null;
+  last_run_status: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  user_id: string;
+  filename: string;
+  media_type: string;
+  source_type: 'upload';
+  status: 'processing' | 'ready' | 'failed';
+  extraction_mode: 'text' | 'ocr' | 'document';
+  byte_size: number;
+  chunk_count: number;
+  summary: string | null;
+  metadata: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  document_id: string;
+  user_id: string;
+  chunk_index: number;
+  content: string;
+  embedding_model: string;
+  embedding: number[];
+  metadata: Record<string, unknown>;
+  created_at: string;
 }
 
 /** @deprecated Use OrchestratorTask — kept for backward compatibility with stored workflows */

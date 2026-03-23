@@ -23,6 +23,9 @@ import { registerHealthRoutes } from './routes/agentHealth.js';
 import { schedulesRoutes } from './routes/schedules.js';
 import { memoryRoutes } from './routes/memory.js';
 import { skillsRoutes } from './routes/skills.js';
+import { modelPreferencesRoutes } from './routes/modelPreferences.js';
+import { connectorsRoutes } from './routes/connectors.js';
+import { knowledgeRoutes } from './routes/knowledge.js';
 import { startScheduler, stopScheduler } from '@orchestrator/orchestrator';
 
 export async function createServer() {
@@ -60,8 +63,13 @@ export async function createServer() {
   fastify.addHook('onRequest', async (request, reply) => {
     const url = request.url;
 
-    // Skip auth for health, models list, and presets list
-    if (url === '/health' || url === '/v1/models' || url === '/v1/presets') {
+    // Skip auth for public health/discovery and OAuth callbacks.
+    if (
+      url === '/health' ||
+      url === '/v1/models' ||
+      url === '/v1/presets' ||
+      /^\/v1\/connectors\/(github|linear|notion)\/callback(?:\?.*)?$/.test(url)
+    ) {
       return;
     }
 
@@ -158,6 +166,9 @@ export async function createServer() {
   await fastify.register(schedulesRoutes);
   await fastify.register(memoryRoutes);
   await fastify.register(skillsRoutes);
+  await fastify.register(modelPreferencesRoutes);
+  await fastify.register(connectorsRoutes);
+  await fastify.register(knowledgeRoutes);
 
   return fastify;
 }

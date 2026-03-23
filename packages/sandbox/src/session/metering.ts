@@ -30,6 +30,8 @@ export function startCreditMeter(): NodeJS.Timeout {
   const METER_INTERVAL = 60_000; // 1 minute
 
   return setInterval(() => {
+    if (getEnv().BILLING_MODE !== 'enforced') return;
+
     for (const [, session] of sessions) {
       if (session.status === 'terminated') continue;
       try {

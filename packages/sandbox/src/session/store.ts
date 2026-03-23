@@ -9,6 +9,7 @@ export interface SessionState {
   chatId: string | null;
   language: string;
   workingDir: string;
+  ephemeral: boolean;
   status: 'creating' | 'ready' | 'executing' | 'terminated' | 'error';
   environmentStatus: 'stopped' | 'starting' | 'running';
   config: SandboxConfig;

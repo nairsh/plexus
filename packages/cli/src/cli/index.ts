@@ -22,6 +22,7 @@ import { runDoctor } from './doctor.js';
 import { runConfig, printConfigHelp } from './config.js';
 import { runModels, printModelsHelp } from './models.js';
 import { runConfigure } from './configure.js';
+import { runAuth } from './auth.js';
 import { CLI_VERSION } from '../version.js';
 
 // ── Main program ──
@@ -90,6 +91,20 @@ program
     await runModels(action, options);
   });
 
+// ── Auth command ──
+
+program
+  .command('auth <action>')
+  .description('Authentication commands (login, logout, status)')
+  .action(async (action: 'login' | 'logout' | 'status') => {
+    if (!['login', 'logout', 'status'].includes(action)) {
+      console.log(chalk.red('Unknown auth action. Use: login | logout | status'));
+      process.exit(1);
+    }
+
+    await runAuth(action);
+  });
+
 // ── Run command (delegate to orchestrate.ts) ──
 
 program
@@ -114,7 +129,7 @@ const args = process.argv.slice(2);
 if (
   args.length > 0 &&
   !args[0].startsWith('-') &&
-  !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive'].includes(args[0])
+  !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive', 'auth'].includes(args[0])
 ) {
   // This looks like an objective, not a command
   // Delegate to orchestrate.ts

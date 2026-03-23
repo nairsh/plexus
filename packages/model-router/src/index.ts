@@ -20,6 +20,8 @@ export {
   getAgentModel,
   getAllAgentModels,
   saveRuntimeModelConfig,
+  saveUserRuntimeModelConfig,
+  clearUserRuntimeModelConfig,
   updateAgentModels,
   type RuntimeModelConfig,
   type AgentModels,
@@ -56,13 +58,38 @@ export {
 } from './tools/registry.js';
 export {
   getAllSkills,
+  getAllSkillsForUser,
   getSkillById,
+  getSkillByIdForUser,
   getSkillsRoot,
   refreshSkillsCache,
   applySkillToRequest,
   ensureRunSkillTool,
   upsertSkill,
+  upsertSkillForUser,
   deleteSkill,
+  deleteSkillForUser,
   type UpsertSkillInput,
 } from './skills.js';
+export {
+  beginConnectorOAuth,
+  completeConnectorOAuth,
+  disconnectConnectorForUser,
+  getConnectorCredentials,
+  getConnectorForUser,
+  listConnectorsForUser,
+  listConnectorProviders,
+  validateConnectorForUser,
+} from './connectors.js';
+export {
+  chunkKnowledgeText,
+  deleteKnowledgeDocumentForUser,
+  getKnowledgeDocumentForUser,
+  inferKnowledgeExtractionMode,
+  ingestKnowledgeDocument,
+  listKnowledgeDocumentsForUser,
+  searchKnowledgeForUser,
+  type KnowledgeSearchMatch,
+  type KnowledgeUploadInput,
+} from './knowledge.js';
 export { checkFileLint, checkProjectLint, formatLintResultsForAgent, detectLanguage } from './tools/linting.js';

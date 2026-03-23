@@ -80,6 +80,7 @@ export const AgentRequestSchema = z.object({
   model_fallback: z.array(z.string()).optional(),
   preset: z.string().optional(),
   chat_id: z.string().optional(),
+  working_directory: z.string().optional(),
 });
 
 // ── Sandbox config ──
@@ -87,6 +88,7 @@ export const SandboxConfigSchema = z.object({
   language: z.enum(['python', 'javascript', 'sql']),
   chat_id: z.string().min(1).optional(),
   task_id: z.string().min(1).optional(),
+  working_directory: z.string().min(1).optional(),
   timeout_seconds: z.number().int().positive().max(3600).optional(),
   packages: z.array(z.string()).optional(),
   files: z
@@ -111,6 +113,7 @@ export const WorkflowConfigSchema = z.object({
   orchestrator_model: z.string().optional(),
   chat_id: z.string().min(1).optional(),
   model_overrides: z.record(z.string()).optional(),
+  working_directory: z.string().min(1).optional(),
   tools: z.array(z.string()).optional(),
   max_credits: z.number().positive().optional(),
   callback_url: z.string().url().optional(),

@@ -146,7 +146,7 @@ pnpm dev & sleep 2 && pnpm seed && pnpm test
 
 - SQLite path defaults to `./data/orchestrator.db` unless `DATABASE_PATH` is set.
 - WAL mode and foreign keys enabled.
-- Core tables: `users`, `api_keys`, `credit_transactions`, `workflows`, `tasks`, `workflow_steps`, `sandbox_sessions`, `sandbox_workspaces`, `audit_log`.
+- Core tables: `users`, `credit_transactions`, `workflows`, `tasks`, `workflow_steps`, `sandbox_sessions`, `sandbox_workspaces`, `audit_log`.
 - Migrations are additive/idempotent with guarded `ALTER TABLE` and table recreation only when needed.
 
 ## Environment variables (actual names used)
@@ -194,6 +194,6 @@ pnpm dev & sleep 2 && pnpm seed && pnpm test
 ## Practical gotchas
 
 - `runWorkflow()` turn cap is 60 (not 25).
-- Integration tests build their own users/keys if `TEST_API_KEY` is absent.
+- Integration tests can use `TEST_AUTH_BEARER_TOKEN`/`TEST_CLERK_BEARER_TOKEN` for Clerk-first environments.
 - Some test-sensitive env access intentionally bypasses cached env (skills/workspace root).
 - `tools` column in `tasks` is reused for serialized metadata; preserve compatibility when touching work-item persistence.

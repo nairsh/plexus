@@ -16,6 +16,7 @@ import { executeToolCall, getOpenTerminalSessionForChat, getSkillById } from '@o
 import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { buildDisplayDescription } from './displayLabel.js';
+import { normalizeWorkingDirectory } from '../folderScope.js';
 
 const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
   'web_search',
@@ -155,12 +156,15 @@ const buildToolDisplayResult = (
 
 const ensureWorkflowWorkspaceSession = async (state: WorkflowState): Promise<void> => {
   const chatId = state.config.chat_id ?? state.id;
-  const existing = await getOpenTerminalSessionForChat(chatId);
-  if (existing) return;
+  const workingDirectory = normalizeWorkingDirectory(state.config.working_directory);
+  const existing = await getOpenTerminalSessionForChat(state.userId, chatId);
+  const matchesRequestedWorkingDirectory = workingDirectory ? existing?.workingDirectory === workingDirectory : Boolean(existing);
+  if (matchesRequestedWorkingDirectory) return;
 
   const session = await createSession(state.userId, {
     language: 'javascript',
     chat_id: chatId,
+    ...(workingDirectory ? { working_directory: workingDirectory } : {}),
   });
   state.sandboxSessionIds.push(session.id);
 };
@@ -246,6 +250,8 @@ export const executeOrchestratorToolCall = async (
           },
         ],
         chat_id: chatId,
+        user_id: state.userId,
+        working_directory: normalizeWorkingDirectory(state.config.working_directory),
         signal: state.abortController.signal,
         trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
       },

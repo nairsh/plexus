@@ -1,6 +1,11 @@
 import { debitCredits } from '@orchestrator/billing';
 import { recallMemory } from '@orchestrator/memory';
-import { computeCost, resolveOrchestratorModel, routeStreamingRequest } from '@orchestrator/model-router';
+import {
+  computeCost,
+  getOpenTerminalSessionForChat,
+  resolveOrchestratorModel,
+  routeStreamingRequest,
+} from '@orchestrator/model-router';
 import {
   DEFAULT_TEMPERATURE,
   ORCHESTRATOR_MAX_OUTPUT_TOKENS,
@@ -10,12 +15,13 @@ import {
 } from '@orchestrator/shared';
 import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
-import { formatWorkItemsForPrompt, listWorkItems } from '../workItems.js';
+import { formatWorkItemsForPrompt, isWorkItemSettled, listWorkItems } from '../workItems.js';
 import { completeWorkflow, failWorkflow } from '../subagents/lifecycle.js';
 import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { extractToolCallsFromOutput, normalizeToolCall, ORCHESTRATOR_TOOLS, type ToolCall } from './tools.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
+import { waitForRuns } from '../subagents/runner.js';
 import {
   createWorkflowState,
   MAX_TURNS,
@@ -24,6 +30,54 @@ import {
   workflows,
 } from '../workflow/state.js';
 import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow } from '../workflow/persistence.js';
+import { ensureEnvironmentSession } from '../agents.js';
+
+const ensureWorkflowEnvironmentReady = async (state: WorkflowState): Promise<void> => {
+  const chatId = state.config.chat_id ?? state.id;
+  const existing = await getOpenTerminalSessionForChat(state.userId, chatId);
+
+  emitWorkflowEvent(state, {
+    type: 'tool_call',
+    workflow_id: state.id,
+    data: {
+      tool_name: 'start_environment',
+      tool_input: {
+        chat_id: chatId,
+        mode: existing ? 'reuse' : 'create',
+      },
+    },
+  });
+
+  if (!existing) {
+    await ensureEnvironmentSession(
+      {
+        workflowId: state.id,
+        userId: state.userId,
+        orchestratorModel: state.orchestratorModel,
+        config: state.config,
+        sandboxSessionIds: state.sandboxSessionIds,
+        abortSignal: state.abortController.signal,
+        creditsCallback: () => undefined,
+        trace: buildToolTraceHooks(state, 'orchestrator', state.orchestratorModel),
+      },
+      undefined
+    );
+  }
+
+  const ready = await getOpenTerminalSessionForChat(state.userId, chatId);
+  emitWorkflowEvent(state, {
+    type: 'tool_result',
+    workflow_id: state.id,
+    data: {
+      tool_name: 'start_environment',
+      tool_output: {
+        status: 'ready',
+        chat_id: chatId,
+        open_terminal_url: ready?.baseUrl ?? null,
+      },
+    },
+  });
+};
 
 const parseStructuredOutputText = (
   text: string
@@ -78,6 +132,64 @@ const toToolUseBlock = (data: unknown): OutputBlock | null => {
     name,
     arguments: (argsIsObject ? (rawArgs as Record<string, unknown>) : rawArgs) as string | Record<string, unknown>,
   };
+};
+
+const pushUserMessage = (state: WorkflowState, content: string): void => {
+  const last = state.messages[state.messages.length - 1];
+  if (last?.role === 'user' && last.content === content) {
+    return;
+  }
+
+  state.messages.push({ role: 'user', content });
+  state.conversationHistory.push({
+    role: 'user',
+    content,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+const ensureWorkflowCanComplete = async (
+  state: WorkflowState,
+  candidateOutput: string,
+  iteration: number
+): Promise<boolean> => {
+  const runningTodoIds = Array.from(state.subagentRuns.values())
+    .filter((run) => run.status === 'running')
+    .map((run) => run.workItemId);
+
+  if (runningTodoIds.length > 0) {
+    await waitForRuns(state, runningTodoIds, 5);
+  }
+
+  const unsettled = listWorkItems(state.id).filter((item) => !isWorkItemSettled(item.status));
+  if (unsettled.length === 0) {
+    return true;
+  }
+
+  const summary = unsettled.map((item) => {
+    const todoId = item.id.replace(`${state.id}_`, '');
+    return `${todoId} [${item.status}] - ${item.description}`;
+  });
+
+  const guardMessage =
+    'Workflow completion blocked: unresolved tasks remain.\n' +
+    summary.map((line) => `- ${line}`).join('\n') +
+    '\nResolve these tasks first using spawn_subagent/await_subagents/edit_todo, then return the final answer.';
+
+  pushUserMessage(state, guardMessage);
+
+  logger.warn(
+    {
+      workflowId: state.id,
+      iteration,
+      unresolvedTaskCount: unsettled.length,
+      runningSubagents: runningTodoIds.length,
+      blockedOutputPreview: candidateOutput.slice(0, 200),
+    },
+    'Prevented premature workflow completion while tasks were unresolved'
+  );
+
+  return false;
 };
 
 export const callOrchestrator = async (
@@ -240,7 +352,7 @@ export const runWorkflow = async (
 ): Promise<{ workflowId: string; output: string; status: WorkflowStatus }> => {
   const isContinuing = !!workflowId && workflows.has(workflowId);
   const id = workflowId ?? crypto.randomUUID();
-  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator);
+  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator, userId);
 
   let state: WorkflowState;
 
@@ -286,6 +398,8 @@ export const runWorkflow = async (
   }
 
   try {
+    await ensureWorkflowEnvironmentReady(state);
+
     for (let iteration = 1; iteration <= MAX_TURNS; iteration++) {
       if (state.abortController.signal.aborted) {
         throw new WorkflowError('Workflow cancelled');
@@ -301,8 +415,12 @@ export const runWorkflow = async (
       });
 
       if (toolCalls.length === 0) {
-        completeWorkflow(state, responseText);
-        return { workflowId: id, output: responseText, status: 'completed' };
+        const canComplete = await ensureWorkflowCanComplete(state, responseText, iteration);
+        if (canComplete) {
+          completeWorkflow(state, responseText);
+          return { workflowId: id, output: responseText, status: 'completed' };
+        }
+        continue;
       }
 
       const toolResults: Array<Record<string, unknown>> = [];
@@ -318,8 +436,11 @@ export const runWorkflow = async (
       }
 
       if (explicitOutput) {
-        completeWorkflow(state, explicitOutput);
-        return { workflowId: id, output: explicitOutput, status: 'completed' };
+        const canComplete = await ensureWorkflowCanComplete(state, explicitOutput, iteration);
+        if (canComplete) {
+          completeWorkflow(state, explicitOutput);
+          return { workflowId: id, output: explicitOutput, status: 'completed' };
+        }
       }
 
       const resultsMessage = `Tool results:\n${toolResults.map((result) => `- ${result.tool}: ${JSON.stringify(result)}`).join('\n')}`;
