@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { closeDb, getDb, runMigrations, resetEnvCache } from '@orchestrator/shared';
+import { closeDb, getDb, runMigrations, resetEnvCache, BashApprovalSchema } from '@orchestrator/shared';
 
 describe('schema validation edge cases', () => {
   let tempDir = '';
@@ -87,6 +87,55 @@ describe('schema validation edge cases', () => {
       media_type: 'text/plain',
     }));
     const result = WorkflowConfigSchema.safeParse({ objective: 'test', context_files: files });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('BashApprovalSchema', () => {
+  test('accepts valid approve decision', () => {
+    const result = BashApprovalSchema.safeParse({
+      approval_id: 'abc-123',
+      decision: 'approve',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('accepts deny decision', () => {
+    const result = BashApprovalSchema.safeParse({
+      approval_id: 'abc-123',
+      decision: 'deny',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('rejects "reject" as decision (must use "deny")', () => {
+    const result = BashApprovalSchema.safeParse({
+      approval_id: 'abc-123',
+      decision: 'reject',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects empty approval_id', () => {
+    const result = BashApprovalSchema.safeParse({
+      approval_id: '',
+      decision: 'approve',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects missing approval_id', () => {
+    const result = BashApprovalSchema.safeParse({
+      decision: 'approve',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('accepts approve_all_session decision', () => {
+    const result = BashApprovalSchema.safeParse({
+      approval_id: 'abc-123',
+      decision: 'approve_all_session',
+    });
     expect(result.success).toBe(true);
   });
 });

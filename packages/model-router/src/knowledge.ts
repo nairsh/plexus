@@ -122,7 +122,7 @@ export const extractKnowledgeTextFromBuffer = (filename: string, mediaType: stri
 };
 
 const extractPdfText = async (buffer: Buffer): Promise<string> => {
-  const parser = new PDFParse({ data: buffer as unknown as Uint8Array });
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
   const result = await parser.getText();
   return sanitizeExtractedText(result.text ?? '');
 };
@@ -140,7 +140,7 @@ const requireGoogleClient = (): GoogleGenerativeAI => {
 const extractWithGemini = async (mediaType: string, contentBase64: string): Promise<string> => {
   const client = requireGoogleClient();
   const model = client.getGenerativeModel({ model: getEnv().GOOGLE_OCR_MODEL });
-  const result = await (model as any).generateContent([
+  const result = await model.generateContent([
     {
       text:
         'Extract all readable text from this file. Preserve section breaks, bullet lists, and table-like structure with plain text only. Return only the extracted text.',
@@ -159,7 +159,7 @@ const extractWithGemini = async (mediaType: string, contentBase64: string): Prom
 const embedChunk = async (text: string): Promise<number[]> => {
   const client = requireGoogleClient();
   const model = client.getGenerativeModel({ model: getEnv().GOOGLE_EMBEDDING_MODEL });
-  const result = await (model as any).embedContent(text);
+  const result = await model.embedContent(text);
   const values = result?.embedding?.values;
   if (!Array.isArray(values)) {
     throw new Error('Embedding response did not include numeric values');

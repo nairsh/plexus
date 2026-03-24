@@ -87,5 +87,5 @@ export async function getTransactions(
   limit = 50,
   offset = 0
 ): Promise<CreditTransaction[]> {
-  return getStorage().getTransactions(userId, limit, offset) as unknown as CreditTransaction[];
+  return getStorage().getTransactions(userId, limit, offset) as Promise<CreditTransaction[]>;
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   WorkflowConfigSchema,
   WorkflowApprovalSchema,
+  BashApprovalSchema,
   PaginationSchema,
   InvalidRequestError,
   WorkflowError,
@@ -9,7 +10,7 @@ import {
   logger,
   getDb,
 } from '@orchestrator/shared';
-import type { WorkflowEvent } from '@orchestrator/shared';
+import type { WorkflowEvent, ToolApprovalDecision } from '@orchestrator/shared';
 import {
   rollbackGitSandbox,
   getGitSandboxDiff,
@@ -312,7 +313,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
   /**
    * POST /v1/workflows/:id/bash-approve — resolve a pending bash command approval.
-   * Body: { approval_id: string, decision: 'approve' | 'reject' | 'approve_all_session' | 'approve_command_session' }
+   * Body: { approval_id: string, decision: 'approve' | 'deny' | 'approve_all_session' | 'approve_command_session' }
    */
   fastify.post(
     '/v1/workflows/:id/bash-approve',
@@ -320,20 +321,17 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
       ensureWorkflowOwned(id, request.user!.id);
 
-      const body = request.body as Record<string, unknown>;
-      const approvalId = typeof body?.approval_id === 'string' ? body.approval_id : null;
-      const decision = typeof body?.decision === 'string' ? body.decision : 'approve';
-
-      if (!approvalId) {
-        throw new InvalidRequestError('approval_id is required', 'approval_id');
+      const parsed = BashApprovalSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const firstError = parsed.error.errors[0];
+        throw new InvalidRequestError(
+          firstError?.message ?? 'Invalid approval body',
+          firstError?.path?.join('.') ?? 'approval_body',
+        );
       }
 
-      const validDecisions = new Set(['approve', 'reject', 'approve_all_session', 'approve_command_session']);
-      if (!validDecisions.has(decision)) {
-        throw new InvalidRequestError(`decision must be one of: ${[...validDecisions].join(', ')}`, 'decision');
-      }
-
-      resolveWorkflowApproval(id, approvalId, decision as import('@orchestrator/shared').ToolApprovalDecision);
+      const { approval_id: approvalId, decision } = parsed.data;
+      resolveWorkflowApproval(id, approvalId, decision as ToolApprovalDecision);
 
       return { status: 'ok', workflow_id: id, approval_id: approvalId, decision };
     }

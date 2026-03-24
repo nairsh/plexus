@@ -182,6 +182,12 @@ export const WorkflowApprovalSchema = z.object({
   feedback: z.string().optional(),
 });
 
+// ── Bash tool approval ──
+export const BashApprovalSchema = z.object({
+  approval_id: z.string().min(1, 'approval_id is required'),
+  decision: z.enum(['approve', 'deny', 'approve_all_session', 'approve_command_session']),
+});
+
 // ── Pagination ──
 export const PaginationSchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
