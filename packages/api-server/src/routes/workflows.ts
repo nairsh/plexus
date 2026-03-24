@@ -28,6 +28,7 @@ import {
   getWorkflowEmitter,
   getWorkflowTrace,
   listWorkflows,
+  resolveWorkflowApproval,
 } from '@orchestrator/orchestrator';
 
 const ensureWorkflowOwned = (workflowId: string, userId: string): void => {
@@ -282,6 +283,35 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       task_id,
     };
   });
+
+  /**
+   * POST /v1/workflows/:id/bash-approve — resolve a pending bash command approval.
+   * Body: { approval_id: string, decision: 'approve' | 'reject' | 'approve_all_session' | 'approve_command_session' }
+   */
+  fastify.post(
+    '/v1/workflows/:id/bash-approve',
+    async (request: FastifyRequest<{ Params: { id: string }; Body: unknown }>) => {
+      const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+
+      const body = request.body as Record<string, unknown>;
+      const approvalId = typeof body?.approval_id === 'string' ? body.approval_id : null;
+      const decision = typeof body?.decision === 'string' ? body.decision : 'approve';
+
+      if (!approvalId) {
+        throw new InvalidRequestError('approval_id is required', 'approval_id');
+      }
+
+      const validDecisions = new Set(['approve', 'reject', 'approve_all_session', 'approve_command_session']);
+      if (!validDecisions.has(decision)) {
+        throw new InvalidRequestError(`decision must be one of: ${[...validDecisions].join(', ')}`, 'decision');
+      }
+
+      resolveWorkflowApproval(id, approvalId, decision as import('@orchestrator/shared').ToolApprovalDecision);
+
+      return { status: 'ok', workflow_id: id, approval_id: approvalId, decision };
+    }
+  );
 
   /**
    * POST /v1/workflows/:id/retry — retry a failed or cancelled workflow.
