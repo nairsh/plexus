@@ -3,7 +3,17 @@ import { getErrorMessage, logger } from '@orchestrator/shared';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
 import { persistWorkflowCompletion, persistWorkflowFailure } from '../workflow/persistence.js';
 import type { WorkflowState } from '../workflow/state.js';
+import { workflows } from '../workflow/state.js';
 import { recordStep } from '../orchestrator/tracing.js';
+
+const WORKFLOW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+const scheduleStateCleanup = (workflowId: string): void => {
+  setTimeout(() => {
+    workflows.delete(workflowId);
+    logger.debug({ workflowId }, 'Cleaned up in-memory workflow state after TTL');
+  }, WORKFLOW_STATE_TTL_MS);
+};
 
 export const cleanupSessions = (state: WorkflowState): void => {
   for (const sessionId of state.sandboxSessionIds) {
@@ -42,6 +52,7 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
   });
 
   cleanupSessions(state);
+  scheduleStateCleanup(state.id);
 };
 
 export const failWorkflow = async (state: WorkflowState, message: string): Promise<void> => {
@@ -55,4 +66,5 @@ export const failWorkflow = async (state: WorkflowState, message: string): Promi
   });
 
   cleanupSessions(state);
+  scheduleStateCleanup(state.id);
 };
