@@ -22,11 +22,11 @@ async function fireWebhook(
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(10_000),
       });
-      if (res.ok || res.status < 500) {
+      if (res.ok || (res.status < 500 && res.status !== 429)) {
         logger.info({ workflowId, callbackUrl, status: res.status, attempt }, 'Webhook callback delivered');
         return;
       }
-      // Server error — retry
+      // Server error or rate limit — retry with backoff
       if (attempt < MAX_WEBHOOK_RETRIES) {
         const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt);
         logger.warn({ workflowId, callbackUrl, status: res.status, attempt, retryInMs: delay }, 'Webhook server error, retrying');

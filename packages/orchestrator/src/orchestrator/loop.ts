@@ -111,7 +111,8 @@ const parseStructuredOutputText = (
       toolCalls,
       finalText,
     };
-  } catch {
+  } catch (err) {
+    logger.debug({ error: getErrorMessage(err as Error) }, 'Failed to parse structured output text');
     return null;
   }
 };
@@ -266,6 +267,7 @@ export const callOrchestrator = async (
   const rawOutput: OutputBlock[] = [];
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
+  let actualModel = state.orchestratorModel;
 
   for await (const chunk of routeStreamingRequest({
     model: state.orchestratorModel,
@@ -306,6 +308,18 @@ export const callOrchestrator = async (
       continue;
     }
 
+    if (chunk.type === 'model_fallback' && chunk.data && typeof chunk.data === 'object') {
+      const fallbackData = chunk.data as { requested?: string; actual?: string; reason?: string };
+      if (fallbackData.actual) {
+        actualModel = fallbackData.actual;
+        logger.info(
+          { workflowId: state.id, iteration, requested: fallbackData.requested, actual: fallbackData.actual },
+          'Model fallback occurred, billing will use actual model'
+        );
+      }
+      continue;
+    }
+
     if (chunk.type === 'usage' && chunk.data && typeof chunk.data === 'object') {
       const usage = chunk.data as {
         prompt_tokens?: number;
@@ -313,7 +327,7 @@ export const callOrchestrator = async (
       };
       const usageCost =
         usage.prompt_tokens || usage.completion_tokens
-          ? computeCost(state.orchestratorModel, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+          ? computeCost(actualModel, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
           : null;
 
       if (usageCost && usageCost.total_cost > 0) {
@@ -383,7 +397,7 @@ export const callOrchestrator = async (
 
   recordStep(state, {
     step_type: 'orchestrator_message',
-    model_name: state.orchestratorModel,
+    model_name: actualModel,
     message_content: responseText.substring(0, 1000),
     tool_name: null,
     tool_input: { iteration, streamed: true },
@@ -460,7 +474,8 @@ export const runWorkflow = async (
           if (/[\x00-\x08\x0e-\x1f]/.test(content.substring(0, 100))) return [];
           const truncated = content.length > 8000 ? content.substring(0, 8000) + '\n...[truncated]' : content;
           return [`\n### File: ${f.filename}\n\`\`\`\n${truncated}\n\`\`\``];
-        } catch {
+        } catch (err) {
+          logger.debug({ filename: f.filename, error: getErrorMessage(err as Error) }, 'Skipping undecodable context file');
           return [];
         }
       });

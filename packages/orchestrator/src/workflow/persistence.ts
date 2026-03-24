@@ -138,10 +138,12 @@ export const persistWorkflowFailure = (state: WorkflowState, message: string): v
 
 export const persistWorkflowCancellation = (workflowId: string): void => {
   const db = getDb();
-  db.prepare("UPDATE workflows SET status = 'cancelled', ended_at = datetime('now') WHERE id = ?").run(workflowId);
-  db.prepare(
-    "UPDATE tasks SET status = 'cancelled', completed_at = datetime('now') WHERE workflow_id = ? AND status IN ('pending', 'running')"
-  ).run(workflowId);
+  db.transaction(() => {
+    db.prepare("UPDATE workflows SET status = 'cancelled', ended_at = datetime('now') WHERE id = ?").run(workflowId);
+    db.prepare(
+      "UPDATE tasks SET status = 'cancelled', completed_at = datetime('now') WHERE workflow_id = ? AND status IN ('pending', 'running')"
+    ).run(workflowId);
+  })();
 };
 
 export const persistWorkflowStatus = (workflowId: string, status: WorkflowStatus, pauseReason?: string): void => {

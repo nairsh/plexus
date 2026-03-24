@@ -257,6 +257,21 @@ export function getWorkflowState(workflowId: string): WorkflowState | null {
   return hydrateWorkflowState(workflowId);
 }
 
+/** Abort all in-flight workflows. Used during graceful shutdown. */
+export function abortAllWorkflows(): number {
+  let aborted = 0;
+  for (const [id, state] of workflows) {
+    if (state.status === 'executing' || state.status === 'paused') {
+      state.abortController.abort();
+      aborted++;
+      import('@orchestrator/shared').then(({ logger }) =>
+        logger.info({ workflowId: id }, 'Workflow aborted during shutdown')
+      );
+    }
+  }
+  return aborted;
+}
+
 export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, countWorkflows, getWorkflowTrace, getWorkflowSummaryById };
 export type { WorkflowSummary, TaskSummary };
 

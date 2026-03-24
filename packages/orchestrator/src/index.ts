@@ -19,6 +19,7 @@ export {
   getPendingApprovals,
   retryWorkflow,
   getWorkflowProgress,
+  abortAllWorkflows,
 } from './engine.js';
 
 export type { WorkflowSummary, TaskSummary } from './engine.js';

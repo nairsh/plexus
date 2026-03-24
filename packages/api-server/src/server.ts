@@ -1,5 +1,12 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    requestId: string;
+  }
+}
+
 import { logger, runMigrations, closeDb, AppError, InternalError, getEnv, getDb } from '@orchestrator/shared';
 import {
   seedModelRegistry,
@@ -26,7 +33,7 @@ import { skillsRoutes } from './routes/skills.js';
 import { modelPreferencesRoutes } from './routes/modelPreferences.js';
 import { connectorsRoutes } from './routes/connectors.js';
 import { knowledgeRoutes } from './routes/knowledge.js';
-import { startScheduler, stopScheduler } from '@orchestrator/orchestrator';
+import { startScheduler, stopScheduler, abortAllWorkflows } from '@orchestrator/orchestrator';
 
 export async function createServer() {
   const fastify = Fastify({
@@ -61,11 +68,14 @@ export async function createServer() {
   // Presets list (no auth required)
   fastify.get('/v1/presets', async () => ({ presets: getAllPresets() }));
 
+  // Decorate requests with a requestId for tracing
+  fastify.decorateRequest('requestId', '');
+
   // Assign X-Request-ID for tracing across the request lifecycle
   fastify.addHook('onRequest', async (request, reply) => {
     const requestId = (request.headers['x-request-id'] as string) ?? crypto.randomUUID();
     reply.header('X-Request-ID', requestId);
-    (request as unknown as { requestId: string }).requestId = requestId;
+    request.requestId = requestId;
   });
 
   // Auth middleware for all /v1/ routes (except models/presets/health)
@@ -244,13 +254,27 @@ export async function startServer() {
 
   // Graceful shutdown
   const shutdown = async () => {
-    logger.info('Shutting down...');
+    logger.info('Shutting down gracefully...');
+
+    // 1. Stop accepting new work
     clearInterval(cleanerInterval);
     clearInterval(reaperInterval);
     clearInterval(meterInterval);
     clearInterval(oauthCleanerInterval);
     stopScheduler();
+
+    // 2. Abort in-flight workflows so they can exit cleanly
+    const aborted = abortAllWorkflows();
+    if (aborted > 0) {
+      logger.info({ count: aborted }, 'Aborted in-flight workflows');
+      // Brief grace period to let abort handlers run
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    // 3. Close HTTP server (drains in-flight requests)
     await server.close();
+
+    // 4. Close database
     closeDb();
     process.exit(0);
   };
