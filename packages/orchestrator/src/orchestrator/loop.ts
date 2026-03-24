@@ -197,6 +197,32 @@ const ensureWorkflowCanComplete = async (
 // active context window.  System messages are always preserved.  Older turns are
 // replaced with a single summary sentinel so the model is not surprised by the gap.
 const MESSAGE_WINDOW_TURNS = 60;
+// Max chars for a single subagent output snippet in the tool-results message.
+// The full output lives in the work-item DB and is available to dependent subagents.
+const MAX_SUBAGENT_OUTPUT_SNIPPET = 3000;
+
+// Truncate long output fields inside tool results so the orchestrator's context
+// window does not fill up with verbatim subagent reports.
+function truncateToolResult(result: Record<string, unknown>): Record<string, unknown> {
+  const truncateOutputArray = (arr: unknown[]): unknown[] =>
+    arr.map((item) => {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const r = item as Record<string, unknown>;
+        if (typeof r['output'] === 'string' && r['output'].length > MAX_SUBAGENT_OUTPUT_SNIPPET) {
+          return {
+            ...r,
+            output: r['output'].slice(0, MAX_SUBAGENT_OUTPUT_SNIPPET) + `…[truncated, ${r['output'].length} chars total]`,
+          };
+        }
+      }
+      return item;
+    });
+
+  if (Array.isArray(result['completed_results'])) {
+    return { ...result, completed_results: truncateOutputArray(result['completed_results']) };
+  }
+  return result;
+}
 
 function trimMessagesForContext(messages: ConversationMessage[]): ConversationMessage[] {
   const systemMessages = messages.filter((m) => m.role === 'system');
@@ -556,7 +582,7 @@ export const runWorkflow = async (
         }
       }
 
-      const resultsMessage = `Tool results:\n${toolResults.map((result) => `- ${result.tool}: ${JSON.stringify(result)}`).join('\n')}`;
+      const resultsMessage = `Tool results:\n${toolResults.map((result) => `- ${result.tool}: ${JSON.stringify(truncateToolResult(result))}`).join('\n')}`;
       state.messages.push({ role: 'user', content: resultsMessage });
     }
 
