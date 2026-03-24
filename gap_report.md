@@ -1,13 +1,13 @@
 # Gap Report — Orchestrator Platform vs. Perplexity Computer Parity
 
-*Generated: 2026-03-24 (Updated: Session 2)*
-*Coverage: 95% (152/160 scored points across 33 testable capabilities)* ✅ TARGET EXCEEDED
+*Generated: 2026-03-24 (Updated: Session 3)*
+*Coverage: 96.25% (154/160 scored points across 33 testable capabilities)* ✅ TARGET EXCEEDED
 
 ---
 
 ## Executive Summary
 
-After 14 focused fixes across 35 test case evaluations, the orchestrator platform reaches **95% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All critical categories score ≥4/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base, skills, clarification handling) with only 1 remaining gap limited to PDF/image OCR which requires an external API key.
+After 20 focused fixes across 35 test case evaluations, the orchestrator platform reaches **96.25% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All 33 testable categories now score ≥4/5, with 31 at 5/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base, skills, clarification handling, long-running jobs, provider resilience) with only 1 remaining gap limited to PDF/image OCR which requires an external API key.
 
 ---
 
@@ -76,15 +76,35 @@ After 14 focused fixes across 35 test case evaluations, the orchestrator platfor
 
 ---
 
-## Path to 96%+ Coverage
+## ✅ Session 3 Improvements (96.25% achieved)
 
-To reach 96% (154/160), implement:
+### 6. TC-05 Long-running Jobs (4/5 → 5/5)
+- **Webhook callbacks**: `callback_url` in WorkflowConfig now POSTs completion/failure payload when done
+- **Progress polling endpoint**: `GET /v1/workflows/:id/progress` returns task breakdown + credits + estimated% without SSE
+- **Crash recovery**: On startup, stale `executing` workflows are marked `failed` (retryable via `/retry`)
+- **workflow_progress events**: Emitted every 5 iterations with task/credit metrics
+
+### 7. TC-35 Provider Failure (4/5 → 5/5)
+- **model_fallback wired**: `AgentRequest.model_fallback[]` now feeds the `buildFallbackChain()` — per-request explicit fallback order
+- **WorkflowConfig.model_fallback**: Users can specify fallback models at the workflow level
+- **model_fallback SSE event**: Already emitted when streaming fallback occurs (from Session 2)
+
+### 8. context_files implemented
+- `context_files` in WorkflowConfig now decoded and injected as system context before orchestrator starts
+- Enables "analyze this uploaded document" without requiring file_read tool calls
+
+### 9. DISABLE_AUTH dev bypass
+- `DISABLE_AUTH=true` env var allows all integration tests to run without a Clerk token
+- All 19 test files now pass (129 tests) without TEST_AUTH_BEARER_TOKEN
+
+## Path to 97%+ Coverage
+
+To reach 97% (155/160), remaining options:
 
 1. **Knowledge Base PDF/image** (+1 point): Set `GOOGLE_AI_API_KEY` environment variable.
+2. **TC-19 to 5/5** (+1 point): Dedicated frontend UX for clarification state (requires frontend changes).
 
-2. **TC-19 to 5/5** (+1 point): Implement proper clarification state in the frontend UX, showing a dedicated "waiting for clarification" UI rather than just paused status. Requires frontend changes.
-
-Together: 152 + 2 = 154/160 = 96.25% ✅
+Together: 154 + 2 = 156/160 = 97.5% ✅
 
 ---
 
@@ -95,7 +115,7 @@ Together: 152 + 2 = 154/160 = 96.25% ✅
 | Server uptime during testing | 3+ hours continuous |
 | Workflows completed | 50+ successful |
 | Workflows failed (pre-fix) | 6 (all fixed) |
-| Test files passing | 19/19 (127 tests, 8 skipped LLM) |
+| Test files passing | 19/19 (129 tests, 8 skipped LLM) |
 | Average workflow completion time | 30s - 5min |
 | Longest workflow attempted | ~7 min (120 turns) |
 | Concurrent workflows tested | Up to 4 parallel |
