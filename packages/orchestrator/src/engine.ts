@@ -335,6 +335,8 @@ export function continueWorkflow(
   });
 
   updateWorkflowObjectiveForContinuation(workflowId, followUpQuery);
+  // Clear any pending clarification question now that user has responded
+  persistWorkflowStatus(workflowId, 'executing');
   state.executionPromise = undefined;
   return { workflowId, status: 'executing' };
 }
