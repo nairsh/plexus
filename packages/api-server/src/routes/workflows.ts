@@ -92,16 +92,14 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
     const { workflowId, tasks } = await planWorkflow(userId, config);
 
-    // Start execution in background — events will be emitted via SSE
-    if (!config.background) {
-      (async () => {
-        try {
-          await executeWorkflowToCompletion(workflowId);
-        } catch (err) {
-          logger.error({ workflowId, error: getErrorMessage(err) }, 'Background workflow execution failed');
-        }
-      })();
-    }
+    // Always start execution in background — events will be emitted via SSE
+    (async () => {
+      try {
+        await executeWorkflowToCompletion(workflowId);
+      } catch (err) {
+        logger.error({ workflowId, error: getErrorMessage(err) }, 'Background workflow execution failed');
+      }
+    })();
 
     reply.status(201);
     return {
