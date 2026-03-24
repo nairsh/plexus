@@ -18,3 +18,4 @@ export {
   listGitSandboxes,
 } from './gitSandbox.js';
 export type { GitSandboxSession } from './gitSandbox.js';
+export { validatePath } from './session/pathSafety.js';
