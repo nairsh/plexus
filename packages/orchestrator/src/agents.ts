@@ -85,7 +85,7 @@ interface AgentConfig {
 const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   research: {
     model: 'litellm/gemini-3-flash-preview',
-    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'run_skill' }],
+    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'search_knowledge' }, { type: 'run_skill' }],
     skills: [],
     promptFile: 'research.md',
   },
@@ -99,6 +99,7 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
       { type: 'file_edit' },
       { type: 'grep' },
       { type: 'glob' },
+      { type: 'search_knowledge' },
       { type: 'run_skill' },
     ],
     skills: [],
@@ -114,6 +115,7 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
       { type: 'file_edit' },
       { type: 'grep' },
       { type: 'glob' },
+      { type: 'search_knowledge' },
       { type: 'run_skill' },
     ],
     skills: [],
@@ -152,7 +154,7 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
 
   deep_research: {
     model: 'litellm/gemini-3-flash-preview',
-    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'run_skill' }],
+    tools: [{ type: 'web_search' }, { type: 'fetch_url' }, { type: 'search_knowledge' }, { type: 'run_skill' }],
     skills: [],
     promptFile: 'deep-research.md',
   },
