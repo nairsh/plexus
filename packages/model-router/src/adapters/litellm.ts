@@ -94,6 +94,8 @@ export class LiteLLMAdapter extends BaseAdapter {
     // Tool use loop
     let currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
     let maxIterations = MAX_TOOL_ITERATIONS;
+    // Retry budget for transient errors (429, 502, 503) per LLM call within the loop
+    const MAX_TRANSIENT_RETRIES = 3;
 
     while (maxIterations > 0) {
       maxIterations--;
@@ -115,14 +117,30 @@ export class LiteLLMAdapter extends BaseAdapter {
         params.response_format = { type: 'json_object' };
       }
 
+      let completion: OpenAI.ChatCompletion | null = null;
+      for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+        try {
+          completion = await this.client.chat.completions.create(params, { signal: request.signal });
+          break; // Success — exit retry loop
+        } catch (retryErr) {
+          const status = (retryErr as { status?: number })?.status ?? 0;
+          const isTransient = status === 429 || status === 502 || status === 503;
+          if (!isTransient || attempt >= MAX_TRANSIENT_RETRIES || request.signal?.aborted) {
+            throw retryErr;
+          }
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 16_000);
+          logger.warn(
+            { requestedModel: request.model, litellmModel: modelName, status, attempt, backoffMs },
+            'LiteLLM transient error — retrying with backoff'
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+        }
+      }
       try {
-        const completion = await this.client.chat.completions.create(params, {
-          signal: request.signal,
-        });
-        const choice = completion.choices[0];
+        const choice = completion!.choices[0];
 
-        totalInputTokens += completion.usage?.prompt_tokens ?? 0;
-        totalOutputTokens += completion.usage?.completion_tokens ?? 0;
+        totalInputTokens += completion!.usage?.prompt_tokens ?? 0;
+        totalOutputTokens += completion!.usage?.completion_tokens ?? 0;
 
         if (!choice) {
           break;
@@ -151,7 +169,7 @@ export class LiteLLMAdapter extends BaseAdapter {
               totalInputTokens,
               totalOutputTokens,
               toolCallsCost,
-              completion.usage
+              completion!.usage
             );
 
             return {
@@ -207,7 +225,7 @@ export class LiteLLMAdapter extends BaseAdapter {
           totalInputTokens,
           totalOutputTokens,
           toolCallsCost,
-          completion.usage
+          completion!.usage
         );
 
         logger.info(
