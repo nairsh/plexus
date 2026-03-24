@@ -427,3 +427,47 @@ describe.skipIf(skipLLM)('Workflow API (real LLM calls)', () => {
     expect(data['status']).toBe('cancelled');
   }, 60_000);
 });
+
+// ── New Feature Tests (Session 2) ──
+
+describe('Schedule trigger endpoint', () => {
+  test('POST /v1/schedules/:id/trigger triggers a schedule', async () => {
+    const { status: createStatus, data: sched } = await api('POST', '/v1/schedules', {
+      objective: 'Integration test trigger',
+      schedule_type: 'cron',
+      cron_expression: '0 * * * *',
+    });
+    expect(createStatus).toBe(200);
+    const schedId = sched['id'] as string;
+    expect(schedId).toBeTruthy();
+
+    // Trigger without Content-Type (no body)
+    const triggerRes = await fetch(`${BASE_URL}/v1/schedules/${schedId}/trigger`, {
+      method: 'POST',
+      headers: authHeaders(AUTH_TOKEN),
+    });
+    expect(triggerRes.status).toBe(200);
+    const triggerData = await triggerRes.json() as Record<string, unknown>;
+    expect(triggerData['status']).toBe('triggered');
+    expect(triggerData['schedule_id']).toBe(schedId);
+  });
+});
+
+describe('Workflow pending-approvals endpoint', () => {
+  test('GET /v1/workflows/:id/pending-approvals returns empty list for new workflow', async () => {
+    const { status: createStatus, data } = await api('POST', '/v1/workflows', {
+      objective: 'Say hello',
+      max_credits: 2,
+    });
+    expect(createStatus).toBe(201);
+    const wfId = data['workflow_id'] as string;
+
+    const { status, data: approvals } = await api('GET', `/v1/workflows/${wfId}/pending-approvals`);
+    expect(status).toBe(200);
+    expect(approvals['workflow_id']).toBe(wfId);
+    expect(Array.isArray(approvals['pending_approvals'])).toBe(true);
+
+    // Cleanup
+    await api('DELETE', `/v1/workflows/${wfId}`);
+  });
+});
