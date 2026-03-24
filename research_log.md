@@ -4,6 +4,32 @@
 
 ---
 
+### [2026-03-25 Session 7] Deep Code Quality & Security Hardening
+
+**Approach:** Autonomous deep audit of all backend packages using parallel exploration agents. Focused on security, reliability, and code quality rather than new features.
+
+**Commit 1 (c98fbd7e):** SSE memory leak fix, SQL-level workflow filtering, memory pagination, relevance scoring, OAuth cleanup, env validation, config validation, scheduleStateCleanup bug fix.
+
+**Commit 2 (f07c8699):** Persist workflow output to DB, webhook retry with exponential backoff, file size validation (50MB), X-Request-ID tracing, periodic OAuth cleanup.
+
+**Commit 3 (c8ced287):** 20 new unit tests — 11 for memory operations, 9 for workflow listing/filtering. Added @orchestrator/memory vitest alias.
+
+**Commit 4 (a0daf953):** Fixed billing model accuracy (was charging original model after fallback), graceful shutdown with workflow abort, requestId type safety (Fastify decorateRequest), webhook 429 retry, debug logging for silent catch blocks.
+
+**Commit 5 (8aa7b8d4):** Fixed credit tracking race condition — always increment workflow credits immediately regardless of billing success. Improved clarification detection (word count guard, more patterns). Optimized progress events (removed duplicate listWorkItems call).
+
+**Commit 6 (3a58880c):** 7 more tests — lifecycle (cancellation atomicity, completion output persistence), sandbox path safety (5 tests). Exported validatePath from sandbox package.
+
+**Commit 7 (70999a33):** CRITICAL SECURITY FIX — credit check bypass (missing `return` in middleware). SSE connection leak on write error. Scheduler timezone crash. Scheduler overlap race condition (atomic UPDATE WHERE). Streaming error handler double-failure. Objective whitespace trim validation.
+
+**Commit 8 (668bb723):** Migration safety — explicit column lists in INSERT SELECT to prevent data corruption across schema versions.
+
+**Commit 9 (4fec5a2a):** Billing transaction input validation (NaN/negative safety). Memory endpoint Zod schema (key/content/category length limits). 9 schema validation tests.
+
+**Results:** 118 tests passing (up from 82). 0 type errors. No regressions. 15+ bugs fixed including 2 critical security issues.
+
+---
+
 ---
 
 ### [2026-03-24 Experiment #1] Rate Limit Bypass for Test Environments
