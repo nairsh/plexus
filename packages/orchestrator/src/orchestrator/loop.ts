@@ -231,7 +231,9 @@ function trimMessagesForContext(messages: ConversationMessage[]): ConversationMe
   // Each turn = 1 assistant + 1 user; keep last MESSAGE_WINDOW_TURNS * 2 messages
   const maxConversational = MESSAGE_WINDOW_TURNS * 2;
   if (conversational.length <= maxConversational) {
-    return messages;
+    // Return a shallow copy so callers receive a stable snapshot even if state.messages
+    // is mutated after this function returns (important for test assertions).
+    return [...messages];
   }
 
   const omitted = conversational.length - maxConversational;
