@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { logger, runMigrations, closeDb, AppError, InternalError, getEnv } from '@orchestrator/shared';
+import { logger, runMigrations, closeDb, AppError, InternalError, getEnv, getDb } from '@orchestrator/shared';
 import {
   seedModelRegistry,
   getAllModels,
@@ -177,6 +177,21 @@ export async function startServer() {
   // Run migrations
   logger.info('Running database migrations...');
   runMigrations();
+
+  // Clean up workflows that were executing when the server last shut down / crashed
+  try {
+    const db = getDb();
+    const stale = db.prepare(`
+      UPDATE workflows
+      SET status = 'failed', error = 'Server restarted while workflow was executing', updated_at = datetime('now')
+      WHERE status = 'executing'
+    `).run().changes;
+    if (stale > 0) {
+      logger.info({ clearedCount: stale }, 'Marked stale executing workflows as failed on startup (use /retry to re-run)');
+    }
+  } catch (err) {
+    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to clean stale workflows on startup (non-critical)');
+  }
 
   // Seed model registry
   logger.info('Seeding model registry...');
