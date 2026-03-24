@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { getDb, InvalidRequestError } from '@orchestrator/shared';
-import { getNextRun } from '@orchestrator/orchestrator';
+import { getDb, InvalidRequestError, getErrorMessage, logger } from '@orchestrator/shared';
+import { getNextRun, planWorkflow, executeWorkflowToCompletion } from '@orchestrator/orchestrator';
+import type { WorkflowConfig } from '@orchestrator/shared';
 
 const ScheduleBodySchema = z
   .object({
@@ -209,6 +210,58 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     db.prepare(`UPDATE scheduled_workflows SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
 
     return { success: true };
+  });
+
+  // POST /v1/schedules/:id/trigger — manually trigger a scheduled workflow immediately
+  fastify.post('/v1/schedules/:id/trigger', async (request: FastifyRequest) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const db = getDb();
+
+    const schedule = db.prepare(
+      `SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ? AND status != 'deleted'`
+    ).get(id, user.id) as {
+      id: string;
+      user_id: string;
+      workflow_config: string;
+      overlap_policy: 'skip' | 'queue';
+      active_workflow_id: string | null;
+      run_count: number;
+    } | undefined;
+
+    if (!schedule) {
+      throw new InvalidRequestError('Schedule not found');
+    }
+
+    if (schedule.overlap_policy === 'skip' && schedule.active_workflow_id) {
+      return { status: 'skipped', reason: 'active_workflow_running', active_workflow_id: schedule.active_workflow_id };
+    }
+
+    const config = JSON.parse(schedule.workflow_config) as WorkflowConfig;
+    const executionId = `manual:${schedule.id}:${schedule.run_count + 1}`;
+
+    db.prepare(
+      `UPDATE scheduled_workflows SET last_run_at = datetime('now'), run_count = run_count + 1, active_workflow_id = ?, last_run_status = 'running', last_error = NULL, updated_at = datetime('now') WHERE id = ?`
+    ).run(executionId, id);
+
+    // Execute in background
+    void (async () => {
+      try {
+        const workflow = await planWorkflow(schedule.user_id, config);
+        db.prepare(`UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`).run(workflow.workflowId, id);
+        await executeWorkflowToCompletion(workflow.workflowId);
+        db.prepare(
+          `UPDATE scheduled_workflows SET active_workflow_id = NULL, last_run_status = 'completed', updated_at = datetime('now') WHERE id = ? AND active_workflow_id IN (?, ?)`
+        ).run(id, workflow.workflowId, executionId);
+      } catch (err) {
+        logger.error({ scheduleId: id, error: getErrorMessage(err) }, 'Manually triggered schedule execution failed');
+        db.prepare(
+          `UPDATE scheduled_workflows SET active_workflow_id = NULL, last_run_status = 'failed', last_error = ?, updated_at = datetime('now') WHERE id = ?`
+        ).run(getErrorMessage(err), id);
+      }
+    })();
+
+    return { status: 'triggered', schedule_id: id };
   });
 
   // DELETE /v1/schedules/:id
