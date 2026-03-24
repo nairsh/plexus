@@ -9,6 +9,7 @@ export default defineConfig({
       '@orchestrator/billing': path.resolve(__dirname, 'packages/billing/src/index.ts'),
       '@orchestrator/sandbox': path.resolve(__dirname, 'packages/sandbox/src/index.ts'),
       '@orchestrator/orchestrator': path.resolve(__dirname, 'packages/orchestrator/src/index.ts'),
+      '@orchestrator/memory': path.resolve(__dirname, 'packages/memory/src/index.ts'),
     },
   },
   test: {
