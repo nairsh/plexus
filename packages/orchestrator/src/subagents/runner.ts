@@ -131,12 +131,11 @@ export const buildAgentContext = (state: WorkflowState, taskId: string): AgentEx
   sandboxSessionIds: state.sandboxSessionIds,
   abortSignal: state.abortController.signal,
   creditsCallback: (amount: number, description: string) => {
-    debitCredits(state.userId, amount, description, 'subagent', state.id).then(() => {
-      incrementWorkflowCredits(state, amount);
-    }).catch((err: unknown) => {
-      logger.warn(
-        { workflowId: state.id, error: getErrorMessage(err) },
-        'Failed to debit credits for subagent (non-critical)'
+    incrementWorkflowCredits(state, amount);
+    debitCredits(state.userId, amount, description, 'subagent', state.id).catch((err: unknown) => {
+      logger.error(
+        { workflowId: state.id, amount, error: getErrorMessage(err) },
+        'Failed to debit credits for subagent — user balance may be inaccurate'
       );
     });
   },

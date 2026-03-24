@@ -331,18 +331,19 @@ export const callOrchestrator = async (
           : null;
 
       if (usageCost && usageCost.total_cost > 0) {
+        // Always track cost in workflow state for budget enforcement
+        incrementWorkflowCredits(state, usageCost.total_cost);
+        // Debit from user balance asynchronously; log failures as errors
         debitCredits(
           state.userId,
           usageCost.total_cost,
-          `Orchestrator iteration ${iteration}: ${state.id}`,
+          `Orchestrator iteration ${iteration} (${actualModel}): ${state.id}`,
           'workflow',
           state.id
-        ).then(() => {
-          incrementWorkflowCredits(state, usageCost.total_cost);
-        }).catch((err: unknown) => {
-          logger.warn(
-            { workflowId: state.id, iteration, error: getErrorMessage(err) },
-            'Failed to debit credits for orchestrator iteration (non-critical)'
+        ).catch((err: unknown) => {
+          logger.error(
+            { workflowId: state.id, iteration, cost: usageCost.total_cost, error: getErrorMessage(err) },
+            'Failed to debit credits — user balance may be inaccurate'
           );
         });
       }
@@ -522,8 +523,8 @@ export const runWorkflow = async (
 
       // Emit a progress event every 5 iterations for long-running job observability
       if (iteration > 1 && iteration % 5 === 1) {
-        const completedTasks = listWorkItems(state.id).filter((item) => isWorkItemSettled(item.status)).length;
-        const totalTasks = listWorkItems(state.id).length;
+        const items = listWorkItems(state.id);
+        const completedTasks = items.filter((item) => isWorkItemSettled(item.status)).length;
         emitWorkflowEvent(state, {
           type: 'workflow_progress',
           workflow_id: state.id,
@@ -531,7 +532,7 @@ export const runWorkflow = async (
             iteration,
             max_turns: MAX_TURNS,
             completed_tasks: completedTasks,
-            total_tasks: totalTasks,
+            total_tasks: items.length,
             credits_consumed: state.creditsConsumed,
           },
         });
@@ -550,11 +551,17 @@ export const runWorkflow = async (
         // On the first iteration, detect if the model is asking for clarification without using the tool
         if (iteration === 1) {
           const lower = responseText.toLowerCase();
+          const questionCount = (responseText.match(/\?/g) || []).length;
+          const wordCount = responseText.split(/\s+/).length;
+          // Only trigger for short responses that look like questions (not long outputs containing a question)
+          const isShortEnough = wordCount < 200;
           const hasClarificationSignal =
+            isShortEnough && questionCount > 0 &&
             (lower.includes('clarif') || lower.includes('please specify') || lower.includes('could you') ||
              lower.includes('what would you') || lower.includes('what type') || lower.includes('which file') ||
-             lower.includes('more context') || lower.includes('more information') || lower.includes('unclear')) &&
-            responseText.includes('?');
+             lower.includes('more context') || lower.includes('more information') || lower.includes('unclear') ||
+             lower.includes('can you provide') || lower.includes('do you want') || lower.includes('would you like') ||
+             lower.includes('before i proceed') || lower.includes('before i begin'));
           if (hasClarificationSignal) {
             emitWorkflowEvent(state, {
               type: 'clarification_requested',
