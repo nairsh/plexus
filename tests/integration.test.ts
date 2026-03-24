@@ -477,3 +477,60 @@ describe('Workflow pending-approvals endpoint', () => {
     await api('DELETE', `/v1/workflows/${wfId}`);
   });
 });
+
+// ── New Feature Tests (Session 3) ──
+
+describe('Workflow progress endpoint', () => {
+  test('GET /v1/workflows/:id/progress returns progress summary', async () => {
+    const { status: createStatus, data } = await api('POST', '/v1/workflows', {
+      objective: 'Count to 10',
+      background: true,
+    });
+    expect(createStatus).toBe(201);
+    const wfId = data['workflow_id'] as string;
+
+    const { status, data: progress } = await api('GET', `/v1/workflows/${wfId}/progress`);
+    expect(status).toBe(200);
+    expect(progress['workflow_id']).toBe(wfId);
+    expect(typeof progress['status']).toBe('string');
+    expect(typeof progress['credits_consumed']).toBe('number');
+    expect(typeof progress['estimated_progress_pct']).toBe('number');
+    expect(progress['tasks']).toMatchObject({ total: expect.any(Number) });
+
+    // Cleanup
+    await api('DELETE', `/v1/workflows/${wfId}`);
+  });
+});
+
+describe('context_files injection', () => {
+  test('Workflow accepts context_files and creates successfully', async () => {
+    const content = Buffer.from('function greet(name) { return `Hello, ${name}!`; }').toString('base64');
+    const { status, data } = await api('POST', '/v1/workflows', {
+      objective: 'Analyze the provided JavaScript function',
+      background: true,
+      context_files: [
+        { filename: 'greet.js', content_base64: content, media_type: 'text/javascript' },
+      ],
+    });
+    expect(status).toBe(201);
+    expect(data).toHaveProperty('workflow_id');
+
+    // Cleanup
+    await api('DELETE', `/v1/workflows/${data['workflow_id'] as string}`);
+  });
+});
+
+describe('model_fallback in workflow config', () => {
+  test('Workflow accepts model_fallback field', async () => {
+    const { status, data } = await api('POST', '/v1/workflows', {
+      objective: 'Write one sentence',
+      background: true,
+      model_fallback: ['litellm/gemini-3.1-flash-lite-preview', 'litellm/gemini-2-flash'],
+    });
+    expect(status).toBe(201);
+    expect(data).toHaveProperty('workflow_id');
+
+    // Cleanup
+    await api('DELETE', `/v1/workflows/${data['workflow_id'] as string}`);
+  });
+});
