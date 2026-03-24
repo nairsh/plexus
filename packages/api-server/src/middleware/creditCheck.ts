@@ -17,5 +17,6 @@ export async function creditCheckMiddleware(request: FastifyRequest, reply: Fast
   if (user.credits_balance <= 0) {
     const err = new BillingError('Insufficient credits. Please top up your balance.', 'insufficient_credits');
     reply.status(err.statusCode).send(err.toJSON());
+    return;
   }
 }

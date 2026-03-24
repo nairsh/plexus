@@ -52,12 +52,16 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
           reply.raw.write(`event: ${chunk.type}\ndata: ${JSON.stringify(chunk)}\n\n`);
         }
       } catch (err) {
-        reply.raw.write(
-          `event: error\ndata: ${JSON.stringify({ type: 'error', data: { message: getErrorMessage(err) } })}\n\n`
-        );
+        try {
+          reply.raw.write(
+            `event: error\ndata: ${JSON.stringify({ type: 'error', data: { message: getErrorMessage(err) } })}\n\n`
+          );
+        } catch {
+          // Connection already closed; nothing we can do
+        }
       }
 
-      reply.raw.end();
+      try { reply.raw.end(); } catch { /* already closed */ }
 
       // Debit credits for streaming usage (non-blocking)
       if (streamInputTokens > 0 || streamOutputTokens > 0) {

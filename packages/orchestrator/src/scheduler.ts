@@ -36,8 +36,12 @@ const INTERVAL_MS: Record<Exclude<ScheduleIntervalUnit, 'months'>, number> = {
 
 const assertTimezone = (timezone?: string): string | undefined => {
   if (!timezone) return undefined;
-  new Intl.DateTimeFormat('en-US', { timeZone: timezone });
-  return timezone;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return timezone;
+  } catch {
+    throw new Error(`Invalid timezone: ${timezone}`);
+  }
 };
 
 const addMonths = (date: Date, months: number): Date => {
@@ -167,16 +171,17 @@ async function runDueSchedules(): Promise<void> {
         startAt: schedule.start_at ?? undefined,
       });
 
-      // Update next run time immediately to prevent double-execution
-      db.prepare(`
+      // Atomic check-and-claim to prevent duplicate execution in multi-instance deployments
+      const executionId = `scheduled:${schedule.id}:${schedule.run_count + 1}`;
+      const claimed = db.prepare(`
         UPDATE scheduled_workflows
         SET last_run_at = datetime('now'), next_run_at = ?, run_count = run_count + 1, last_error = NULL, active_workflow_id = ?, last_run_status = 'running', updated_at = datetime('now')
-        WHERE id = ?
-      `).run(nextRun.toISOString(), `scheduled:${schedule.id}:${schedule.run_count + 1}`, schedule.id);
+        WHERE id = ? AND (active_workflow_id IS NULL OR ? != 'skip')
+      `).run(nextRun.toISOString(), executionId, schedule.id, schedule.overlap_policy);
+      if (claimed.changes === 0) continue;
 
       // Execute in background (don't await)
       void (async () => {
-        const executionId = `scheduled:${schedule.id}:${schedule.run_count + 1}`;
         try {
           const workflow = await planWorkflow(schedule.user_id, config);
           db.prepare(`UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`).run(

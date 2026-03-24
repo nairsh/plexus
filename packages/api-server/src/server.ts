@@ -103,6 +103,7 @@ export async function createServer() {
       // Credit check for mutating endpoints (skip billing routes)
       if (request.method === 'POST' && !url.includes('/billing/')) {
         await creditCheckMiddleware(request, reply);
+        if (reply.sent) return;
       }
     }
   });

@@ -110,7 +110,7 @@ export const ExecuteCodeSchema = z.object({
 
 // ── Workflow config ──
 export const WorkflowConfigSchema = z.object({
-  objective: z.string().min(1).max(10000),
+  objective: z.string().trim().min(1, 'Objective cannot be empty').max(10000),
   orchestrator_model: z.string().optional(),
   chat_id: z.string().min(1).optional(),
   model_overrides: z.record(z.string()).optional(),

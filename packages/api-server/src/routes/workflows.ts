@@ -262,13 +262,14 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
         } catch (_err) {
           cleanup();
+          try { reply.raw.end(); } catch { /* already closed */ }
           return;
         }
 
         if (event.type === 'workflow_completed' || event.type === 'workflow_failed') {
           cleanup();
           setTimeout(() => {
-            reply.raw.end();
+            try { reply.raw.end(); } catch { /* already closed */ }
           }, 100);
         }
       };
