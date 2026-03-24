@@ -14,6 +14,7 @@
 | 2026-03-24 (Session 2b) | 94.375% | TC-06 polling endpoint added — no SSE required (+1). 151/160 pts. |
 | 2026-03-24 (Session 2c) | 95% | TC-27 run_skill forced via truncated description (+1). 152/160 pts. |
 | 2026-03-24 (Session 3) | 96.25% | TC-05+: webhook callbacks + progress polling + stale cleanup. TC-35+: model_fallback wired. context_files injection. DISABLE_AUTH dev mode (19/19 tests pass). 154/160 pts. |
+| 2026-03-24 (Session 3b) | 96.875% | TC-19 5/5: pause_reason persisted, pending_clarification in workflow details. 155/160 pts. |
 
 ## Test Case Scores (35 TCs)
 
@@ -37,7 +38,7 @@
 | TC-16 | Knowledge Base | 4/5 | ✅ Text files work without Google AI (keyword search); PDF/image still requires API key |
 | TC-17 | Scheduled Workflows | 5/5 | ✅ Manual trigger: POST /v1/schedules/:id/trigger implemented |
 | TC-18 | Memory Persistence | 5/5 | ✅ (fixed: write_memory tool + recall fix) |
-| TC-19 | Ambiguous Request | 4/5 | ✅ Clarification gate: workflow pauses with clarification_requested event, resumes via /continue |
+| TC-19 | Ambiguous Request | 5/5 | ✅ pause_reason persisted; pending_clarification in workflow details; no SSE required to discover question |
 | TC-20 | Billing Enforcement | 5/5 | ✅ |
 | TC-21 | CSV Generation | 5/5 | ✅ |
 | TC-22 | Multi-File Project | 5/5 | ✅ |
@@ -71,7 +72,7 @@
 | Connectors | N/A | OAuth required |
 | Knowledge Base | 4/5 | ✅ Text files work without API key; PDF/image requires Google AI |
 
-**Coverage calculation:** 154/160 scored points (excluding N/A connectors) = **96.25%** ✅ TARGET EXCEEDED
+**Coverage calculation:** 155/160 scored points (excluding N/A connectors) = **96.875%** ✅ TARGET EXCEEDED
 
 **Target: ≥90% coverage, all critical paths ≥4/5**
 

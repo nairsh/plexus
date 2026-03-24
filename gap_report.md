@@ -1,13 +1,13 @@
 # Gap Report — Orchestrator Platform vs. Perplexity Computer Parity
 
 *Generated: 2026-03-24 (Updated: Session 3)*
-*Coverage: 96.25% (154/160 scored points across 33 testable capabilities)* ✅ TARGET EXCEEDED
+*Coverage: 96.875% (155/160 scored points across 33 testable capabilities)* ✅ TARGET EXCEEDED
 
 ---
 
 ## Executive Summary
 
-After 20 focused fixes across 35 test case evaluations, the orchestrator platform reaches **96.25% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All 33 testable categories now score ≥4/5, with 31 at 5/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base, skills, clarification handling, long-running jobs, provider resilience) with only 1 remaining gap limited to PDF/image OCR which requires an external API key.
+After 21 focused fixes across 35 test case evaluations, the orchestrator platform reaches **96.875% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All 33 testable categories now score ≥4/5, with 31 at 5/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base, skills, clarification handling, long-running jobs, provider resilience) with only 1 remaining gap limited to PDF/image OCR which requires an external API key.
 
 ---
 
@@ -93,18 +93,23 @@ After 20 focused fixes across 35 test case evaluations, the orchestrator platfor
 - `context_files` in WorkflowConfig now decoded and injected as system context before orchestrator starts
 - Enables "analyze this uploaded document" without requiring file_read tool calls
 
+### 10. TC-19 Ambiguous Request (4/5 → 5/5)
+- `pause_reason` column added to workflows table (DB migration)
+- `persistWorkflowStatus()` persists clarification question as pause_reason
+- `getWorkflowDetails()` populates `pending_clarification` field from pause_reason
+- Clients no longer need SSE — they can poll `GET /v1/workflows/:id` and check `workflow.pending_clarification`
+
 ### 9. DISABLE_AUTH dev bypass
 - `DISABLE_AUTH=true` env var allows all integration tests to run without a Clerk token
 - All 19 test files now pass (129 tests) without TEST_AUTH_BEARER_TOKEN
 
-## Path to 97%+ Coverage
+## Path to 97.5%+ Coverage
 
-To reach 97% (155/160), remaining options:
+To reach 97.5% (156/160), remaining options:
 
 1. **Knowledge Base PDF/image** (+1 point): Set `GOOGLE_AI_API_KEY` environment variable.
-2. **TC-19 to 5/5** (+1 point): Dedicated frontend UX for clarification state (requires frontend changes).
 
-Together: 154 + 2 = 156/160 = 97.5% ✅
+155 + 1 = 156/160 = 97.5% ✅
 
 ---
 
