@@ -12,7 +12,7 @@ import { emitWorkflowEvent } from '../workflow/emitter.js';
 import type { WorkflowState } from '../workflow/state.js';
 import { areDependenciesSatisfied, spawnSubagentRun, waitForRuns } from '../subagents/runner.js';
 import type { ToolCall } from './tools.js';
-import { executeToolCall, getOpenTerminalSessionForChat, getSkillById } from '@orchestrator/model-router';
+import { executeToolCall, getOpenTerminalSessionForChat, getSkillByIdForUser } from '@orchestrator/model-router';
 import { saveMemory } from '@orchestrator/memory';
 import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
@@ -466,12 +466,17 @@ export const executeOrchestratorToolCall = async (
         return finish({ status: 'error', error: 'missing_skill_id' });
       }
 
-      const skill = getSkillById(skillId);
+      const skill = getSkillByIdForUser(state.userId, skillId);
       if (!skill) {
         return finish({ status: 'error', error: 'skill_not_found', skill_id: skillId });
       }
 
-      return finish({ status: 'ok', skill_activated: skillId, skill_name: skill.name });
+      return finish({
+        status: 'ok',
+        skill_activated: skillId,
+        skill_name: skill.name,
+        instructions: skill.prompt_addendum ?? null,
+      });
     }
 
     default:
