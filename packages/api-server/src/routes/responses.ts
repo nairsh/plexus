@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { AgentRequestSchema, InvalidRequestError, getErrorMessage, logger, getDb } from '@orchestrator/shared';
 import type { AgentRequest } from '@orchestrator/shared';
-import { routeRequest, routeStreamingRequest } from '@orchestrator/model-router';
+import { routeRequest, routeStreamingRequest, computeCost } from '@orchestrator/model-router';
 import { debitCredits } from '@orchestrator/billing';
 
 export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
@@ -31,9 +31,24 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
         'X-Accel-Buffering': 'no',
       });
 
+      let streamedModelId = agentRequest.model ?? '';
+      let streamInputTokens = 0;
+      let streamOutputTokens = 0;
+
       try {
         const stream = routeStreamingRequest(agentRequest);
         for await (const chunk of stream) {
+          // Track model fallbacks
+          if (chunk.type === 'model_fallback' && chunk.data && typeof chunk.data === 'object') {
+            const fb = chunk.data as { actual?: string };
+            if (fb.actual) streamedModelId = fb.actual;
+          }
+          // Capture usage for billing
+          if (chunk.type === 'usage' && chunk.data && typeof chunk.data === 'object') {
+            const u = chunk.data as { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number };
+            streamInputTokens = u.prompt_tokens ?? u.input_tokens ?? streamInputTokens;
+            streamOutputTokens = u.completion_tokens ?? u.output_tokens ?? streamOutputTokens;
+          }
           reply.raw.write(`event: ${chunk.type}\ndata: ${JSON.stringify(chunk)}\n\n`);
         }
       } catch (err) {
@@ -43,6 +58,25 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       reply.raw.end();
+
+      // Debit credits for streaming usage (non-blocking)
+      if (streamInputTokens > 0 || streamOutputTokens > 0) {
+        try {
+          const costInfo = computeCost(streamedModelId, streamInputTokens, streamOutputTokens);
+          if (costInfo.total_cost > 0) {
+            debitCredits(userId, costInfo.total_cost, `Streaming response: ${streamedModelId}`, 'response', crypto.randomUUID(), {
+              model: streamedModelId,
+              input_tokens: streamInputTokens,
+              output_tokens: streamOutputTokens,
+            }).catch((err: unknown) => {
+              logger.error({ userId, error: getErrorMessage(err) }, 'Failed to debit streaming credits');
+            });
+          }
+        } catch (err) {
+          logger.warn({ userId, error: getErrorMessage(err) }, 'Failed to compute streaming cost (non-critical)');
+        }
+      }
+
       return;
     }
 
