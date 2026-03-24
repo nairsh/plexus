@@ -22,7 +22,16 @@ export async function readSandboxFile(sessionId: string, filePath: string): Prom
   }
 }
 
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit per file
+
 export async function writeSandboxFile(sessionId: string, filePath: string, content: Buffer): Promise<void> {
+  if (content.length > MAX_FILE_SIZE_BYTES) {
+    throw new SandboxError(
+      `File too large: ${(content.length / 1024 / 1024).toFixed(1)}MB exceeds ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB limit`,
+      'file_too_large'
+    );
+  }
+
   const session = getSessionOrThrow(sessionId);
 
   if (session.openTerminal) {

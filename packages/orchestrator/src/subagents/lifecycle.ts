@@ -6,21 +6,43 @@ import type { WorkflowState } from '../workflow/state.js';
 import { workflows } from '../workflow/state.js';
 import { recordStep } from '../orchestrator/tracing.js';
 
+const MAX_WEBHOOK_RETRIES = 3;
+const WEBHOOK_BACKOFF_BASE_MS = 1000;
+
 async function fireWebhook(
   workflowId: string,
   callbackUrl: string,
   payload: Record<string, unknown>
 ): Promise<void> {
-  try {
-    const res = await fetch(callbackUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10_000),
-    });
-    logger.info({ workflowId, callbackUrl, status: res.status }, 'Webhook callback delivered');
-  } catch (err) {
-    logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err) }, 'Webhook callback failed (non-critical)');
+  for (let attempt = 0; attempt <= MAX_WEBHOOK_RETRIES; attempt++) {
+    try {
+      const res = await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok || res.status < 500) {
+        logger.info({ workflowId, callbackUrl, status: res.status, attempt }, 'Webhook callback delivered');
+        return;
+      }
+      // Server error — retry
+      if (attempt < MAX_WEBHOOK_RETRIES) {
+        const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt);
+        logger.warn({ workflowId, callbackUrl, status: res.status, attempt, retryInMs: delay }, 'Webhook server error, retrying');
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        logger.warn({ workflowId, callbackUrl, status: res.status }, 'Webhook delivery failed after retries');
+      }
+    } catch (err) {
+      if (attempt < MAX_WEBHOOK_RETRIES) {
+        const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt);
+        logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err), attempt, retryInMs: delay }, 'Webhook callback error, retrying');
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err) }, 'Webhook callback failed after retries (non-critical)');
+      }
+    }
   }
 }
 
@@ -56,7 +78,7 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
   state.status = 'completed';
   state.lastOutput = output;
 
-  persistWorkflowCompletion(state);
+  persistWorkflowCompletion(state, output);
 
   recordStep(state, {
     step_type: 'system_event',

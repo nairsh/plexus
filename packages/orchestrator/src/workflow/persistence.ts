@@ -121,11 +121,11 @@ export const incrementWorkflowCredits = (state: WorkflowState, amount: number): 
   ).run(amount, state.id);
 };
 
-export const persistWorkflowCompletion = (state: WorkflowState): void => {
+export const persistWorkflowCompletion = (state: WorkflowState, output?: string): void => {
   const db = getDb();
   db.prepare(
-    `UPDATE workflows SET status = 'completed', ended_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
-  ).run(state.id);
+    `UPDATE workflows SET status = 'completed', output = ?, ended_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(output ?? state.lastOutput ?? null, state.id);
 };
 
 export const persistWorkflowFailure = (state: WorkflowState, message: string): void => {
@@ -204,10 +204,10 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
               error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at,
-              pause_reason
+              pause_reason, output
        FROM workflows WHERE id = ?`
     )
-    .get(workflowId) as WorkflowSummary | undefined;
+    .get(workflowId) as (WorkflowSummary & { output?: string | null }) | undefined;
 
   if (!workflow) return null;
 
@@ -295,7 +295,7 @@ export const listWorkflows = (
   const workflowsFromDb = db
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
-              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at, output
        FROM workflows WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC${limitClause}${offsetClause}`
     )
     .all(...params) as WorkflowSummary[];

@@ -61,6 +61,13 @@ export async function createServer() {
   // Presets list (no auth required)
   fastify.get('/v1/presets', async () => ({ presets: getAllPresets() }));
 
+  // Assign X-Request-ID for tracing across the request lifecycle
+  fastify.addHook('onRequest', async (request, reply) => {
+    const requestId = (request.headers['x-request-id'] as string) ?? crypto.randomUUID();
+    reply.header('X-Request-ID', requestId);
+    (request as unknown as { requestId: string }).requestId = requestId;
+  });
+
   // Auth middleware for all /v1/ routes (except models/presets/health)
   fastify.addHook('onRequest', async (request, reply) => {
     const url = request.url;
@@ -220,6 +227,18 @@ export async function startServer() {
   const reaperInterval = startSessionReaper();
   const meterInterval = startCreditMeter();
 
+  // Periodic OAuth state cleanup (every 30 minutes)
+  const oauthCleanerInterval = setInterval(() => {
+    try {
+      const cleaned = getDb().prepare(`DELETE FROM connector_oauth_states WHERE expires_at < datetime('now')`).run().changes;
+      if (cleaned > 0) {
+        logger.debug({ clearedCount: cleaned }, 'Cleaned expired OAuth states');
+      }
+    } catch (err) {
+      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'OAuth cleanup failed');
+    }
+  }, 30 * 60 * 1000);
+
   startScheduler();
   logger.info('Background services started (rate limit cleaner, session reaper, credit meter, workflow scheduler)');
 
@@ -229,6 +248,7 @@ export async function startServer() {
     clearInterval(cleanerInterval);
     clearInterval(reaperInterval);
     clearInterval(meterInterval);
+    clearInterval(oauthCleanerInterval);
     stopScheduler();
     await server.close();
     closeDb();
