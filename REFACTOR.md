@@ -22,10 +22,10 @@ compactions. Re-read this file at the start of any new session to resume work.
 | 2 | Refactor all 4 adapters to use tool registry | DONE |
 | 3 | Decompose engine.ts into focused modules | DONE |
 | 4 | Fix workspaceAccess.ts docker hack | IN PROGRESS |
-| 5 | Fix usage.ts in-memory aggregation | IN PROGRESS |
+| 5 | Fix usage.ts in-memory aggregation | DONE |
 | 6 | OpenAI SDK modernization | IN PROGRESS |
 | 7 | Minor fixes (webSearch passthrough, provider bug, etc.) | DONE |
-| 8 | Code quality: error handling, constants, env vars, typing | IN PROGRESS |
+| 8 | Code quality: error handling, constants, env vars, typing | DONE |
 
 ---
 
