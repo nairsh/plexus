@@ -275,7 +275,10 @@ export const ingestKnowledgeDocument = async (
     } else if (hasGoogleAI()) {
       extractedText = await extractWithGemini(mediaType, input.contentBase64);
     } else {
-      throw new InvalidRequestError('Google AI API key is required to ingest image files', 'GOOGLE_AI_API_KEY');
+      // Graceful fallback for images without OCR: index by filename and metadata
+      // so the document is at least searchable by name.
+      logger.info({ documentId, filename, mediaType }, 'No OCR provider available; indexing image by filename/metadata only');
+      extractedText = `Image file: ${filename}\nType: ${mediaType}\nSize: ${buffer.byteLength} bytes\n(Text content not available — set GOOGLE_AI_API_KEY for OCR)`;
     }
 
     if (!extractedText) {

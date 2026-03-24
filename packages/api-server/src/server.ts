@@ -41,12 +41,14 @@ export async function createServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control'],
   });
 
-  // Health check (no auth)
-  fastify.get('/health', async () => ({
+  // Health check (no auth) — both /health and /v1/health are supported
+  const healthHandler = async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '0.1.0',
-  }));
+  });
+  fastify.get('/health', healthHandler);
+  fastify.get('/v1/health', healthHandler);
 
   // Models list (no auth required)
   fastify.get('/v1/models', async () => ({
