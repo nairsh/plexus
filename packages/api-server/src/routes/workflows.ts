@@ -211,11 +211,6 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const { id } = request.params;
       ensureWorkflowOwned(id, request.user!.id);
-      const emitter = getWorkflowEmitter(id);
-      if (!emitter) {
-        throw new WorkflowError(`Workflow not found or not active: ${id}`, 'workflow_not_found');
-      }
-
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -224,6 +219,30 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         'Access-Control-Allow-Origin': request.headers.origin ?? '*',
         Vary: 'Origin',
       });
+
+      const emitter = getWorkflowEmitter(id);
+      if (!emitter) {
+        // Workflow not in memory — check DB and synthesize a completion/failure event
+        const details = getWorkflowDetails(id);
+        if (details) {
+          const { workflow } = details;
+          if (workflow.status === 'completed') {
+            reply.raw.write(`event: workflow_completed\ndata: ${JSON.stringify({
+              type: 'workflow_completed',
+              workflow_id: id,
+              data: { output: workflow.output ?? '', total_credits: workflow.credits_consumed }
+            })}\n\n`);
+          } else if (workflow.status === 'failed' || workflow.status === 'cancelled') {
+            reply.raw.write(`event: workflow_failed\ndata: ${JSON.stringify({
+              type: 'workflow_failed',
+              workflow_id: id,
+              data: { error: workflow.error ?? `Workflow ${workflow.status}` }
+            })}\n\n`);
+          }
+        }
+        reply.raw.end();
+        return;
+      }
 
       const listener = (event: WorkflowEvent) => {
         reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
