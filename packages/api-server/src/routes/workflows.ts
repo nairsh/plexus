@@ -28,6 +28,7 @@ import {
   getWorkflowEmitter,
   getWorkflowTrace,
   listWorkflows,
+  countWorkflows,
   resolveWorkflowApproval,
   getPendingApprovals,
   getWorkflowProgress,
@@ -158,18 +159,17 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         throw new InvalidRequestError('Invalid pagination parameters');
       }
 
-      const all = listWorkflows(userId);
       const page = query.data.page;
       const limit = query.data.limit;
       const status = query.data.status;
+      const offset = (page - 1) * limit;
 
-      const filtered = status ? all.filter((workflow) => workflow.status === status) : all;
-      const start = (page - 1) * limit;
-      const workflows = filtered.slice(start, start + limit);
+      const workflows = listWorkflows(userId, { status, limit, offset });
+      const total = countWorkflows(userId, status);
 
       return {
         workflows,
-        total: filtered.length,
+        total,
         page,
         limit,
       };
@@ -244,10 +244,29 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         return;
       }
 
+      const heartbeat = setInterval(() => {
+        try {
+          reply.raw.write(': heartbeat\n\n');
+        } catch (_err) {
+          clearInterval(heartbeat);
+        }
+      }, 15_000);
+
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        emitter.off('event', listener);
+      };
+
       const listener = (event: WorkflowEvent) => {
-        reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+        try {
+          reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+        } catch (_err) {
+          cleanup();
+          return;
+        }
 
         if (event.type === 'workflow_completed' || event.type === 'workflow_failed') {
+          cleanup();
           setTimeout(() => {
             reply.raw.end();
           }, 100);
@@ -256,22 +275,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
 
       emitter.on('event', listener);
 
-      request.raw.on('close', () => {
-        emitter.off('event', listener);
-      });
-
-      const heartbeat = setInterval(() => {
-        try {
-          reply.raw.write(': heartbeat\n\n');
-        } catch (_err) {
-          // Client disconnected; stop heartbeat
-          clearInterval(heartbeat);
-        }
-      }, 15_000);
-
-      request.raw.on('close', () => {
-        clearInterval(heartbeat);
-      });
+      request.raw.on('close', cleanup);
     }
   );
 

@@ -1,13 +1,13 @@
 # Gap Report — Orchestrator Platform vs. Perplexity Computer Parity
 
-*Generated: 2026-03-24 (Updated: Session 4)*
+*Generated: 2026-03-24 (Updated: Session 5)*
 *Coverage: 97.5% (156/160 scored points across 33 testable capabilities)* ✅ TARGET EXCEEDED
 
 ---
 
 ## Executive Summary
 
-After 23 focused fixes across 35 test case evaluations, the orchestrator platform reaches **97.5% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All 33 testable categories now score ≥4/5, with 32 at 5/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base, skills, clarification handling, long-running jobs, provider resilience). TC-16 Knowledge Base is now 5/5: PDF files are extracted locally via pdf-parse (no Google AI required), and image files degrade gracefully by storing filename/metadata as searchable text.
+After 28 focused fixes across 35 test case evaluations, the orchestrator platform reaches **97.5% capability coverage** vs. the Perplexity Computer baseline — massively exceeding the ≥90% target. All 33 testable categories now score ≥4/5, with 32 at 5/5. Session 5 focused on production reliability hardening: context overflow prevention (message window + history limiting), tool result truncation, credit budget enforcement, and exponential backoff retry for rate limit errors — making long-running workflows significantly more robust.
 
 ---
 
@@ -102,6 +102,64 @@ After 23 focused fixes across 35 test case evaluations, the orchestrator platfor
 - All 19 test files continue to pass (129 passed, 8 skipped LLM-dependent)
 
 156/160 = 97.5% ✅
+
+## ✅ Session 6 Improvements (97.5% maintained — orchestrator capability + reliability)
+
+Capability score unchanged; fixes improve orchestrator planning quality, tool coverage, and streaming robustness.
+
+### 15. `search_knowledge` and `run_skill` added to orchestrator tools
+- The orchestrator now has direct access to the user's knowledge base via `search_knowledge` without needing to delegate to a subagent.
+- `run_skill` is now a proper tool in the orchestrator tool list (it was handled in the executor but not exposed to the model via the tools schema).
+- `search_knowledge` added to `BUILTIN_ORCHESTRATOR_TOOLS` so it routes through `executeToolCall` (which requires `user_id`, correctly passed from workflow state).
+
+### 16. Orchestrator output token limit doubled (4096 → 8192)
+- `ORCHESTRATOR_MAX_OUTPUT_TOKENS` increased from 4096 to 8192.
+- Prevents plan truncation for complex workflows with many todos (previously, a 10+ todo plan with detailed JSON could hit the limit and produce an incomplete response).
+
+### 17. Anthropic `streamResponse` — tool_use block forwarding
+- The Anthropic streaming adapter was silently dropping all `tool_use` blocks.
+- Fixed: accumulates `content_block_start`/`input_json_delta`/`content_block_stop` events and yields `tool_use` chunks for each completed tool call.
+- Also added `usage` chunk emission from `message_start` and `message_delta` events.
+- Unblocks any workflow that routes through an Anthropic model in streaming mode.
+
+### 18. Unit tests for `formatConversationHistory`
+- 6 new tests in `tests/prompt-loader.test.ts` covering: empty history, single message, within-window (no truncation), over-window (20-msg limit), per-message body truncation (1000 chars), and timestamp inclusion.
+- Total unit tests: 82 (up from 76).
+
+### 19. Orchestrator prompt — DEEP_RESEARCH agent and missing tools documented
+- "five specialized subagent types" corrected to "six" — `deep_research` added to the roster with use-when/do-not-use-when guidance.
+- `write_memory` added to direct execution tools section in prompt.
+- `write_memory` tool definition aligned with executor: `category` (string) replaces the mismatched `tags` (array) parameter.
+- `max_turns` hardcoded to 120 in `getWorkflowProgress` replaced with `MAX_TURNS` constant.
+
+### 20. Memory leak fix: terminal-state workflow TTL in `hydrateWorkflowState`
+- `hydrateWorkflowState` was adding completed/failed/cancelled workflows to the in-memory Map without scheduling cleanup.
+- Any read-path query (GET /v1/workflows/:id, progress, etc.) for an old workflow would permanently keep it in memory.
+- Fixed: when hydrating a terminal-state workflow from DB, a 5-minute TTL cleanup is scheduled (identical to the post-completion cleanup in `completeWorkflow`/`failWorkflow`).
+- The TTL only removes the state if no newer state has replaced it (`workflows.get(workflowId) === state` guard).
+
+---
+
+## ✅ Session 5 Improvements (97.5% maintained — reliability hardening)
+
+Capability score unchanged; all fixes improve production reliability for long-running workflows and high-load scenarios.
+
+### 11. Context overflow prevention
+- **Message window trimming**: `trimMessagesForContext()` limits `state.messages` to the last 60 turns (120 msgs) before each orchestrator call. System messages always preserved; older turns replaced by a sentinel.
+- **History block limiting**: `formatConversationHistory()` now shows only the last 20 messages in the system-prompt history block (full history still passed via `input` array).
+- **Tool result truncation**: `truncateToolResult()` caps subagent output snippets in `await_subagents` results at 3000 chars, preventing megabyte tool-results messages.
+
+### 12. Credit budget enforcement
+- `max_credits` in WorkflowConfig was accepted but never checked during execution.
+- Now enforced at the start of each orchestrator iteration — workflow fails immediately with a clear error when `creditsConsumed >= max_credits`.
+
+### 13. LiteLLM rate limit retry
+- 429 (rate limit), 502, and 503 (upstream errors) from LiteLLM now trigger automatic retry with exponential backoff (1s → 2s → 4s, max 16s), up to 3 retries.
+- Applied to both `createResponse` and `streamResponse`.
+
+### 14. search_knowledge tool for all agents
+- `search_knowledge` tool added to `deep_research` agent (completing the earlier additions to research, analyze, write agents).
+- All research-capable agents can now query the user's knowledge base during workflow execution.
 
 ---
 

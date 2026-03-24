@@ -176,6 +176,10 @@ export async function createServer() {
 }
 
 export async function startServer() {
+  // Validate environment variables eagerly — fail fast on bad config
+  const env = getEnv();
+  logger.info({ port: env.PORT, nodeEnv: env.NODE_ENV, billingMode: env.BILLING_MODE }, 'Environment validated');
+
   // Run migrations
   logger.info('Running database migrations...');
   runMigrations();
@@ -191,8 +195,16 @@ export async function startServer() {
     if (stale > 0) {
       logger.info({ clearedCount: stale }, 'Marked stale executing workflows as failed on startup (use /retry to re-run)');
     }
+
+    // Clean up expired OAuth states
+    const expiredOAuth = db.prepare(`
+      DELETE FROM connector_oauth_states WHERE expires_at < datetime('now')
+    `).run().changes;
+    if (expiredOAuth > 0) {
+      logger.info({ clearedCount: expiredOAuth }, 'Cleaned up expired OAuth states on startup');
+    }
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to clean stale workflows on startup (non-critical)');
+    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to clean stale data on startup (non-critical)');
   }
 
   // Seed model registry

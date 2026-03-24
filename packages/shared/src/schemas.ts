@@ -117,17 +117,18 @@ export const WorkflowConfigSchema = z.object({
   model_fallback: z.array(z.string()).optional(),
   working_directory: z.string().min(1).optional(),
   tools: z.array(z.string()).optional(),
-  max_credits: z.number().positive().optional(),
+  max_credits: z.number().positive().max(10000).optional(),
   callback_url: z.string().url().optional(),
   human_approval: z.boolean().optional().default(false),
   context_files: z
     .array(
       z.object({
-        filename: z.string(),
-        content_base64: z.string(),
-        media_type: z.string(),
+        filename: z.string().max(500),
+        content_base64: z.string().max(2 * 1024 * 1024), // ~1.5MB decoded
+        media_type: z.string().max(100),
       })
     )
+    .max(20)
     .optional(),
   background: z.boolean().optional().default(false),
 });

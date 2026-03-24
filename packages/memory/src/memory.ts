@@ -21,6 +21,7 @@ export interface SaveMemoryInput {
 export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
   const db = getDb();
   const category = input.category ?? 'general';
+  const relevanceScore = computeRelevanceScore(input.content);
 
   const existing = db
     .prepare('SELECT id FROM user_memories WHERE user_id = ? AND key = ?')
@@ -28,8 +29,8 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
 
   if (existing) {
     db.prepare(
-      "UPDATE user_memories SET content = ?, category = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
-    ).run(input.content, category, existing.id, userId);
+      "UPDATE user_memories SET content = ?, category = ?, relevance_score = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+    ).run(input.content, category, relevanceScore, existing.id, userId);
 
     const updated = db.prepare('SELECT * FROM user_memories WHERE id = ?').get(existing.id) as Memory;
     logger.debug({ userId, key: input.key }, 'Memory updated');
@@ -38,12 +39,24 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
 
   const id = crypto.randomUUID();
   db.prepare(
-    'INSERT INTO user_memories (id, user_id, category, key, content) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, userId, category, input.key, input.content);
+    'INSERT INTO user_memories (id, user_id, category, key, content, relevance_score) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, userId, category, input.key, input.content, relevanceScore);
 
   const created = db.prepare('SELECT * FROM user_memories WHERE id = ?').get(id) as Memory;
   logger.debug({ userId, key: input.key }, 'Memory saved');
   return created;
+}
+
+/** Compute a basic relevance score based on content richness. */
+function computeRelevanceScore(content: string): number {
+  let score = 0;
+  // Longer content with more substance scores higher
+  const words = content.split(/\s+/).filter((w) => w.length > 0);
+  score += Math.min(words.length / 10, 3); // up to 3 pts for word count
+  // Unique keyword density bonus
+  const uniqueWords = new Set(words.map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, '')).filter((w) => w.length > 2));
+  score += Math.min(uniqueWords.size / 8, 2); // up to 2 pts for vocabulary
+  return Math.round(score * 10) / 10; // 0-5 range, 1 decimal
 }
 
 // Common English stop-words we skip when building keyword filters
@@ -104,16 +117,16 @@ export function deleteMemory(userId: string, id: string): boolean {
   return result.changes > 0;
 }
 
-export function listMemories(userId: string, category?: string): Memory[] {
+export function listMemories(userId: string, category?: string, limit = 100, offset = 0): Memory[] {
   const db = getDb();
 
   if (category) {
     return db
-      .prepare('SELECT * FROM user_memories WHERE user_id = ? AND category = ? ORDER BY updated_at DESC')
-      .all(userId, category) as Memory[];
+      .prepare('SELECT * FROM user_memories WHERE user_id = ? AND category = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?')
+      .all(userId, category, limit, offset) as Memory[];
   }
 
   return db
-    .prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC')
-    .all(userId) as Memory[];
+    .prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?')
+    .all(userId, limit, offset) as Memory[];
 }

@@ -5,7 +5,7 @@
 
 // ── LLM output tokens ──
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
-export const ORCHESTRATOR_MAX_OUTPUT_TOKENS = 4096;
+export const ORCHESTRATOR_MAX_OUTPUT_TOKENS = 8192;
 
 // ── Temperature ──
 export const DEFAULT_TEMPERATURE = 0.2;

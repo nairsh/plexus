@@ -186,11 +186,57 @@ export class AnthropicAdapter extends BaseAdapter {
         }
       );
 
+      // Track in-progress tool_use blocks; keyed by content block index.
+      const toolBlocks = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+
       for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          yield { type: 'text_delta', text: event.delta.text };
-        } else if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') {
-          yield { type: 'reasoning_delta', text: event.delta.thinking };
+        if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+          toolBlocks.set(event.index, {
+            id: event.content_block.id,
+            name: event.content_block.name,
+            jsonParts: [],
+          });
+        } else if (event.type === 'content_block_delta') {
+          if (event.delta.type === 'text_delta') {
+            yield { type: 'text_delta', text: event.delta.text };
+          } else if (event.delta.type === 'thinking_delta') {
+            yield { type: 'reasoning_delta', text: event.delta.thinking };
+          } else if (event.delta.type === 'input_json_delta') {
+            const block = toolBlocks.get(event.index);
+            if (block) block.jsonParts.push(event.delta.partial_json);
+          }
+        } else if (event.type === 'content_block_stop') {
+          const block = toolBlocks.get(event.index);
+          if (block) {
+            const rawJson = block.jsonParts.join('');
+            let parsed: Record<string, unknown> = {};
+            try {
+              parsed = JSON.parse(rawJson) as Record<string, unknown>;
+            } catch {
+              parsed = { _raw: rawJson };
+            }
+            yield {
+              type: 'tool_use',
+              data: { id: block.id, name: block.name, arguments: parsed },
+            };
+            toolBlocks.delete(event.index);
+          }
+        } else if (event.type === 'message_delta' && event.usage) {
+          yield {
+            type: 'usage',
+            data: {
+              prompt_tokens: 0,
+              completion_tokens: event.usage.output_tokens,
+            },
+          };
+        } else if (event.type === 'message_start' && event.message.usage) {
+          yield {
+            type: 'usage',
+            data: {
+              prompt_tokens: event.message.usage.input_tokens,
+              completion_tokens: event.message.usage.output_tokens,
+            },
+          };
         }
       }
 

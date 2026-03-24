@@ -28,6 +28,7 @@ const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
   'file_edit',
   'grep',
   'glob',
+  'search_knowledge',
 ]);
 const WORKSPACE_ORCHESTRATOR_TOOLS = new Set(['bash', 'file_read', 'file_write', 'file_edit', 'grep', 'glob']);
 
@@ -247,7 +248,8 @@ export const executeOrchestratorToolCall = async (
               | 'file_write'
               | 'file_edit'
               | 'grep'
-              | 'glob',
+              | 'glob'
+              | 'search_knowledge',
           },
         ],
         chat_id: chatId,

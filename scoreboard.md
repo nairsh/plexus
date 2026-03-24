@@ -16,6 +16,8 @@
 | 2026-03-24 (Session 3) | 96.25% | TC-05+: webhook callbacks + progress polling + stale cleanup. TC-35+: model_fallback wired. context_files injection. DISABLE_AUTH dev mode (19/19 tests pass). 154/160 pts. |
 | 2026-03-24 (Session 3b) | 96.875% | TC-19 5/5: pause_reason persisted, pending_clarification in workflow details. 155/160 pts. |
 | 2026-03-24 (Session 4) | 97.5% | TC-16 5/5: PDF local extraction (pdf-parse), image graceful fallback, /v1/health alias. 156/160 pts. |
+| 2026-03-24 (Session 5) | 97.5% | Reliability hardening: context overflow prevention (message window + history limiting), tool result truncation, max_credits enforcement, LiteLLM 429/502/503 retry with exponential backoff, search_knowledge for deep_research agent. 156/160 pts maintained. |
+| 2026-03-24 (Session 6) | 97.5% | Orchestrator capability + reliability: search_knowledge + run_skill added to orchestrator tools, ORCHESTRATOR_MAX_OUTPUT_TOKENS 4096→8192, Anthropic streamResponse tool_use forwarding fix, 6 new unit tests for formatConversationHistory. 82 tests passing. |
 
 ## Test Case Scores (35 TCs)
 

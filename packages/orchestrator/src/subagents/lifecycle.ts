@@ -26,10 +26,15 @@ async function fireWebhook(
 
 const WORKFLOW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-const scheduleStateCleanup = (workflowId: string): void => {
+const scheduleStateCleanup = (workflowId: string, state: WorkflowState): void => {
   setTimeout(() => {
-    workflows.delete(workflowId);
-    logger.debug({ workflowId }, 'Cleaned up in-memory workflow state after TTL');
+    // Guard: only evict if the map still holds the exact same state reference.
+    // A resumed/continued workflow replaces the reference, so the old timer
+    // must not evict the new active state.
+    if (workflows.get(workflowId) === state) {
+      workflows.delete(workflowId);
+      logger.debug({ workflowId }, 'Cleaned up in-memory workflow state after TTL');
+    }
   }, WORKFLOW_STATE_TTL_MS);
 };
 
@@ -70,7 +75,7 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
   });
 
   cleanupSessions(state);
-  scheduleStateCleanup(state.id);
+  scheduleStateCleanup(state.id, state);
 
   if (state.config.callback_url) {
     void fireWebhook(state.id, state.config.callback_url, {
@@ -93,7 +98,7 @@ export const failWorkflow = async (state: WorkflowState, message: string): Promi
   });
 
   cleanupSessions(state);
-  scheduleStateCleanup(state.id);
+  scheduleStateCleanup(state.id, state);
 
   if (state.config.callback_url) {
     void fireWebhook(state.id, state.config.callback_url, {

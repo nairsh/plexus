@@ -10,6 +10,7 @@ import {
   hydrateWorkflowState,
   insertWorkflow,
   listWorkflows,
+  countWorkflows,
   persistWorkflowCancellation,
   persistWorkflowStatus,
   toPublicTask,
@@ -17,6 +18,7 @@ import {
 } from './workflow/persistence.js';
 import {
   createWorkflowState,
+  MAX_TURNS,
   type TaskSummary,
   type WorkflowState,
   type WorkflowStatus,
@@ -255,7 +257,7 @@ export function getWorkflowState(workflowId: string): WorkflowState | null {
   return hydrateWorkflowState(workflowId);
 }
 
-export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, getWorkflowTrace, getWorkflowSummaryById };
+export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, countWorkflows, getWorkflowTrace, getWorkflowSummaryById };
 export type { WorkflowSummary, TaskSummary };
 
 export function getWorkflowProgress(workflowId: string): {
@@ -286,7 +288,7 @@ export function getWorkflowProgress(workflowId: string): {
     workflow_id: workflowId,
     status: details.workflow.status,
     iteration: 0, // iteration count not persisted; use SSE for real-time
-    max_turns: 120,
+    max_turns: MAX_TURNS,
     credits_consumed: inMemory?.creditsConsumed ?? details.workflow.credits_consumed,
     tasks: { total, completed, running, pending, failed },
     estimated_progress_pct: estimatedPct,

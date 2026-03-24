@@ -15,6 +15,8 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
   { type: 'file_edit' },
   { type: 'grep' },
   { type: 'glob' },
+  { type: 'search_knowledge' },
+  { type: 'run_skill' },
   {
     type: 'function',
     function: {
@@ -157,10 +159,9 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
         type: 'object',
         properties: {
           content: { type: 'string', description: 'The information to remember' },
-          tags: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional tags to categorize this memory (e.g. ["preference", "coding-style"])',
+          category: {
+            type: 'string',
+            description: 'Category for this memory (e.g. "preference", "project", "research"). Defaults to "general".',
           },
         },
         required: ['content'],

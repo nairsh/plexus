@@ -12,6 +12,7 @@ export {
   getWorkflowEmitter,
   getWorkflowDetails,
   listWorkflows,
+  countWorkflows,
   getWorkflowTrace,
   continueWorkflow,
   resolveWorkflowApproval,

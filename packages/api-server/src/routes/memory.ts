@@ -8,11 +8,13 @@ export async function memoryRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get(
     '/v1/memory',
-    async (request: FastifyRequest<{ Querystring: { query?: string; category?: string } }>) => {
+    async (request: FastifyRequest<{ Querystring: { query?: string; category?: string; limit?: string; offset?: string } }>) => {
       const user = request.user!;
-      const { category } = request.query;
-      const memories = listMemories(user.id, category);
-      return { memories };
+      const { category, limit: limitStr, offset: offsetStr } = request.query;
+      const limit = Math.min(Math.max(parseInt(limitStr ?? '100', 10) || 100, 1), 500);
+      const offset = Math.max(parseInt(offsetStr ?? '0', 10) || 0, 0);
+      const memories = listMemories(user.id, category, limit, offset);
+      return { memories, limit, offset };
     }
   );
 

@@ -93,6 +93,18 @@ export const hydrateWorkflowState = (workflowId: string): WorkflowState | null =
   });
 
   workflows.set(workflowId, state);
+
+  // Schedule TTL cleanup for terminal states so the in-memory map doesn't grow unboundedly
+  // when old completed/failed workflows are re-hydrated by read-path queries.
+  if (state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled') {
+    const TERMINAL_STATE_TTL_MS = 5 * 60 * 1000;
+    setTimeout(() => {
+      if (workflows.get(workflowId) === state) {
+        workflows.delete(workflowId);
+      }
+    }, TERMINAL_STATE_TTL_MS);
+  }
+
   return state;
 };
 
@@ -262,20 +274,44 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
   return { workflow, tasks };
 };
 
-export const listWorkflows = (userId: string): WorkflowSummary[] => {
+export const listWorkflows = (
+  userId: string,
+  options?: { status?: string; limit?: number; offset?: number },
+): WorkflowSummary[] => {
   const db = getDb();
+  const conditions = ['user_id = ?'];
+  const params: unknown[] = [userId];
+
+  if (options?.status) {
+    conditions.push('status = ?');
+    params.push(options.status);
+  }
+
+  const limitClause = options?.limit ? ` LIMIT ?` : '';
+  const offsetClause = options?.offset ? ` OFFSET ?` : '';
+  if (options?.limit) params.push(options.limit);
+  if (options?.offset) params.push(options.offset);
+
   const workflowsFromDb = db
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
               error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
-       FROM workflows WHERE user_id = ? ORDER BY created_at DESC`
+       FROM workflows WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC${limitClause}${offsetClause}`
     )
-    .all(userId) as WorkflowSummary[];
+    .all(...params) as WorkflowSummary[];
 
   return workflowsFromDb.map((workflow) => {
     const inMemory = workflows.get(workflow.id);
     return inMemory?.lastOutput ? { ...workflow, output: inMemory.lastOutput } : workflow;
   });
+};
+
+export const countWorkflows = (userId: string, status?: string): number => {
+  const db = getDb();
+  if (status) {
+    return (db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ? AND status = ?').get(userId, status) as { count: number }).count;
+  }
+  return (db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ?').get(userId) as { count: number }).count;
 };
 
 export const getWorkflowSummaryById = (
