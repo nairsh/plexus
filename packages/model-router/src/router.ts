@@ -165,7 +165,11 @@ function buildFallbackChain(requestedModelId: string): string[] {
 
   push(requestedModelId);
   push(getDefaultModel());
-  push(getAllModels()[0]?.id);
+  // Include all registered models as fallbacks so network errors on the
+  // primary model don't immediately fail the request.
+  for (const m of getAllModels()) {
+    push(m.id);
+  }
 
   return chain;
 }
