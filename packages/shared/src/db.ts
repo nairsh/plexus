@@ -384,8 +384,9 @@ export function runMigrations(): void {
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         
-        -- Copy data from old table
-        INSERT INTO tasks_new SELECT *, datetime('now') as updated_at FROM tasks;
+        -- Copy data from old table (explicit columns to handle schema differences)
+        INSERT INTO tasks_new (id, workflow_id, parent_task_ids, task_type, description, model, tools, input_context, output, status, sandbox_id, retry_count, cost, started_at, completed_at, created_at, updated_at)
+        SELECT id, workflow_id, parent_task_ids, task_type, description, model, tools, input_context, output, status, sandbox_id, retry_count, cost, started_at, completed_at, created_at, COALESCE(updated_at, datetime('now')) FROM tasks;
         
         -- Drop old table and rename new one
         DROP TABLE tasks;
@@ -432,7 +433,8 @@ export function runMigrations(): void {
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        INSERT INTO tasks_new SELECT * FROM tasks;
+        INSERT INTO tasks_new (id, workflow_id, parent_task_ids, task_type, description, model, tools, input_context, output, status, sandbox_id, retry_count, cost, started_at, completed_at, created_at, updated_at)
+        SELECT id, workflow_id, parent_task_ids, task_type, description, model, tools, input_context, output, status, sandbox_id, retry_count, cost, started_at, completed_at, created_at, updated_at FROM tasks;
 
         DROP TABLE tasks;
         ALTER TABLE tasks_new RENAME TO tasks;
