@@ -120,6 +120,8 @@ export const extractKnowledgeTextFromBuffer = (filename: string, mediaType: stri
   return sanitizeExtractedText(textDecoder.decode(buffer));
 };
 
+const hasGoogleAI = (): boolean => Boolean(getEnv().GOOGLE_AI_API_KEY);
+
 const requireGoogleClient = (): GoogleGenerativeAI => {
   const apiKey = getEnv().GOOGLE_AI_API_KEY;
   if (!apiKey) {
@@ -261,7 +263,9 @@ export const ingestKnowledgeDocument = async (
     const extractedText =
       extractionMode === 'text'
         ? extractKnowledgeTextFromBuffer(filename, mediaType, buffer)
-        : await extractWithGemini(mediaType, input.contentBase64);
+        : hasGoogleAI()
+          ? await extractWithGemini(mediaType, input.contentBase64)
+          : (() => { throw new InvalidRequestError('Google AI API key is required to ingest non-text files', 'GOOGLE_AI_API_KEY'); })();
 
     if (!extractedText) {
       throw new InvalidRequestError('No text could be extracted from this file', 'content_base64');
@@ -272,7 +276,9 @@ export const ingestKnowledgeDocument = async (
       throw new InvalidRequestError('No text could be extracted from this file', 'content_base64');
     }
 
-    const embeddings = await Promise.all(chunks.map((chunk) => embedChunk(chunk)));
+    const embeddings = hasGoogleAI()
+      ? await Promise.all(chunks.map((chunk) => embedChunk(chunk)))
+      : chunks.map(() => [] as number[]);
     const summary = extractedText.slice(0, 280);
     const metadata = JSON.stringify({
       original_filename: filename,
@@ -352,6 +358,53 @@ export const deleteKnowledgeDocumentForUser = (userId: string, documentId: strin
   return result.changes > 0;
 };
 
+const keywordSearchKnowledge = (
+  userId: string,
+  query: string,
+  limit: number
+): KnowledgeSearchMatch[] => {
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length > 2)
+    .slice(0, 8);
+
+  if (words.length === 0) {
+    return [];
+  }
+
+  const conditions = words.map(() => 'LOWER(kc.content) LIKE ?').join(' OR ');
+  const params = words.map((w) => `%${w}%`);
+
+  const rows = getDb()
+    .prepare(
+      `SELECT kc.*, kd.filename, kd.extraction_mode
+       FROM knowledge_chunks kc
+       INNER JOIN knowledge_documents kd ON kd.id = kc.document_id
+       WHERE kc.user_id = ? AND (${conditions})
+       ORDER BY kd.updated_at DESC
+       LIMIT ?`
+    )
+    .all(userId, ...params, limit) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => {
+    const chunk = parseChunkRow(row);
+    // Simple BM25-like score: count how many query words appear in the chunk
+    const content = chunk.content.toLowerCase();
+    const matchCount = words.filter((w) => content.includes(w)).length;
+    return {
+      document_id: chunk.document_id,
+      filename: String(row['filename'] ?? 'Document'),
+      chunk_id: chunk.id,
+      chunk_index: chunk.chunk_index,
+      content: chunk.content,
+      score: matchCount / words.length,
+      extraction_mode: String(row['extraction_mode'] ?? 'text') as KnowledgeDocument['extraction_mode'],
+    };
+  });
+};
+
 export const searchKnowledgeForUser = async (
   userId: string,
   query: string,
@@ -360,6 +413,10 @@ export const searchKnowledgeForUser = async (
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     throw new InvalidRequestError('query is required', 'query');
+  }
+
+  if (!hasGoogleAI()) {
+    return keywordSearchKnowledge(userId, normalizedQuery, limit);
   }
 
   const queryEmbedding = await embedChunk(normalizedQuery);
