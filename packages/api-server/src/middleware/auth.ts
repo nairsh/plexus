@@ -11,6 +11,12 @@ declare module 'fastify' {
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const env = getEnv();
+
+  if (env.DISABLE_AUTH) {
+    request.user = getOrCreateDevUser();
+    return;
+  }
+
   if (!env.CLERK_SECRET_KEY && !env.CLERK_JWT_KEY) {
     const err = new InternalError('Server auth is misconfigured: set CLERK_SECRET_KEY or CLERK_JWT_KEY');
     reply.status(err.statusCode).send(err.toJSON());
@@ -119,6 +125,19 @@ function extractEmail(claims: Record<string, unknown>): string | null {
   if (typeof claims['email'] === 'string') return claims['email'];
   if (typeof claims['email_address'] === 'string') return claims['email_address'];
   return null;
+}
+
+function getOrCreateDevUser(): AuthUser {
+  const db = getDb();
+  const devUserId = 'dev-user-local';
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, email, tier, credits_balance, created_at) VALUES (?, 'dev@localhost', 'pro', 1000, datetime('now'))"
+  ).run(devUserId);
+  const row = db
+    .prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?')
+    .get(devUserId) as { id: string; email: string | null; tier: AuthUser['tier']; credits_balance: number } | undefined;
+  if (!row) throw new Error('Failed to create dev user');
+  return { id: row.id, email: row.email, tier: row.tier, credits_balance: row.credits_balance };
 }
 
 function upsertClerkUser(clerkUserId: string, email: string | null): AuthUser {

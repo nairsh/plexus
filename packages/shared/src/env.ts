@@ -31,6 +31,11 @@ const EnvSchema = z.object({
   CLERK_AUDIENCE: z.string().optional(),
   CLERK_AUTHORIZED_PARTIES: z.string().optional(),
   CLERK_CLOCK_SKEW_MS: z.coerce.number().int().nonnegative().default(5000),
+  // When true, skip Clerk verification and use a fixed dev user. Dev/test only.
+  DISABLE_AUTH: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
 
   // ── LLM providers ──
   OPENAI_API_KEY: z.string().optional(),

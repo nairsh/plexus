@@ -3,6 +3,8 @@ import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
 let AUTH_TOKEN = '';
+// True when auth enforcement is active (Clerk required). False in DISABLE_AUTH dev mode.
+let AUTH_ENFORCED = true;
 
 /**
  * These integration tests assume a running server (pnpm dev) with seeded data (pnpm seed).
@@ -53,6 +55,8 @@ beforeAll(async () => {
   }
 
   AUTH_TOKEN = await prepareTestAuth({ baseUrl: BASE_URL, testLabel: 'integration' });
+  // Detect DISABLE_AUTH mode: empty token means auth bypass is active
+  AUTH_ENFORCED = AUTH_TOKEN !== '';
 });
 
 // ── Health & Discovery ──
@@ -92,6 +96,7 @@ describe('Health & Discovery', () => {
 
 describe('Authentication', () => {
   test('Request without auth returns 401', async () => {
+    if (!AUTH_ENFORCED) return; // DISABLE_AUTH mode — auth not enforced
     const savedToken = AUTH_TOKEN;
     AUTH_TOKEN = '';
     const { status, data } = await api('GET', '/v1/billing/balance');
@@ -104,6 +109,7 @@ describe('Authentication', () => {
   });
 
   test('Request with invalid bearer token returns 401', async () => {
+    if (!AUTH_ENFORCED) return; // DISABLE_AUTH mode — auth not enforced
     const savedToken = AUTH_TOKEN;
     AUTH_TOKEN = 'invalid-test-token';
     const { status } = await api('GET', '/v1/billing/balance');

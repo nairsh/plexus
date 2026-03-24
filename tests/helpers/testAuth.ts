@@ -16,9 +16,15 @@ export async function prepareTestAuth(options: PrepareAuthOptions): Promise<stri
     return explicitBearer;
   }
 
+  // Check if server is running in DISABLE_AUTH mode (returns 200 with no token)
+  if (await canAuthenticate(baseUrl, '', probePath)) {
+    return '';
+  }
+
   throw new Error(
     `Auth bootstrap failed for ${options.testLabel}. ` +
-      'Set TEST_AUTH_BEARER_TOKEN to a valid Clerk session/JWT for integration tests.'
+      'Set TEST_AUTH_BEARER_TOKEN to a valid Clerk session/JWT for integration tests, ' +
+      'or start the server with DISABLE_AUTH=true for local dev.'
   );
 }
 
