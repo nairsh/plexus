@@ -14,7 +14,7 @@ import {
   getErrorMessage,
   logger,
 } from '@orchestrator/shared';
-import type { OutputBlock, WorkflowConfig } from '@orchestrator/shared';
+import type { ConversationMessage, OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
 import { formatWorkItemsForPrompt, isWorkItemSettled, listWorkItems } from '../workItems.js';
 import { completeWorkflow, failWorkflow } from '../subagents/lifecycle.js';
@@ -193,6 +193,31 @@ const ensureWorkflowCanComplete = async (
   return false;
 };
 
+// Maximum number of conversational turns (non-system messages) to keep in the
+// active context window.  System messages are always preserved.  Older turns are
+// replaced with a single summary sentinel so the model is not surprised by the gap.
+const MESSAGE_WINDOW_TURNS = 60;
+
+function trimMessagesForContext(messages: ConversationMessage[]): ConversationMessage[] {
+  const systemMessages = messages.filter((m) => m.role === 'system');
+  const conversational = messages.filter((m) => m.role !== 'system');
+
+  // Each turn = 1 assistant + 1 user; keep last MESSAGE_WINDOW_TURNS * 2 messages
+  const maxConversational = MESSAGE_WINDOW_TURNS * 2;
+  if (conversational.length <= maxConversational) {
+    return messages;
+  }
+
+  const omitted = conversational.length - maxConversational;
+  const kept = conversational.slice(-maxConversational);
+  const sentinel: ConversationMessage = {
+    role: 'user',
+    content: `[Context trimmed: ${omitted} earlier messages omitted to stay within context window. The full task history is in the system prompt and todo state.]`,
+  };
+
+  return [...systemMessages, sentinel, ...kept];
+}
+
 export const callOrchestrator = async (
   state: WorkflowState,
   iteration: number
@@ -216,7 +241,7 @@ export const callOrchestrator = async (
 
   for await (const chunk of routeStreamingRequest({
     model: state.orchestratorModel,
-    input: state.messages.map((message) => ({ ...message })),
+    input: trimMessagesForContext(state.messages),
     instructions,
     tools: ORCHESTRATOR_TOOLS,
     tool_execution: 'manual',

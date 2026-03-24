@@ -87,13 +87,27 @@ function interpolateVariables(content: string, variables: PromptVariables): stri
   });
 }
 
+// Maximum number of recent messages to include in the system-prompt history block.
+// Full message history is always available to the model via the `input` conversation
+// array; this snippet is a quick reference for state orientation only.
+const HISTORY_WINDOW = 20;
+
 export function formatConversationHistory(messages: Array<{ role: string; content: string; timestamp?: string }>): string {
   if (messages.length === 0) {
     return 'No previous conversation.';
   }
-  
-  return messages.map(msg => {
+
+  const recent = messages.length > HISTORY_WINDOW ? messages.slice(-HISTORY_WINDOW) : messages;
+  const omitted = messages.length - recent.length;
+  const prefix = omitted > 0 ? `[${omitted} earlier messages omitted for brevity — full history available in conversation context]\n\n` : '';
+
+  const formatted = recent.map(msg => {
     const timestamp = msg.timestamp ? ` [${msg.timestamp}]` : '';
-    return `${msg.role.toUpperCase()}${timestamp}:\n${msg.content}`;
+    const body = typeof msg.content === 'string' && msg.content.length > 1000
+      ? msg.content.slice(0, 1000) + '…[truncated]'
+      : msg.content;
+    return `${msg.role.toUpperCase()}${timestamp}:\n${body}`;
   }).join('\n\n---\n\n');
+
+  return prefix + formatted;
 }
