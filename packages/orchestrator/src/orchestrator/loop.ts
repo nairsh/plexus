@@ -397,6 +397,29 @@ export const runWorkflow = async (
     logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Failed to recall memories (non-critical)');
   }
 
+  // Inject context_files — decode base64 files and attach as context
+  if (!isContinuing && config.context_files && config.context_files.length > 0) {
+    try {
+      const fileTexts = config.context_files.flatMap((f) => {
+        try {
+          const content = Buffer.from(f.content_base64, 'base64').toString('utf-8');
+          // Only inject text-like files; skip binary content
+          if (/[\x00-\x08\x0e-\x1f]/.test(content.substring(0, 100))) return [];
+          const truncated = content.length > 8000 ? content.substring(0, 8000) + '\n...[truncated]' : content;
+          return [`\n### File: ${f.filename}\n\`\`\`\n${truncated}\n\`\`\``];
+        } catch {
+          return [];
+        }
+      });
+      if (fileTexts.length > 0) {
+        const contextMsg = `## Context Files\nThe following files have been provided as context:\n${fileTexts.join('\n')}`;
+        state.messages.unshift({ role: 'system', content: contextMsg });
+      }
+    } catch (err) {
+      logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Failed to inject context_files (non-critical)');
+    }
+  }
+
   // Inject user-defined skills as available tool context
   try {
     const userSkills = getAllSkillsForUser(userId);
