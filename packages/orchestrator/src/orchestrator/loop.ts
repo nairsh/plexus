@@ -497,6 +497,12 @@ export const runWorkflow = async (
         throw new WorkflowError('Workflow cancelled');
       }
 
+      // Enforce max_credits budget if specified
+      if (state.config.max_credits && state.creditsConsumed >= state.config.max_credits) {
+        await failWorkflow(state, `Workflow budget exceeded: consumed $${state.creditsConsumed.toFixed(4)} of $${state.config.max_credits.toFixed(4)} limit`);
+        return { workflowId: id, output: 'Workflow stopped: credit budget exceeded', status: 'failed' };
+      }
+
       // Emit a progress event every 5 iterations for long-running job observability
       if (iteration > 1 && iteration % 5 === 1) {
         const completedTasks = listWorkItems(state.id).filter((item) => isWorkItemSettled(item.status)).length;
