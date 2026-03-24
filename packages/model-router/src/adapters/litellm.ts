@@ -26,6 +26,9 @@ function getModelsConfig(): { models: Array<{ id: string; target_model?: string 
   return _modelsConfig!;
 }
 
+// Retry budget for transient errors (429, 502, 503) per LLM call
+const MAX_TRANSIENT_RETRIES = 3;
+
 interface LiteLLMConfig {
   baseURL: string;
   apiKey: string;
@@ -94,8 +97,6 @@ export class LiteLLMAdapter extends BaseAdapter {
     // Tool use loop
     let currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
     let maxIterations = MAX_TOOL_ITERATIONS;
-    // Retry budget for transient errors (429, 502, 503) per LLM call within the loop
-    const MAX_TRANSIENT_RETRIES = 3;
 
     while (maxIterations > 0) {
       maxIterations--;
@@ -309,13 +310,29 @@ export class LiteLLMAdapter extends BaseAdapter {
       params.parallel_tool_calls = true;
     }
 
+    // Use OpenAI.Stream type explicitly to avoid union with non-streaming response
+    let stream: import('openai/streaming').Stream<OpenAI.ChatCompletionChunk> | null = null;
+    for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+      try {
+        stream = await this.client.chat.completions.create(params, { signal: request.signal });
+        break;
+      } catch (retryErr) {
+        const status = (retryErr as { status?: number })?.status ?? 0;
+        const isTransient = status === 429 || status === 502 || status === 503;
+        if (!isTransient || attempt >= MAX_TRANSIENT_RETRIES || request.signal?.aborted) {
+          throw retryErr;
+        }
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 16_000);
+        logger.warn(
+          { requestedModel: request.model, litellmModel: modelName, status, attempt, backoffMs },
+          'LiteLLM streaming transient error — retrying with backoff'
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
     try {
-      const stream = await this.client.chat.completions.create(params, {
-        signal: request.signal,
-      });
       const toolAccumulator = new OpenAIToolCallAccumulator();
-
-      for await (const chunk of stream) {
+      for await (const chunk of stream!) {
         const delta = chunk.choices[0]?.delta;
         if (chunk.usage) {
           yield { type: 'usage', data: chunk.usage };
