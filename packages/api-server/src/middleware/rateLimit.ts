@@ -35,16 +35,17 @@ export async function rateLimitMiddleware(request: FastifyRequest, reply: Fastif
     buckets.set(key, bucket);
   }
 
-  // Refill tokens
+  // Refill tokens based on elapsed time
   const elapsed = now - bucket.lastRefill;
   if (elapsed >= REFILL_INTERVAL_MS) {
     const refills = Math.floor(elapsed / REFILL_INTERVAL_MS);
     bucket.tokens = Math.min(limit, bucket.tokens + refills * limit);
-    bucket.lastRefill = now;
+    bucket.lastRefill += refills * REFILL_INTERVAL_MS;
   }
 
   if (bucket.tokens <= 0) {
-    const retryAfter = Math.ceil((REFILL_INTERVAL_MS - (now - bucket.lastRefill)) / 1000);
+    const nextRefillAt = bucket.lastRefill + REFILL_INTERVAL_MS;
+    const retryAfter = Math.max(1, Math.ceil((nextRefillAt - now) / 1000));
     const err = new RateLimitError(retryAfter);
     reply.status(429).header('Retry-After', String(retryAfter)).send(err.toJSON());
     return;

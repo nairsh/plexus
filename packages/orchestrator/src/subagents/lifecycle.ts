@@ -50,10 +50,11 @@ const WORKFLOW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const scheduleStateCleanup = (workflowId: string, state: WorkflowState): void => {
   setTimeout(() => {
-    // Guard: only evict if the map still holds the exact same state reference.
-    // A resumed/continued workflow replaces the reference, so the old timer
-    // must not evict the new active state.
-    if (workflows.get(workflowId) === state) {
+    // Guard: only evict if the map still holds the exact same state reference
+    // AND the workflow is in a terminal state. A resumed/continued workflow
+    // replaces the reference, so the old timer must not evict the new active state.
+    const current = workflows.get(workflowId);
+    if (current === state && (state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled')) {
       workflows.delete(workflowId);
       logger.debug({ workflowId }, 'Cleaned up in-memory workflow state after TTL');
     }

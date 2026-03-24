@@ -17,7 +17,7 @@ import {
 import type { ConversationMessage, OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
 import { formatWorkItemsForPrompt, isWorkItemSettled, listWorkItems } from '../workItems.js';
-import { completeWorkflow, failWorkflow } from '../subagents/lifecycle.js';
+import { completeWorkflow, failWorkflow, cleanupSessions } from '../subagents/lifecycle.js';
 import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { extractToolCallsFromOutput, normalizeToolCall, ORCHESTRATOR_TOOLS, type ToolCall } from './tools.js';
@@ -509,6 +509,8 @@ export const runWorkflow = async (
 
   try {
     await ensureWorkflowEnvironmentReady(state);
+    let consecutiveEmptyResponses = 0;
+    const MAX_EMPTY_RESPONSES = 3;
 
     for (let iteration = 1; iteration <= MAX_TURNS; iteration++) {
       if (state.abortController.signal.aborted) {
@@ -539,6 +541,18 @@ export const runWorkflow = async (
       }
 
       const { toolCalls, responseText } = await callOrchestrator(state, iteration);
+
+      // Detect empty responses that make no progress
+      if (!responseText.trim() && toolCalls.length === 0) {
+        consecutiveEmptyResponses++;
+        logger.warn({ workflowId: id, iteration, consecutive: consecutiveEmptyResponses }, 'Empty response from orchestrator model');
+        if (consecutiveEmptyResponses >= MAX_EMPTY_RESPONSES) {
+          await failWorkflow(state, `Model returned ${MAX_EMPTY_RESPONSES} consecutive empty responses`);
+          return { workflowId: id, output: 'Workflow failed: model not generating responses', status: 'failed' };
+        }
+      } else {
+        consecutiveEmptyResponses = 0;
+      }
 
       state.messages.push({ role: 'assistant', content: responseText });
       state.conversationHistory.push({
@@ -620,7 +634,13 @@ export const runWorkflow = async (
     return { workflowId: id, output: 'Workflow exceeded maximum turns', status: 'failed' };
   } catch (err) {
     const errorMessage = getErrorMessage(err, 'Workflow execution failed');
-    await failWorkflow(state, errorMessage);
+    try {
+      await failWorkflow(state, errorMessage);
+    } catch (failErr) {
+      // failWorkflow includes cleanup; if it throws, ensure cleanup still runs
+      logger.error({ workflowId: id, error: getErrorMessage(failErr) }, 'failWorkflow threw during error handling');
+      cleanupSessions(state);
+    }
     throw err;
   }
 };
