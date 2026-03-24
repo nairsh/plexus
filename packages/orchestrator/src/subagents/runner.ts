@@ -10,7 +10,6 @@ import {
   type WorkItem,
 } from '../workItems.js';
 import {
-  getDb,
   getErrorMessage,
   logger,
   SUBAGENT_DEFAULT_TIMEOUT_S,
@@ -23,42 +22,6 @@ import { incrementWorkflowCredits } from '../workflow/persistence.js';
 import type { SubagentRun, WorkflowState } from '../workflow/state.js';
 import { buildToolTraceHooks, recordStep } from '../orchestrator/tracing.js';
 import { buildDisplayDescription } from '../orchestrator/displayLabel.js';
-
-// ── Agent health tracking ─────────────────────────────────────────────────────
-
-function recordAgentHealth(agentType: string, model: string, success: boolean, latencyMs?: number): void {
-  try {
-    const db = getDb();
-    if (success) {
-      db.prepare(`
-        INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
-        VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
-        ON CONFLICT(agent_type, model) DO UPDATE SET
-          status = 'healthy',
-          last_success_at = datetime('now'),
-          success_count_1h = success_count_1h + 1,
-          total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
-          updated_at = datetime('now')
-      `).run(crypto.randomUUID(), agentType, model, latencyMs ?? 0);
-    } else {
-      db.prepare(`
-        INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
-        VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
-        ON CONFLICT(agent_type, model) DO UPDATE SET
-          last_failure_at = datetime('now'),
-          failure_count_1h = failure_count_1h + 1,
-          status = CASE
-            WHEN failure_count_1h + 1 >= 5 THEN 'unavailable'
-            WHEN failure_count_1h + 1 >= 2 THEN 'degraded'
-            ELSE 'healthy'
-          END,
-          updated_at = datetime('now')
-      `).run(crypto.randomUUID(), agentType, model);
-    }
-  } catch (err) {
-    logger.warn({ agentType, model, error: getErrorMessage(err) }, 'Failed to record agent health (non-critical)');
-  }
-}
 
 // ── Per-agent-type timeout configuration ─────────────────────────────────────
 
@@ -305,7 +268,6 @@ async function runSubagentWithRetry(
 
     // Start a progress heartbeat that emits periodic events for long-running agents
     const stopHeartbeat = startProgressHeartbeat(state, item.id, runId, timeoutSeconds);
-    const attemptStartMs = Date.now();
 
     try {
       const result = await withTimeout(
@@ -330,7 +292,6 @@ async function runSubagentWithRetry(
       );
 
       stopHeartbeat();
-      const latencyMs = Date.now() - attemptStartMs;
 
       updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'completed', output: result.output });
 
@@ -340,8 +301,6 @@ async function runSubagentWithRetry(
         run.completedAt = new Date().toISOString();
         run.output = result.output;
       }
-
-      recordAgentHealth(item.agentType, result.model, true, latencyMs);
 
       recordStep(state, {
         step_type: 'subagent_message',
@@ -374,9 +333,6 @@ async function runSubagentWithRetry(
 
       if (attempt >= SUBAGENT_MAX_RETRIES) {
         // All retries exhausted
-        const agentModel = getAgentModel(item.agentType, state.config.model_overrides, state.userId);
-        recordAgentHealth(item.agentType, agentModel, false);
-
         updateWorkItem({
           workflowId: state.id,
           itemId: item.id,
