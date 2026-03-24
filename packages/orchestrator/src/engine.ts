@@ -258,6 +258,41 @@ export function getWorkflowState(workflowId: string): WorkflowState | null {
 export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, getWorkflowTrace, getWorkflowSummaryById };
 export type { WorkflowSummary, TaskSummary };
 
+export function getWorkflowProgress(workflowId: string): {
+  workflow_id: string;
+  status: string;
+  iteration: number;
+  max_turns: number;
+  credits_consumed: number;
+  tasks: { total: number; completed: number; running: number; pending: number; failed: number };
+  estimated_progress_pct: number;
+} | null {
+  const details = getWorkflowDetails(workflowId);
+  if (!details) return null;
+
+  const inMemory = workflows.get(workflowId);
+  const tasks = details.tasks;
+  const completed = tasks.filter((t) => t.status === 'completed' || t.status === 'skipped').length;
+  const running = tasks.filter((t) => t.status === 'running').length;
+  const failed = tasks.filter((t) => t.status === 'failed').length;
+  const pending = tasks.filter((t) => t.status === 'pending' || t.status === 'blocked').length;
+  const total = tasks.length;
+
+  const estimatedPct = total > 0
+    ? Math.round(((completed + running * 0.5) / total) * 100)
+    : details.workflow.status === 'completed' ? 100 : 0;
+
+  return {
+    workflow_id: workflowId,
+    status: details.workflow.status,
+    iteration: 0, // iteration count not persisted; use SSE for real-time
+    max_turns: 120,
+    credits_consumed: inMemory?.creditsConsumed ?? details.workflow.credits_consumed,
+    tasks: { total, completed, running, pending, failed },
+    estimated_progress_pct: estimatedPct,
+  };
+}
+
 export function getPendingApprovals(workflowId: string): Array<{
   approval_id: string;
   tool_name?: string;

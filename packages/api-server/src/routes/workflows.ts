@@ -30,6 +30,7 @@ import {
   listWorkflows,
   resolveWorkflowApproval,
   getPendingApprovals,
+  getWorkflowProgress,
 } from '@orchestrator/orchestrator';
 
 const ensureWorkflowOwned = (workflowId: string, userId: string): void => {
@@ -311,6 +312,23 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       resolveWorkflowApproval(id, approvalId, decision as import('@orchestrator/shared').ToolApprovalDecision);
 
       return { status: 'ok', workflow_id: id, approval_id: approvalId, decision };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/progress — real-time progress summary for polling.
+   * Returns task breakdown, credits consumed, and estimated completion % without SSE.
+   */
+  fastify.get(
+    '/v1/workflows/:id/progress',
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+      const progress = getWorkflowProgress(id);
+      if (!progress) {
+        throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
+      }
+      return progress;
     }
   );
 

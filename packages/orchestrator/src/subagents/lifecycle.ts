@@ -6,6 +6,24 @@ import type { WorkflowState } from '../workflow/state.js';
 import { workflows } from '../workflow/state.js';
 import { recordStep } from '../orchestrator/tracing.js';
 
+async function fireWebhook(
+  workflowId: string,
+  callbackUrl: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  try {
+    const res = await fetch(callbackUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    });
+    logger.info({ workflowId, callbackUrl, status: res.status }, 'Webhook callback delivered');
+  } catch (err) {
+    logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err) }, 'Webhook callback failed (non-critical)');
+  }
+}
+
 const WORKFLOW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const scheduleStateCleanup = (workflowId: string): void => {
@@ -53,6 +71,15 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
 
   cleanupSessions(state);
   scheduleStateCleanup(state.id);
+
+  if (state.config.callback_url) {
+    void fireWebhook(state.id, state.config.callback_url, {
+      workflow_id: state.id,
+      status: 'completed',
+      output,
+      total_credits: state.creditsConsumed,
+    });
+  }
 };
 
 export const failWorkflow = async (state: WorkflowState, message: string): Promise<void> => {
@@ -67,4 +94,13 @@ export const failWorkflow = async (state: WorkflowState, message: string): Promi
 
   cleanupSessions(state);
   scheduleStateCleanup(state.id);
+
+  if (state.config.callback_url) {
+    void fireWebhook(state.id, state.config.callback_url, {
+      workflow_id: state.id,
+      status: 'failed',
+      error: message,
+      total_credits: state.creditsConsumed,
+    });
+  }
 };
