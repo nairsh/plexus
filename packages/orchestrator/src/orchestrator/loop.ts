@@ -30,7 +30,7 @@ import {
   type WorkflowStatus,
   workflows,
 } from '../workflow/state.js';
-import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow } from '../workflow/persistence.js';
+import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow, persistWorkflowStatus } from '../workflow/persistence.js';
 import { ensureEnvironmentSession } from '../agents.js';
 
 const ensureWorkflowEnvironmentReady = async (state: WorkflowState): Promise<void> => {
@@ -429,6 +429,25 @@ export const runWorkflow = async (
       });
 
       if (toolCalls.length === 0) {
+        // On the first iteration, detect if the model is asking for clarification without using the tool
+        if (iteration === 1) {
+          const lower = responseText.toLowerCase();
+          const hasClarificationSignal =
+            (lower.includes('clarif') || lower.includes('please specify') || lower.includes('could you') ||
+             lower.includes('what would you') || lower.includes('what type') || lower.includes('which file') ||
+             lower.includes('more context') || lower.includes('more information') || lower.includes('unclear')) &&
+            responseText.includes('?');
+          if (hasClarificationSignal) {
+            emitWorkflowEvent(state, {
+              type: 'clarification_requested',
+              workflow_id: state.id,
+              data: { question: responseText },
+            });
+            state.status = 'paused';
+            persistWorkflowStatus(id, 'paused');
+            return { workflowId: id, output: responseText, status: 'paused' };
+          }
+        }
         const canComplete = await ensureWorkflowCanComplete(state, responseText, iteration);
         if (canComplete) {
           completeWorkflow(state, responseText);
@@ -439,6 +458,7 @@ export const runWorkflow = async (
 
       const toolResults: Array<Record<string, unknown>> = [];
       let explicitOutput: string | null = null;
+      let clarificationQuestion: string | null = null;
 
       for (const call of toolCalls) {
         const result = await executeOrchestratorToolCall(state, call);
@@ -447,6 +467,16 @@ export const runWorkflow = async (
         if (typeof result.workflow_output === 'string' && result.workflow_output.length > 0) {
           explicitOutput = result.workflow_output;
         }
+
+        if (result.pause_workflow === true && typeof result.clarification_question === 'string') {
+          clarificationQuestion = result.clarification_question;
+        }
+      }
+
+      if (clarificationQuestion) {
+        state.status = 'paused';
+        persistWorkflowStatus(id, 'paused');
+        return { workflowId: id, output: clarificationQuestion, status: 'paused' };
       }
 
       if (explicitOutput) {

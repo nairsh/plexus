@@ -9,6 +9,8 @@
 | 2026-03-24 (Phase 2) | 88% | 6 fixes committed. All 35 TCs evaluated. 19/19 test files pass. |
 | 2026-03-24 (Phase 3) | 90.6% | Knowledge base fallback implemented. 127/135 tests pass. No regressions. |
 | 2026-03-24 (Final) | 92.5% | TC-06 approval gate fixed (+2). TC-27 skills lookup fixed (+1). 148/160 pts. |
+| 2026-03-24 (Extended) | 93.1% | TC-17 manual trigger endpoint added (+1). 149/160 pts. |
+| 2026-03-24 (Session 2) | 93.75% | TC-19 clarification gate implemented (+1). 150/160 pts. |
 
 ## Test Case Scores (35 TCs)
 
@@ -30,9 +32,9 @@
 | TC-14 | Code + Tests | 5/5 | ✅ |
 | TC-15 | GitHub Connector | N/A | Requires GitHub OAuth |
 | TC-16 | Knowledge Base | 4/5 | ✅ Text files work without Google AI (keyword search); PDF/image still requires API key |
-| TC-17 | Scheduled Workflows | 4/5 | ✅ (no manual trigger endpoint) |
+| TC-17 | Scheduled Workflows | 5/5 | ✅ Manual trigger: POST /v1/schedules/:id/trigger implemented |
 | TC-18 | Memory Persistence | 5/5 | ✅ (fixed: write_memory tool + recall fix) |
-| TC-19 | Ambiguous Request | 3/5 | ⚠️ Handles gracefully, no clarification UX |
+| TC-19 | Ambiguous Request | 4/5 | ✅ Clarification gate: workflow pauses with clarification_requested event, resumes via /continue |
 | TC-20 | Billing Enforcement | 5/5 | ✅ |
 | TC-21 | CSV Generation | 5/5 | ✅ |
 | TC-22 | Multi-File Project | 5/5 | ✅ |
@@ -66,7 +68,7 @@
 | Connectors | N/A | OAuth required |
 | Knowledge Base | 4/5 | ✅ Text files work without API key; PDF/image requires Google AI |
 
-**Coverage calculation:** 148/160 scored points (excluding N/A connectors) = **92.5%** ✅ TARGET EXCEEDED
+**Coverage calculation:** 150/160 scored points (excluding N/A connectors) = **93.75%** ✅ TARGET EXCEEDED
 
 **Target: ≥90% coverage, all critical paths ≥4/5**
 
@@ -83,6 +85,7 @@
 | 94d4c0b6 | feat: knowledge base fallback for text files without Google AI |
 | 7c468e9f | fix: use user-scoped skill lookup and return prompt_addendum from run_skill |
 | 5db048f5 | feat: add bash-approve endpoint for human_approval workflow gate |
+| 115fd2b9 | feat: add POST /v1/schedules/:id/trigger for manual schedule execution |
 
 ## Remaining Gaps
 
@@ -95,7 +98,7 @@
 
 | Criterion | Status |
 |-----------|--------|
-| ≥90% capability coverage | ✅ 92.5% (148/160) — exceeded |
+| ≥90% capability coverage | ✅ 93.1% (149/160) — exceeded |
 | All critical categories ≥4/5 | ✅ All critical paths ≥4/5 |
 | 3 long-running 30+ min workflows | ✅ LR1, LR2, LR3 + LR4 (distributed consensus) completed |
 | No regressions | ✅ 127/127 non-skipped tests pass |

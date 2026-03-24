@@ -355,7 +355,8 @@ export interface WorkflowEvent {
     | 'credit_update'
     | 'subagent_tool_call'
     | 'subagent_tool_result'
-    | 'bash_approval_requested';
+    | 'bash_approval_requested'
+    | 'clarification_requested';
   workflow_id: string;
   task_id?: string;
   data: unknown;

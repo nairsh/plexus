@@ -132,6 +132,24 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
   {
     type: 'function',
     function: {
+      name: 'request_clarification',
+      description:
+        'Pause the workflow and ask the user for clarification when the request is ambiguous or missing critical information. The workflow will resume when the user provides the clarification via the continue endpoint.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'The specific question to ask the user for clarification',
+          },
+        },
+        required: ['question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'write_memory',
       description:
         'Save a piece of information to the user\'s persistent memory so it can be recalled in future sessions. Use this when the user explicitly asks you to remember something, or when you learn a stable preference or fact worth preserving.',

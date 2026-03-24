@@ -459,6 +459,19 @@ export const executeOrchestratorToolCall = async (
     case 'complete_workflow':
       return finish({ status: 'ok', workflow_output: String(args.output ?? '') });
 
+    case 'request_clarification': {
+      const question = args.question as string;
+      if (!question?.trim()) {
+        return finish({ status: 'error', error: 'question is required' });
+      }
+      emitWorkflowEvent(state, {
+        type: 'clarification_requested',
+        workflow_id: state.id,
+        data: { question: question.trim() },
+      });
+      return finish({ status: 'ok', clarification_question: question.trim(), pause_workflow: true });
+    }
+
     case 'run_skill': {
       const skillId = args.skill_id as string;
 
