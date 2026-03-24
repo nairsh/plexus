@@ -402,9 +402,13 @@ export const runWorkflow = async (
     const userSkills = getAllSkillsForUser(userId);
     if (userSkills.length > 0) {
       const skillLines = userSkills
-        .map((s) => `- **${s.id}**: ${s.description ?? '(no description)'}`)
+        .map((s) => {
+          const desc = s.description ?? '';
+          const shortDesc = desc.length > 60 ? desc.slice(0, 57) + '...' : desc;
+          return `- **${s.id}**: ${shortDesc || '(no description)'} → call \`run_skill\` to activate`;
+        })
         .join('\n');
-      const skillContext = `\n\n## Your Custom Skills\nThe following user-defined skills are available. When a skill is relevant to the task, you MUST invoke it using the \`run_skill\` tool (pass the skill id). Do not follow skill logic based on the description alone — always call \`run_skill\` first to activate the skill properly.\n\n${skillLines}\n`;
+      const skillContext = `\n\n## Your Custom Skills\nThe following user-defined skills are available. When a skill is relevant, you MUST call the \`run_skill\` tool with the skill id to activate it and receive full instructions. Do not attempt to execute skill logic without calling the tool.\n\n${skillLines}\n`;
       state.messages.unshift({ role: 'system', content: skillContext });
     }
   } catch (err) {
