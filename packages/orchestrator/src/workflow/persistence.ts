@@ -132,9 +132,13 @@ export const persistWorkflowCancellation = (workflowId: string): void => {
   ).run(workflowId);
 };
 
-export const persistWorkflowStatus = (workflowId: string, status: WorkflowStatus): void => {
+export const persistWorkflowStatus = (workflowId: string, status: WorkflowStatus, pauseReason?: string): void => {
   const db = getDb();
-  db.prepare(`UPDATE workflows SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(status, workflowId);
+  if (pauseReason !== undefined) {
+    db.prepare(`UPDATE workflows SET status = ?, pause_reason = ?, updated_at = datetime('now') WHERE id = ?`).run(status, pauseReason, workflowId);
+  } else {
+    db.prepare(`UPDATE workflows SET status = ?, pause_reason = NULL, updated_at = datetime('now') WHERE id = ?`).run(status, workflowId);
+  }
 };
 
 export const insertWorkflow = (
@@ -187,7 +191,8 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
   const workflow = db
     .prepare(
       `SELECT id, objective, user_prompt, orchestrator_model, status,
-              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at
+              error, credits_consumed, started_at, ended_at, created_at, updated_at, completed_at,
+              pause_reason
        FROM workflows WHERE id = ?`
     )
     .get(workflowId) as WorkflowSummary | undefined;
@@ -197,6 +202,11 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
   const inMemoryState = workflows.get(workflowId);
   if (inMemoryState?.lastOutput) {
     workflow.output = inMemoryState.lastOutput;
+  }
+
+  // Populate pending_clarification for paused workflows that have a clarification question
+  if (workflow.status === 'paused' && workflow.pause_reason) {
+    workflow.pending_clarification = workflow.pause_reason;
   }
 
   const taskRows = db

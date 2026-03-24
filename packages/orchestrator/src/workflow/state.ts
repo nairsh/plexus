@@ -66,6 +66,9 @@ export interface WorkflowSummary {
   updated_at: string;
   completed_at: string | null;
   output?: string | null;
+  pause_reason?: string | null;
+  /** Set when workflow is paused because the orchestrator asked a clarification question */
+  pending_clarification?: string | null;
 }
 
 export interface TaskSummary {

@@ -488,7 +488,7 @@ export const runWorkflow = async (
               data: { question: responseText },
             });
             state.status = 'paused';
-            persistWorkflowStatus(id, 'paused');
+            persistWorkflowStatus(id, 'paused', responseText);
             return { workflowId: id, output: responseText, status: 'paused' };
           }
         }
@@ -519,7 +519,7 @@ export const runWorkflow = async (
 
       if (clarificationQuestion) {
         state.status = 'paused';
-        persistWorkflowStatus(id, 'paused');
+        persistWorkflowStatus(id, 'paused', clarificationQuestion);
         return { workflowId: id, output: clarificationQuestion, status: 'paused' };
       }
 

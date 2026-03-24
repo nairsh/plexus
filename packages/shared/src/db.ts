@@ -235,6 +235,7 @@ export function runMigrations(): void {
   addColumnIfMissing('workflows', 'started_at', 'TEXT');
   addColumnIfMissing('workflows', 'ended_at', 'TEXT');
   addColumnIfMissing('workflows', 'schedule_id', 'TEXT');
+  addColumnIfMissing('workflows', 'pause_reason', 'TEXT');
   addColumnIfMissing('tasks', 'model', 'TEXT');
   addColumnIfMissing('tasks', 'tools', 'TEXT');
   // Note: updated_at column will be added via table recreation below
