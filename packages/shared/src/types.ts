@@ -163,7 +163,7 @@ export interface ModelAdapter {
 }
 
 export interface StreamChunk {
-  type: 'text_delta' | 'reasoning_delta' | 'usage' | 'tool_use' | 'search_results' | 'done' | 'error';
+  type: 'text_delta' | 'reasoning_delta' | 'usage' | 'tool_use' | 'search_results' | 'done' | 'error' | 'model_fallback';
   text?: string;
   data?: unknown;
 }

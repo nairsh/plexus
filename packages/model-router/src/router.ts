@@ -129,6 +129,16 @@ export async function* routeStreamingRequest(
       }
 
       const adapter = getOrCreateAdapter(info.provider);
+      if (currentModelId !== modelId && lastError) {
+        yield {
+          type: 'model_fallback' as const,
+          data: {
+            requested: modelId,
+            actual: currentModelId,
+            reason: getErrorMessage(lastError),
+          },
+        };
+      }
       yield* adapter.streamResponse({ ...resolved, model: currentModelId });
       return;
     } catch (err) {
