@@ -13,6 +13,7 @@ import type { WorkflowState } from '../workflow/state.js';
 import { areDependenciesSatisfied, spawnSubagentRun, waitForRuns } from '../subagents/runner.js';
 import type { ToolCall } from './tools.js';
 import { executeToolCall, getOpenTerminalSessionForChat, getSkillById } from '@orchestrator/model-router';
+import { saveMemory } from '@orchestrator/memory';
 import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { buildDisplayDescription } from './displayLabel.js';
@@ -428,6 +429,18 @@ export const executeOrchestratorToolCall = async (
         (args.timeout_seconds as number) ?? 30
       );
       return finish({ status: 'ok', ...waited });
+    }
+
+    case 'write_memory': {
+      const content = args.content as string;
+      const category = typeof args.category === 'string' ? args.category : 'general';
+      if (!content?.trim()) {
+        return finish({ status: 'error', error: 'content is required' });
+      }
+      // Use a hash of the content as the key to allow multiple distinct memories
+      const key = `memory_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const memory = saveMemory(state.userId, { content: content.trim(), category, key });
+      return finish({ status: 'ok', memory_id: memory.id, content: memory.content });
     }
 
     case 'enter_plan_mode':

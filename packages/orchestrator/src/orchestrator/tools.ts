@@ -129,6 +129,26 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'write_memory',
+      description:
+        'Save a piece of information to the user\'s persistent memory so it can be recalled in future sessions. Use this when the user explicitly asks you to remember something, or when you learn a stable preference or fact worth preserving.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'The information to remember' },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional tags to categorize this memory (e.g. ["preference", "coding-style"])',
+          },
+        },
+        required: ['content'],
+      },
+    },
+  },
 ];
 
 export const extractToolCallsFromOutput = (output: OutputBlock[]): ToolCall[] => {

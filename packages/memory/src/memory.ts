@@ -46,15 +46,35 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
   return created;
 }
 
+// Common English stop-words we skip when building keyword filters
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+  'do', 'does', 'did', 'have', 'has', 'had', 'what', 'which', 'who',
+  'how', 'when', 'where', 'why', 'i', 'me', 'my', 'you', 'your', 'we',
+  'our', 'it', 'its', 'this', 'that', 'these', 'those', 'not', 'no',
+  'can', 'will', 'would', 'could', 'should', 'may', 'might', 'about',
+  'tell', 'know', 'remember', 'recall',
+]);
+
 export function recallMemory(userId: string, query: string, limit = 10): Memory[] {
   const db = getDb();
-  const words = query.split(/\s+/).filter(Boolean).slice(0, 3);
+  // Filter stop-words and keep meaningful keywords for OR-based search
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+    .slice(0, 6);
 
   if (words.length === 0) {
-    return [];
+    // Fall back to returning recent memories when no keywords match
+    return db
+      .prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?')
+      .all(userId, limit) as Memory[];
   }
 
-  const conditions = words.map(() => 'content LIKE ?').join(' AND ');
+  const conditions = words.map(() => 'LOWER(content) LIKE ?').join(' OR ');
   const params = words.map((w) => `%${w}%`);
 
   const memories = db
