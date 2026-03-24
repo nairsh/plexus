@@ -9,8 +9,10 @@
     "@google/generative-ai": "^0.21.0",
     "@orchestrator/memory": "workspace:*",
     "@orchestrator/shared": "workspace:*",
+    "@types/pdf-parse": "^1.1.5",
     "node-html-markdown": "^1.3.0",
-    "openai": "^4.77.0"
+    "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5"
   },
   "scripts": {
     "lint": "tsc --noEmit -p ../../tsconfig.json",

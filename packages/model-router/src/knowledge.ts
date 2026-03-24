@@ -1,5 +1,6 @@
 import { TextDecoder } from 'node:util';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { PDFParse } from 'pdf-parse';
 import { getDb, getEnv, getErrorMessage, InvalidRequestError, logger } from '@orchestrator/shared';
 import type { KnowledgeChunk, KnowledgeDocument } from '@orchestrator/shared';
 
@@ -118,6 +119,12 @@ export const extractKnowledgeTextFromBuffer = (filename: string, mediaType: stri
     throw new InvalidRequestError(`Direct text extraction is not supported for ${mediaType}`, 'media_type');
   }
   return sanitizeExtractedText(textDecoder.decode(buffer));
+};
+
+const extractPdfText = async (buffer: Buffer): Promise<string> => {
+  const parser = new PDFParse({ data: buffer as unknown as Uint8Array });
+  const result = await parser.getText();
+  return sanitizeExtractedText(result.text ?? '');
 };
 
 const hasGoogleAI = (): boolean => Boolean(getEnv().GOOGLE_AI_API_KEY);
@@ -260,12 +267,16 @@ export const ingestKnowledgeDocument = async (
   ).run(documentId, userId, filename, mediaType, extractionMode, buffer.byteLength);
 
   try {
-    const extractedText =
-      extractionMode === 'text'
-        ? extractKnowledgeTextFromBuffer(filename, mediaType, buffer)
-        : hasGoogleAI()
-          ? await extractWithGemini(mediaType, input.contentBase64)
-          : (() => { throw new InvalidRequestError('Google AI API key is required to ingest non-text files', 'GOOGLE_AI_API_KEY'); })();
+    let extractedText: string;
+    if (extractionMode === 'text') {
+      extractedText = extractKnowledgeTextFromBuffer(filename, mediaType, buffer);
+    } else if (mediaType === 'application/pdf' && !hasGoogleAI()) {
+      extractedText = await extractPdfText(buffer);
+    } else if (hasGoogleAI()) {
+      extractedText = await extractWithGemini(mediaType, input.contentBase64);
+    } else {
+      throw new InvalidRequestError('Google AI API key is required to ingest image files', 'GOOGLE_AI_API_KEY');
+    }
 
     if (!extractedText) {
       throw new InvalidRequestError('No text could be extracted from this file', 'content_base64');
