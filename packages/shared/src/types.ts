@@ -356,7 +356,8 @@ export interface WorkflowEvent {
     | 'subagent_tool_call'
     | 'subagent_tool_result'
     | 'bash_approval_requested'
-    | 'clarification_requested';
+    | 'clarification_requested'
+    | 'workflow_progress';
   workflow_id: string;
   task_id?: string;
   data: unknown;

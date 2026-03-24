@@ -423,6 +423,23 @@ export const runWorkflow = async (
         throw new WorkflowError('Workflow cancelled');
       }
 
+      // Emit a progress event every 5 iterations for long-running job observability
+      if (iteration > 1 && iteration % 5 === 1) {
+        const completedTasks = listWorkItems(state.id).filter((item) => isWorkItemSettled(item.status)).length;
+        const totalTasks = listWorkItems(state.id).length;
+        emitWorkflowEvent(state, {
+          type: 'workflow_progress',
+          workflow_id: state.id,
+          data: {
+            iteration,
+            max_turns: MAX_TURNS,
+            completed_tasks: completedTasks,
+            total_tasks: totalTasks,
+            credits_consumed: state.creditsConsumed,
+          },
+        });
+      }
+
       const { toolCalls, responseText } = await callOrchestrator(state, iteration);
 
       state.messages.push({ role: 'assistant', content: responseText });
