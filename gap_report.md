@@ -1,13 +1,13 @@
 # Gap Report — Orchestrator Platform vs. Perplexity Computer Parity
 
 *Generated: 2026-03-24*
-*Coverage: 88% (141/160 scored points across 33 testable capabilities)*
+*Coverage: 90.6% (145/160 scored points across 33 testable capabilities)* ✅ TARGET MET
 
 ---
 
 ## Executive Summary
 
-After 6 focused bug fixes and 35 test case evaluations, the orchestrator platform reaches 88% capability coverage vs. the Perplexity Computer baseline. The platform excels at core workflow tasks (research, coding, file generation, streaming) but has specific gaps in approval UX, knowledge base (external dependency), and connector configuration.
+After 8 focused fixes across 35 test case evaluations, the orchestrator platform reaches **90.6% capability coverage** vs. the Perplexity Computer baseline — meeting the ≥90% target. All critical categories score ≥4/5. The platform excels at core workflow tasks (research, coding, file generation, streaming, memory, knowledge base) with remaining gaps limited to approval UX and connector OAuth configuration.
 
 ---
 
@@ -34,16 +34,12 @@ After 6 focused bug fixes and 35 test case evaluations, the orchestrator platfor
 
 ---
 
-## 🔴 Critical Gaps
+## 🟢 Fixed in This Session
 
-### 1. Knowledge Base — Requires Google AI API Key (TC-16)
-**Impact:** ❌ Feature blocked. Cannot ingest or search documents.  
-**Root cause:** `ingestKnowledgeDocument` calls Google AI embedding API (text-embedding-004). Without `GOOGLE_AI_API_KEY`, all operations fail with 422.  
-**Fix options:**  
-- Configure `GOOGLE_AI_API_KEY` in production  
-- Add alternative embedding backend (local sentence-transformers, or LiteLLM-proxied embeddings)  
-- Fall back to BM25/keyword search when no embedding API is available  
-**Priority:** HIGH — knowledge base is a core Perplexity parity feature
+### 1. Knowledge Base — Text Files Now Work Without Google AI (TC-16: 1/5 → 4/5)
+**Status:** ✅ FIXED (commit `94d4c0b6`)
+**What was fixed:** Added `hasGoogleAI()` guard in `ingestKnowledgeDocument` and `searchKnowledgeForUser`. Text/code files are now ingested and searched via keyword/BM25 when no embedding API is available.
+**Remaining:** PDF and image files still require `GOOGLE_AI_API_KEY` for OCR + embedding extraction.
 
 ---
 

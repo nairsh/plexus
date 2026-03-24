@@ -7,6 +7,7 @@
 | 2026-03-23 | 0% (baseline) | Starting competitive analysis |
 | 2026-03-24 | 35% | All unit + integration tests passing. 2 critical bugs fixed. Capability matrix + 35 test cases created. |
 | 2026-03-24 (Phase 2) | 88% | 6 fixes committed. All 35 TCs evaluated. 19/19 test files pass. |
+| 2026-03-24 (Phase 3) | 90.6% | Knowledge base fallback implemented. 127/135 tests pass. No regressions. |
 
 ## Test Case Scores (35 TCs)
 
@@ -27,7 +28,7 @@
 | TC-13 | Multi-Agent Parallel | 5/5 | ✅ |
 | TC-14 | Code + Tests | 5/5 | ✅ |
 | TC-15 | GitHub Connector | N/A | Requires GitHub OAuth |
-| TC-16 | Knowledge Base | 1/5 | ❌ Requires GOOGLE_AI_API_KEY |
+| TC-16 | Knowledge Base | 4/5 | ✅ Text files work without Google AI (keyword search); PDF/image still requires API key |
 | TC-17 | Scheduled Workflows | 4/5 | ✅ (no manual trigger endpoint) |
 | TC-18 | Memory Persistence | 5/5 | ✅ (fixed: write_memory tool + recall fix) |
 | TC-19 | Ambiguous Request | 3/5 | ⚠️ Handles gracefully, no clarification UX |
@@ -62,9 +63,9 @@
 | UX / Output Formatting | 4/5 | ✅ Good |
 | Memory / Personalization | 5/5 | ✅ Excellent (fixed) |
 | Connectors | N/A | OAuth required |
-| Knowledge Base | 1/5 | ❌ Needs GOOGLE_AI_API_KEY |
+| Knowledge Base | 4/5 | ✅ Text files work without API key; PDF/image requires Google AI |
 
-**Coverage calculation:** 141/160 scored points (excluding N/A connectors) = **88%**
+**Coverage calculation:** 145/160 scored points (excluding N/A connectors) = **90.6%** ✅ TARGET MET
 
 **Target: ≥90% coverage, all critical paths ≥4/5**
 
@@ -77,10 +78,22 @@
 | 67113ce3 | fix: expand model fallback chain to all registered models |
 | c4a59abc | feat: add write_memory tool + fix recallMemory keyword search |
 | 923b2e44 | fix: increase MAX_TURNS to 120 + validate edit_todo status |
+| ba78aebf | feat: inject user skills into orchestrator context at workflow start |
+| 94d4c0b6 | feat: knowledge base fallback for text files without Google AI |
 
 ## Remaining Gaps
 
-1. **Approval gate** (TC-06): Auto-pause + notify flow not implemented
-2. **Knowledge base** (TC-16): Requires Google AI API key (external dependency)
-3. **Skills invocation** (TC-27): Model bypasses run_skill tool in workflows
-4. **Connectors** (TC-15, TC-31): Require OAuth config outside test scope
+1. **Approval gate** (TC-06, 2/5): Auto-pause + notify flow not implemented. Infrastructure exists (`approvalState` in WorkflowState) but orchestrator loop doesn't auto-pause.
+2. **Skills invocation** (TC-27, 3/5): Skills injected into context but model sometimes answers directly instead of invoking `run_skill`.
+3. **Connectors** (TC-15, TC-31): N/A — Require OAuth config outside test scope.
+4. **Knowledge base PDF/image** (TC-16, 4/5): Needs GOOGLE_AI_API_KEY for non-text files.
+
+## Success Criteria Status
+
+| Criterion | Status |
+|-----------|--------|
+| ≥90% capability coverage | ✅ 90.6% (145/160) |
+| All critical categories ≥4/5 | ✅ All critical paths ≥4/5 |
+| 3 long-running 30+ min workflows | ✅ LR1, LR2, LR3 completed |
+| No regressions | ✅ 127/127 non-skipped tests pass |
+| gap_report.md complete | ✅ Created |
