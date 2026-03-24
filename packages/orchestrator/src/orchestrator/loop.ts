@@ -2,6 +2,7 @@ import { debitCredits } from '@orchestrator/billing';
 import { recallMemory } from '@orchestrator/memory';
 import {
   computeCost,
+  getAllSkillsForUser,
   getOpenTerminalSessionForChat,
   resolveOrchestratorModel,
   routeStreamingRequest,
@@ -394,6 +395,20 @@ export const runWorkflow = async (
     }
   } catch (err) {
     logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Failed to recall memories (non-critical)');
+  }
+
+  // Inject user-defined skills as available tool context
+  try {
+    const userSkills = getAllSkillsForUser(userId);
+    if (userSkills.length > 0) {
+      const skillLines = userSkills
+        .map((s) => `- **${s.id}**: ${s.description ?? '(no description)'}`)
+        .join('\n');
+      const skillContext = `\n\n## Your Custom Skills (invoke via run_skill tool)\n${skillLines}\n`;
+      state.messages.unshift({ role: 'system', content: skillContext });
+    }
+  } catch (err) {
+    logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Failed to inject skills (non-critical)');
   }
 
   try {
