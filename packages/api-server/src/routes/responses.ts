@@ -51,24 +51,22 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Debit credits
     if (response.usage.cost.total_cost > 0) {
-      try {
-        debitCredits(
-          userId,
-          response.usage.cost.total_cost,
-          `API response: ${response.model}`,
-          'response',
-          response.id,
-          {
-            model: response.model,
-            input_tokens: response.usage.input_tokens,
-            output_tokens: response.usage.output_tokens,
-            total_tokens: response.usage.total_tokens,
-          }
-        );
-      } catch (err) {
+      debitCredits(
+        userId,
+        response.usage.cost.total_cost,
+        `API response: ${response.model}`,
+        'response',
+        response.id,
+        {
+          model: response.model,
+          input_tokens: response.usage.input_tokens,
+          output_tokens: response.usage.output_tokens,
+          total_tokens: response.usage.total_tokens,
+        }
+      ).catch((err: unknown) => {
         // Log but don't fail the request if billing fails
         logger.error({ userId, error: getErrorMessage(err) }, 'Failed to debit credits');
-      }
+      });
     }
 
     try {

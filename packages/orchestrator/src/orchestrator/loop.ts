@@ -263,21 +263,20 @@ export const callOrchestrator = async (
           : null;
 
       if (usageCost && usageCost.total_cost > 0) {
-        try {
-          debitCredits(
-            state.userId,
-            usageCost.total_cost,
-            `Orchestrator iteration ${iteration}: ${state.id}`,
-            'workflow',
-            state.id
-          );
+        debitCredits(
+          state.userId,
+          usageCost.total_cost,
+          `Orchestrator iteration ${iteration}: ${state.id}`,
+          'workflow',
+          state.id
+        ).then(() => {
           incrementWorkflowCredits(state, usageCost.total_cost);
-        } catch (err) {
+        }).catch((err: unknown) => {
           logger.warn(
             { workflowId: state.id, iteration, error: getErrorMessage(err) },
             'Failed to debit credits for orchestrator iteration (non-critical)'
           );
-        }
+        });
       }
       continue;
     }

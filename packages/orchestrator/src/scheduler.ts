@@ -139,7 +139,7 @@ async function runDueSchedules(): Promise<void> {
   for (const schedule of dueSchedules) {
     try {
       if (getEnv().BILLING_MODE === 'enforced') {
-        const balance = getBalance(schedule.user_id);
+        const balance = await getBalance(schedule.user_id);
         if (balance < 0.01) {
           db
             .prepare(`UPDATE scheduled_workflows SET last_error = ?, updated_at = datetime('now') WHERE id = ?`)

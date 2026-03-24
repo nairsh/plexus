@@ -8,7 +8,7 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get('/v1/billing/balance', async (request: FastifyRequest) => {
     const user = request.user!;
-    const balance = getBalance(user.id);
+    const balance = await getBalance(user.id);
     const periodUsage = getCurrentPeriodUsage(user.id);
 
     return {
@@ -45,7 +45,7 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const user = request.user!;
-    const newBalance = creditBalance(user.id, parseResult.data.amount, 'Manual top-up', 'topup');
+    const newBalance = await creditBalance(user.id, parseResult.data.amount, 'Manual top-up', 'topup');
 
     reply.status(200);
     return {
@@ -64,7 +64,7 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
       const limit = Math.min(parseInt(request.query.limit || '50', 10), 100);
       const offset = parseInt(request.query.offset || '0', 10);
 
-      const transactions = getTransactions(user.id, limit, offset);
+      const transactions = await getTransactions(user.id, limit, offset);
       return { transactions };
     }
   );

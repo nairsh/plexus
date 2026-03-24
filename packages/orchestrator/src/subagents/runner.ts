@@ -131,15 +131,14 @@ export const buildAgentContext = (state: WorkflowState, taskId: string): AgentEx
   sandboxSessionIds: state.sandboxSessionIds,
   abortSignal: state.abortController.signal,
   creditsCallback: (amount: number, description: string) => {
-    try {
-      debitCredits(state.userId, amount, description, 'subagent', state.id);
+    debitCredits(state.userId, amount, description, 'subagent', state.id).then(() => {
       incrementWorkflowCredits(state, amount);
-    } catch (err) {
+    }).catch((err: unknown) => {
       logger.warn(
         { workflowId: state.id, error: getErrorMessage(err) },
         'Failed to debit credits for subagent (non-critical)'
       );
-    }
+    });
   },
   trace: buildToolTraceHooks(state, taskId),
 });

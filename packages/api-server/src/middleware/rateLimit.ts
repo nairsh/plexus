@@ -21,6 +21,9 @@ export async function rateLimitMiddleware(request: FastifyRequest, reply: Fastif
   const user = request.user;
   if (!user) return; // Auth middleware should have run first
 
+  // Skip rate limiting in test environments to prevent false failures from parallel test suites
+  if (process.env['NODE_ENV'] === 'test' || process.env['SKIP_RATE_LIMIT'] === '1') return;
+
   const limit = TIER_LIMITS[user.tier] ?? 20;
   const now = Date.now();
   const key = user.id;

@@ -264,18 +264,17 @@ export async function dispatchToAgent(
 
   // Track cost
   if (response.usage.cost.total_cost > 0) {
-    try {
-      debitCredits(
-        ctx.userId,
-        response.usage.cost.total_cost,
-        `Agent task: ${task.task_id} (${task.agent_type})`,
-        'workflow',
-        ctx.workflowId
-      );
+    debitCredits(
+      ctx.userId,
+      response.usage.cost.total_cost,
+      `Agent task: ${task.task_id} (${task.agent_type})`,
+      'workflow',
+      ctx.workflowId
+    ).then(() => {
       ctx.creditsCallback(response.usage.cost.total_cost, task.task_id);
-    } catch (err) {
+    }).catch((err: unknown) => {
       logger.warn({ workflowId: ctx.workflowId, taskId: task.task_id, error: getErrorMessage(err) }, 'Failed to debit credits for agent task (non-critical)');
-    }
+    });
   }
 
   return {
