@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { ConversationMessage, WorkflowConfig } from '@orchestrator/shared';
 
-export const MAX_TURNS = 60;
+export const MAX_TURNS = 120;
 
 export interface WorkflowStreamIterator extends AsyncIterable<import('@orchestrator/shared').WorkflowEvent> {
   done: Promise<void>;

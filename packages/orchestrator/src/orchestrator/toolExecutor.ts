@@ -318,7 +318,11 @@ export const executeOrchestratorToolCall = async (
         return finish({ status: 'error', error: 'todo_not_found', todo_id: args.todo_id });
       }
 
-      const newStatus = args.status as WorkItemStatus | undefined;
+      const VALID_STATUSES = new Set<WorkItemStatus>(['pending', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'skipped']);
+      const rawStatus = args.status as string | undefined;
+      const newStatus = rawStatus && VALID_STATUSES.has(rawStatus as WorkItemStatus)
+        ? rawStatus as WorkItemStatus
+        : undefined;
       const output =
         args.output ??
         (newStatus === 'failed'
