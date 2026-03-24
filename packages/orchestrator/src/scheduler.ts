@@ -206,6 +206,24 @@ async function runDueSchedules(): Promise<void> {
 
 export function startScheduler(): void {
   if (schedulerInterval) return;
+
+  // Clear stale active_workflow_id references from crashed/restarted server
+  try {
+    const db = getDb();
+    const staleCount = db.prepare(`
+      UPDATE scheduled_workflows
+      SET active_workflow_id = NULL, last_run_status = 'failed', last_error = 'Server restarted while workflow was running',
+          updated_at = datetime('now')
+      WHERE active_workflow_id IS NOT NULL
+        AND active_workflow_id NOT IN (SELECT id FROM workflows WHERE status IN ('executing', 'paused'))
+    `).run().changes;
+    if (staleCount > 0) {
+      logger.info({ clearedCount: staleCount }, 'Cleared stale active_workflow_id on scheduler startup');
+    }
+  } catch (err) {
+    logger.warn({ error: getErrorMessage(err) }, 'Failed to clear stale workflow references on startup (non-critical)');
+  }
+
   logger.info('Workflow scheduler started');
   schedulerInterval = setInterval(() => {
     void runDueSchedules().catch((err: unknown) => {
