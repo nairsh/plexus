@@ -5,6 +5,7 @@ import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { AgentRequest, OutputBlock } from '@orchestrator/shared';
 import type { ToolApprovalDecision } from '@orchestrator/shared';
 import { saveMemory, recallMemory } from '@orchestrator/memory';
+import { searchKnowledgeForUser } from '../knowledge.js';
 import {
   executeBash,
   executeEditFile,
@@ -320,6 +321,24 @@ export const executeToolCall = async (
       if (!userId) return { output: JSON.stringify({ error: 'user_id required for memory operations' }), cost: 0 };
       const memories = recallMemory(userId, String(args['query'] ?? ''), typeof args['limit'] === 'number' ? args['limit'] : 5);
       return { output: JSON.stringify({ memories }), cost: 0 };
+    }
+
+    if (name === 'search_knowledge') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for knowledge search' }), cost: 0 };
+      const query = String(args['query'] ?? '');
+      if (!query) return { output: JSON.stringify({ error: 'query is required' }), cost: 0 };
+      const limit = typeof args['limit'] === 'number' ? args['limit'] : 5;
+      await traceToolCall(request, name, { query, limit });
+      const matches = await searchKnowledgeForUser(userId, query, limit);
+      const result = matches.map((m) => ({
+        document_id: m.document_id,
+        filename: m.filename,
+        content: m.content,
+        score: m.score,
+      }));
+      await traceToolResult(request, name, { query, limit }, result);
+      return { output: JSON.stringify({ results: result, count: result.length }), cost: 0 };
     }
 
     return { output: JSON.stringify({ error: `Unknown tool: ${name}` }), cost: 0 };

@@ -36,6 +36,7 @@ export const BUILTIN_TOOL_NAMES = new Set<BuiltinToolName>([
   'run_skill',
   'remember',
   'recall',
+  'search_knowledge',
 ]);
 
 export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinition>([
@@ -268,6 +269,23 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
         properties: {
           query: { type: 'string', description: 'Search query to find relevant memories' },
           limit: { type: 'number', description: 'Maximum number of memories to return (default: 5)' },
+        },
+        required: ['query'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'search_knowledge',
+    {
+      name: 'search_knowledge',
+      description:
+        'Search the user\'s knowledge base for relevant documents and passages. Use this to retrieve information from previously uploaded files, PDFs, or documents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query to find relevant knowledge' },
+          limit: { type: 'number', description: 'Maximum number of results to return (default: 5)' },
         },
         required: ['query'],
       },

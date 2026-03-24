@@ -16,6 +16,7 @@ export const ToolSchema = z.object({
     'run_skill',
     'remember',
     'recall',
+    'search_knowledge',
   ]),
   function: z
     .object({

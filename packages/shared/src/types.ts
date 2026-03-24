@@ -131,7 +131,8 @@ export interface Tool {
     | 'glob'
     | 'run_skill'
     | 'remember'
-    | 'recall';
+    | 'recall'
+    | 'search_knowledge';
   function?: { name: string; description: string; parameters: object };
 }
 
