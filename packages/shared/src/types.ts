@@ -233,6 +233,8 @@ export interface WorkflowConfig {
   orchestrator_model?: string;
   chat_id?: string;
   model_overrides?: Record<string, string>;
+  /** Explicit fallback model IDs to try (in order) if the primary model fails. */
+  model_fallback?: string[];
   working_directory?: string;
   tools?: string[];
   max_credits?: number;

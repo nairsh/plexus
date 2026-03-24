@@ -84,7 +84,7 @@ export async function routeRequest(request: AgentRequest): Promise<AgentResponse
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  const chain = buildFallbackChain(modelId);
+  const chain = buildFallbackChain(modelId, resolved.model_fallback);
 
   let lastError: Error | null = null;
 
@@ -116,7 +116,7 @@ export async function* routeStreamingRequest(
   const resolved = resolveRequest(request);
   const modelId = resolved.model!;
 
-  const chain = buildFallbackChain(modelId);
+  const chain = buildFallbackChain(modelId, resolved.model_fallback);
 
   let lastError: Error | null = null;
 
@@ -161,7 +161,7 @@ export function getAdapter(provider: string): ModelAdapter {
   return getOrCreateAdapter(provider);
 }
 
-function buildFallbackChain(requestedModelId: string): string[] {
+function buildFallbackChain(requestedModelId: string, explicitFallbacks?: string[]): string[] {
   const chain: string[] = [];
   const seen = new Set<string>();
 
@@ -174,6 +174,10 @@ function buildFallbackChain(requestedModelId: string): string[] {
   };
 
   push(requestedModelId);
+  // User-specified fallbacks take precedence over automatic chain
+  for (const m of explicitFallbacks ?? []) {
+    push(m);
+  }
   push(getDefaultModel());
   // Include all registered models as fallbacks so network errors on the
   // primary model don't immediately fail the request.

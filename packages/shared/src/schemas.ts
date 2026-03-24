@@ -113,6 +113,7 @@ export const WorkflowConfigSchema = z.object({
   orchestrator_model: z.string().optional(),
   chat_id: z.string().min(1).optional(),
   model_overrides: z.record(z.string()).optional(),
+  model_fallback: z.array(z.string()).optional(),
   working_directory: z.string().min(1).optional(),
   tools: z.array(z.string()).optional(),
   max_credits: z.number().positive().optional(),
