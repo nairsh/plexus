@@ -1,6 +1,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { InvalidRequestError } from '@orchestrator/shared';
 import { saveMemory, listMemories, deleteMemory } from '@orchestrator/memory';
+import { z } from 'zod';
+
+const SaveMemorySchema = z.object({
+  key: z.string().min(1).max(200),
+  content: z.string().min(1).max(50000),
+  category: z.string().min(1).max(100).optional(),
+});
 
 export async function memoryRoutes(fastify: FastifyInstance): Promise<void> {
   /**
@@ -22,17 +29,14 @@ export async function memoryRoutes(fastify: FastifyInstance): Promise<void> {
    * POST /v1/memory  body: {key, content, category?}
    */
   fastify.post('/v1/memory', async (request: FastifyRequest, reply: FastifyReply) => {
-    const body = request.body as { key?: string; content?: string; category?: string } | null;
-    if (!body || typeof body.key !== 'string' || typeof body.content !== 'string') {
-      throw new InvalidRequestError('Request body must include "key" (string) and "content" (string)');
+    const parseResult = SaveMemorySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new InvalidRequestError(parseResult.error.errors.map((e) => e.message).join(', '));
     }
 
     const user = request.user!;
-    const memory = saveMemory(user.id, {
-      key: body.key,
-      content: body.content,
-      category: typeof body.category === 'string' ? body.category : undefined,
-    });
+    const { key, content, category } = parseResult.data;
+    const memory = saveMemory(user.id, { key, content, category });
 
     reply.status(201);
     return memory;
