@@ -43,6 +43,10 @@ export interface WorkflowState {
       {
         resolve: (decision: import('@orchestrator/shared').ToolApprovalDecision) => void;
         commandKey?: string;
+        command?: string;
+        toolName?: string;
+        subagentId?: string;
+        requestedAt: string;
       }
     >;
   };

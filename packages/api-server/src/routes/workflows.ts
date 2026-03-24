@@ -29,6 +29,7 @@ import {
   getWorkflowTrace,
   listWorkflows,
   resolveWorkflowApproval,
+  getPendingApprovals,
 } from '@orchestrator/orchestrator';
 
 const ensureWorkflowOwned = (workflowId: string, userId: string): void => {
@@ -310,6 +311,20 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       resolveWorkflowApproval(id, approvalId, decision as import('@orchestrator/shared').ToolApprovalDecision);
 
       return { status: 'ok', workflow_id: id, approval_id: approvalId, decision };
+    }
+  );
+
+  /**
+   * GET /v1/workflows/:id/pending-approvals — list pending bash command approvals.
+   * Allows clients to poll for pending approvals without maintaining an SSE connection.
+   */
+  fastify.get(
+    '/v1/workflows/:id/pending-approvals',
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+      const pending = getPendingApprovals(id);
+      return { workflow_id: id, pending_approvals: pending };
     }
   );
 

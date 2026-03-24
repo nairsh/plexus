@@ -11,6 +11,7 @@
 | 2026-03-24 (Final) | 92.5% | TC-06 approval gate fixed (+2). TC-27 skills lookup fixed (+1). 148/160 pts. |
 | 2026-03-24 (Extended) | 93.1% | TC-17 manual trigger endpoint added (+1). 149/160 pts. |
 | 2026-03-24 (Session 2) | 93.75% | TC-19 clarification gate implemented (+1). 150/160 pts. |
+| 2026-03-24 (Session 2b) | 94.375% | TC-06 polling endpoint added — no SSE required (+1). 151/160 pts. |
 
 ## Test Case Scores (35 TCs)
 
@@ -21,7 +22,7 @@
 | TC-03 | Data Analysis | 5/5 | ✅ |
 | TC-04 | File Generation | 5/5 | ✅ |
 | TC-05 | Long-running Jobs | 4/5 | ✅ (Phase 3: 3x workflows completed, server stable 3+ hrs) |
-| TC-06 | UX / Approval Gate | 4/5 | ✅ bash_approval_requested SSE + /bash-approve endpoint implemented |
+| TC-06 | UX / Approval Gate | 5/5 | ✅ bash_approval_requested SSE + /bash-approve + GET /pending-approvals polling endpoint |
 | TC-07 | Robustness / Error | 5/5 | ✅ |
 | TC-08 | Cancellation | 5/5 | ✅ |
 | TC-09 | JSON Output | 5/5 | ✅ |
@@ -68,7 +69,7 @@
 | Connectors | N/A | OAuth required |
 | Knowledge Base | 4/5 | ✅ Text files work without API key; PDF/image requires Google AI |
 
-**Coverage calculation:** 150/160 scored points (excluding N/A connectors) = **93.75%** ✅ TARGET EXCEEDED
+**Coverage calculation:** 151/160 scored points (excluding N/A connectors) = **94.375%** ✅ TARGET EXCEEDED
 
 **Target: ≥90% coverage, all critical paths ≥4/5**
 

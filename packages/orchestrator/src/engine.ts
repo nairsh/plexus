@@ -258,6 +258,24 @@ export function getWorkflowState(workflowId: string): WorkflowState | null {
 export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, getWorkflowTrace, getWorkflowSummaryById };
 export type { WorkflowSummary, TaskSummary };
 
+export function getPendingApprovals(workflowId: string): Array<{
+  approval_id: string;
+  tool_name?: string;
+  command?: string;
+  subagent_id?: string;
+  requested_at: string;
+}> {
+  const state = hydrateWorkflowState(workflowId);
+  if (!state) return [];
+  return Array.from(state.approvalState.pending.entries()).map(([approvalId, entry]) => ({
+    approval_id: approvalId,
+    tool_name: entry.toolName,
+    command: entry.command,
+    subagent_id: entry.subagentId,
+    requested_at: entry.requestedAt,
+  }));
+}
+
 export function continueWorkflow(
   workflowId: string,
   followUpQuery: string,

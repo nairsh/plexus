@@ -15,6 +15,7 @@ export {
   getWorkflowTrace,
   continueWorkflow,
   resolveWorkflowApproval,
+  getPendingApprovals,
   retryWorkflow,
 } from './engine.js';
 
