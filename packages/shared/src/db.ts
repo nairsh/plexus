@@ -659,6 +659,13 @@ export function runMigrations(): void {
   addColumnIfMissing('scheduled_workflows', 'active_workflow_id', 'TEXT');
   addColumnIfMissing('scheduled_workflows', 'last_run_status', 'TEXT');
 
+  // Performance indexes for frequently queried columns
+  getDb().exec(`
+    CREATE INDEX IF NOT EXISTS idx_workflows_user_status ON workflows(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_id ON workflow_steps(workflow_id);
+    CREATE INDEX IF NOT EXISTS idx_templates_public_user ON workflow_templates(is_public, created_by);
+  `);
+
   logger.info('Database migrations completed');
 }
 

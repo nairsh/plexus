@@ -54,11 +54,14 @@ const getCallbackSuccessHtml = (args: {
 </html>`;
 };
 
+const escapeHtml = (str: string): string =>
+  str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 const getCallbackErrorHtml = (message: string) => `<!doctype html>
 <html>
   <body style="font-family: sans-serif; padding: 24px; background: #fff4f3; color: #7f1d1d;">
     <h2>Connection failed</h2>
-    <p>${message}</p>
+    <p>${escapeHtml(message)}</p>
   </body>
 </html>`;
 

@@ -49,6 +49,11 @@ export async function debitCredits(
     return balance;
   }
 
+  if (!Number.isFinite(amount) || amount <= 0) {
+    logger.warn({ userId, amount, description }, 'Invalid debit amount, skipping');
+    return getBalance(userId);
+  }
+
   const absAmount = Math.abs(amount);
   const newBalance = await adjustBalance(userId, -absAmount, description, referenceType, referenceId, metadata);
   logger.info({ userId, amount: absAmount, description, newBalance }, 'Credits debited');
@@ -66,6 +71,11 @@ export async function creditBalance(
   referenceId?: string,
   metadata?: Record<string, unknown>
 ): Promise<number> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    logger.warn({ userId, amount, description }, 'Invalid credit amount, skipping');
+    return getBalance(userId);
+  }
+
   const absAmount = Math.abs(amount);
   const newBalance = await adjustBalance(userId, absAmount, description, referenceType, referenceId, metadata);
   logger.info({ userId, amount: absAmount, description, newBalance }, 'Credits added');

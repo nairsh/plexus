@@ -1,10 +1,24 @@
 import { getDb } from '@orchestrator/shared';
 import type { WorkflowStepType, WorkflowTraceStep } from '@orchestrator/shared';
 
+const MAX_STRINGIFY_LENGTH = 500_000; // 500KB per field
+
 const stringifyMaybe = (value: unknown): string | null => {
   if (value === undefined) return null;
-  if (typeof value === 'string') return value;
-  return JSON.stringify(value);
+  if (typeof value === 'string') return value.length > MAX_STRINGIFY_LENGTH ? value.slice(0, MAX_STRINGIFY_LENGTH) : value;
+  try {
+    const seen = new WeakSet();
+    const json = JSON.stringify(value, (_key, val: unknown) => {
+      if (typeof val === 'object' && val !== null) {
+        if (seen.has(val)) return '[Circular]';
+        seen.add(val);
+      }
+      return val;
+    });
+    return json && json.length > MAX_STRINGIFY_LENGTH ? json.slice(0, MAX_STRINGIFY_LENGTH) : json;
+  } catch {
+    return '[Stringify Error]';
+  }
 };
 
 export const logWorkflowStep = (input: {
