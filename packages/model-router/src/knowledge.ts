@@ -129,6 +129,11 @@ const extractPdfText = async (buffer: Buffer): Promise<string> => {
 
 const hasGoogleAI = (): boolean => Boolean(getEnv().GOOGLE_AI_API_KEY);
 
+const hasEmbeddingProvider = (userId: string): boolean => {
+  if (hasGoogleAI()) return true;
+  return getUserEmbeddingConfig(userId) !== null;
+};
+
 const requireGoogleClient = (): GoogleGenerativeAI => {
   const apiKey = getEnv().GOOGLE_AI_API_KEY;
   if (!apiKey) {
@@ -156,7 +161,72 @@ const extractWithGemini = async (mediaType: string, contentBase64: string): Prom
   return sanitizeExtractedText(result?.response?.text?.() ?? '');
 };
 
-const embedChunk = async (text: string): Promise<number[]> => {
+// Look up a user's configured embedding provider (if any)
+interface UserEmbeddingConfig {
+  api_url: string;
+  api_key: string;
+  model: string;
+}
+
+const getUserEmbeddingConfig = (userId: string): UserEmbeddingConfig | null => {
+  const row = getDb()
+    .prepare(
+      `SELECT api_url, api_key_encrypted, embedding_model
+       FROM user_api_providers
+       WHERE user_id = ? AND is_default_embedding = 1 AND is_active = 1
+       LIMIT 1`
+    )
+    .get(userId) as { api_url: string; api_key_encrypted: string; embedding_model: string | null } | undefined;
+
+  if (!row || !row.embedding_model) return null;
+
+  const apiKey = row.api_key_encrypted
+    ? Buffer.from(row.api_key_encrypted, 'base64').toString('utf-8')
+    : '';
+
+  return {
+    api_url: row.api_url,
+    api_key: apiKey,
+    model: row.embedding_model,
+  };
+};
+
+// OpenAI-compatible embedding call (works with OpenAI, Deepseek, LiteLLM, etc.)
+const embedChunkOpenAI = async (text: string, config: UserEmbeddingConfig): Promise<number[]> => {
+  const url = `${config.api_url.replace(/\/$/, '')}/embeddings`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.api_key}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: text,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Embedding API error (${response.status}): ${body.slice(0, 200)}`);
+  }
+  const json = (await response.json()) as { data?: Array<{ embedding?: number[] }> };
+  const values = json?.data?.[0]?.embedding;
+  if (!Array.isArray(values)) {
+    throw new Error('Embedding response did not include numeric values');
+  }
+  return values.filter((v: unknown): v is number => typeof v === 'number');
+};
+
+const embedChunk = async (text: string, userId?: string): Promise<number[]> => {
+  // If a user has configured a custom embedding provider, use it
+  if (userId) {
+    const userConfig = getUserEmbeddingConfig(userId);
+    if (userConfig) {
+      return embedChunkOpenAI(text, userConfig);
+    }
+  }
+
+  // Fall back to Google AI
   const client = requireGoogleClient();
   const model = client.getGenerativeModel({ model: getEnv().GOOGLE_EMBEDDING_MODEL });
   const result = await model.embedContent(text);
@@ -290,8 +360,8 @@ export const ingestKnowledgeDocument = async (
       throw new InvalidRequestError('No text could be extracted from this file', 'content_base64');
     }
 
-    const embeddings = hasGoogleAI()
-      ? await Promise.all(chunks.map((chunk) => embedChunk(chunk)))
+    const embeddings = hasEmbeddingProvider(userId)
+      ? await Promise.all(chunks.map((chunk) => embedChunk(chunk, userId)))
       : chunks.map(() => [] as number[]);
     const summary = extractedText.slice(0, 280);
     const metadata = JSON.stringify({
@@ -429,11 +499,11 @@ export const searchKnowledgeForUser = async (
     throw new InvalidRequestError('query is required', 'query');
   }
 
-  if (!hasGoogleAI()) {
+  if (!hasEmbeddingProvider(userId)) {
     return keywordSearchKnowledge(userId, normalizedQuery, limit);
   }
 
-  const queryEmbedding = await embedChunk(normalizedQuery);
+  const queryEmbedding = await embedChunk(normalizedQuery, userId);
   const rows = getDb()
     .prepare(
       `SELECT kc.*, kd.filename, kd.extraction_mode

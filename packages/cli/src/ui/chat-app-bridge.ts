@@ -4,7 +4,7 @@ import { render } from 'ink';
 import type { Instance } from 'ink';
 import { OrchestratorChatApp } from './chat-app.js';
 import type { WorkflowTraceStep } from '@orchestrator/shared';
-import type { ApprovalRequestState, WorkflowHistoryItem } from './chat-state.js';
+import type { ApprovalRequestState, ClarificationRequestState, WorkflowHistoryItem } from './chat-state.js';
 
 type Action = { type: string; payload?: unknown };
 
@@ -73,6 +73,13 @@ export class ChatApp {
 
   async readMenuSelection(request: ApprovalRequestState): Promise<string | null> {
     this.emit({ type: 'OPEN_APPROVAL_MENU', payload: { request } });
+    return new Promise<string | null>((resolve) => {
+      this.menuResolver = resolve;
+    });
+  }
+
+  async readClarification(request: ClarificationRequestState): Promise<string | null> {
+    this.emit({ type: 'OPEN_CLARIFICATION_MENU', payload: { request } });
     return new Promise<string | null>((resolve) => {
       this.menuResolver = resolve;
     });

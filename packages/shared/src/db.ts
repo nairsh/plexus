@@ -659,6 +659,24 @@ export function runMigrations(): void {
   addColumnIfMissing('scheduled_workflows', 'active_workflow_id', 'TEXT');
   addColumnIfMissing('scheduled_workflows', 'last_run_status', 'TEXT');
 
+  // ── User API Providers (BYOK – bring your own key) ──────────────────────
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS user_api_providers (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider_type TEXT NOT NULL CHECK (provider_type IN ('openai', 'deepseek', 'google', 'openrouter', 'litellm', 'custom')),
+      display_name TEXT NOT NULL,
+      api_url TEXT NOT NULL,
+      api_key_encrypted TEXT NOT NULL DEFAULT '',
+      embedding_model TEXT,
+      is_default_embedding INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_api_providers_user ON user_api_providers(user_id, provider_type);
+  `);
+
   // Performance indexes for frequently queried columns
   getDb().exec(`
     CREATE INDEX IF NOT EXISTS idx_workflows_user_status ON workflows(user_id, status);

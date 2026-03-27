@@ -3,7 +3,7 @@ import type { WorkflowTaskPlanEntry, WorkflowEvent, OrchestratorThinkingData } f
 import { getErrorMessage } from '@orchestrator/shared';
 import { executeWorkflow } from '@orchestrator/orchestrator';
 import { ChatApp as ChatScreen } from '../ui/chat-app-bridge.js';
-import type { ApprovalRequestState } from '../ui/chat-state.js';
+import type { ApprovalRequestState, ClarificationRequestState } from '../ui/chat-state.js';
 import { renderOutputText } from './output.js';
 
 interface TaskState {
@@ -358,9 +358,10 @@ export const streamWorkflow = async (
   workflowId: string,
   chatScreen?: ChatScreen,
   onApprovalRequest?: (request: ApprovalRequestState) => Promise<void>
-): Promise<{ output?: string; credits?: number; error?: string }> => {
+): Promise<{ output?: string; credits?: number; error?: string; clarification?: ClarificationRequestState }> => {
   if (chatScreen) {
-    let result: { output?: string; credits?: number; error?: string } = {};
+    let result: { output?: string; credits?: number; error?: string; clarification?: ClarificationRequestState } = {};
+    let pendingClarification: ClarificationRequestState | undefined;
     const stream = executeWorkflow(workflowId);
 
     for await (const event of stream) {
@@ -448,6 +449,21 @@ export const streamWorkflow = async (
           }
           break;
         }
+        case 'clarification_requested': {
+          const data = event.data as {
+            question: string;
+            options?: Array<{ label: string; description?: string }>;
+            allow_custom?: boolean;
+          };
+          chatScreen.stopAssistantThinking();
+          chatScreen.setStatusMessage('');
+          pendingClarification = {
+            question: data.question,
+            options: data.options,
+            allowCustom: data.allow_custom !== false,
+          };
+          break;
+        }
         case 'workflow_completed': {
           const data = event.data as { output?: string; total_credits?: number };
           chatScreen.stopAssistantThinking();
@@ -476,6 +492,12 @@ export const streamWorkflow = async (
         throw error;
       }
       result = { ...result, error: result.error ?? getErrorMessage(error) };
+    }
+
+    // If the workflow paused for clarification and no terminal event was emitted,
+    // surface the clarification request to the caller so the user can respond.
+    if (pendingClarification && !result.output && !result.error) {
+      result.clarification = pendingClarification;
     }
 
     return result;

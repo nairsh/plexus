@@ -136,13 +136,31 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
     function: {
       name: 'request_clarification',
       description:
-        'Pause the workflow and ask the user for clarification when the request is ambiguous or missing critical information. The workflow will resume when the user provides the clarification via the continue endpoint.',
+        'Pause the workflow and ask the user for clarification when the request is ambiguous or missing critical information. Supports predefined options for structured questions. The workflow will resume when the user provides the clarification.',
       parameters: {
         type: 'object',
         properties: {
           question: {
             type: 'string',
             description: 'The specific question to ask the user for clarification',
+          },
+          options: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Short display text for this choice' },
+                description: { type: 'string', description: 'Optional longer explanation of this choice' },
+              },
+              required: ['label'],
+            },
+            description:
+              'Predefined answer options the user can select from. If omitted, user provides a free-text response.',
+          },
+          allow_custom: {
+            type: 'boolean',
+            description:
+              'Whether to allow a custom free-text response in addition to predefined options. Defaults to true.',
           },
         },
         required: ['question'],

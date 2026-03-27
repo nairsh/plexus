@@ -613,6 +613,9 @@ export const runWorkflow = async (
       }
 
       if (clarificationQuestion) {
+        // Persist tool results so the model sees them when the workflow resumes
+        const resultsMessage = `Tool results:\n${toolResults.map((r) => `- ${r.tool}: ${JSON.stringify(truncateToolResult(r))}`).join('\n')}`;
+        state.messages.push({ role: 'user', content: resultsMessage });
         state.status = 'paused';
         persistWorkflowStatus(id, 'paused', clarificationQuestion);
         return { workflowId: id, output: clarificationQuestion, status: 'paused' };

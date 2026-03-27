@@ -25,12 +25,12 @@ import { billingRoutes } from './routes/billing.js';
 import { sandboxRoutes } from './routes/sandbox.js';
 import { workflowRoutes } from './routes/workflows.js';
 import { registerTeamsRoutes } from './routes/teams.js';
-import { registerTemplatesRoutes } from './routes/templates.js';
 import { registerHealthRoutes } from './routes/agentHealth.js';
 import { schedulesRoutes } from './routes/schedules.js';
 import { memoryRoutes } from './routes/memory.js';
 import { skillsRoutes } from './routes/skills.js';
 import { modelPreferencesRoutes } from './routes/modelPreferences.js';
+import { providersRoutes } from './routes/providers.js';
 import { connectorsRoutes } from './routes/connectors.js';
 import { knowledgeRoutes } from './routes/knowledge.js';
 import { startScheduler, stopScheduler, abortAllWorkflows } from '@orchestrator/orchestrator';
@@ -181,12 +181,12 @@ export async function createServer() {
 
   // Beta features
   await registerTeamsRoutes(fastify);
-  await registerTemplatesRoutes(fastify);
   await registerHealthRoutes(fastify);
   await fastify.register(schedulesRoutes);
   await fastify.register(memoryRoutes);
   await fastify.register(skillsRoutes);
   await fastify.register(modelPreferencesRoutes);
+  await fastify.register(providersRoutes);
   await fastify.register(connectorsRoutes);
   await fastify.register(knowledgeRoutes);
 

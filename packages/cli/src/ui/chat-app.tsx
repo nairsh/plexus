@@ -8,6 +8,7 @@ import {
   createInitialState,
   type ApprovalRequestState,
   type ChatScreenState,
+  type ClarificationRequestState,
   type TranscriptEntry,
   type WorkflowHistoryItem,
 } from './chat-state.js';
@@ -29,6 +30,7 @@ import {
 import { MarkdownMessage } from './markdown.js';
 import { SPECIAL_LOAD_WORKFLOW, SPECIAL_OPEN_CONTINUE, SPECIAL_SET_MODEL } from './chat-protocol.js';
 import { SelectionMenu } from './selection-menu.js';
+import { ClarificationMenu } from './clarification-menu.js';
 import { ASCII_LOGO, uiTheme } from './theme.js';
 
 type Action =
@@ -46,6 +48,7 @@ type Action =
   | { type: 'COMPLETE_SUBAGENT'; payload: { taskId: string; usageTokens?: number } }
   | { type: 'FAIL_SUBAGENT'; payload: { taskId: string; error?: string } }
   | { type: 'OPEN_APPROVAL_MENU'; payload: { request: ApprovalRequestState } }
+  | { type: 'OPEN_CLARIFICATION_MENU'; payload: { request: ClarificationRequestState } }
   | { type: 'ADD_USAGE_TOKENS'; payload: { tokens: number } }
   | { type: 'ANIMATE_TOKENS'; payload: { step: number } }
   | { type: 'COMPLETE_TURN'; payload: { text: string; credits?: number } }
@@ -380,6 +383,15 @@ const reducer = (state: ChatScreenState, action: Action): ChatScreenState => {
       return { ...state, menu: { type: 'continue', options: action.payload.workflows } };
     case 'OPEN_APPROVAL_MENU':
       return { ...state, menu: { type: 'approval', request: action.payload.request } };
+    case 'OPEN_CLARIFICATION_MENU':
+      return {
+        ...state,
+        busy: false,
+        menu: { type: 'clarification', request: action.payload.request },
+        thinkingText: '',
+        thinkingActive: false,
+        statusMessage: '',
+      };
     case 'CLOSE_MENU':
       return { ...state, menu: null };
     default:
@@ -985,6 +997,18 @@ const ChatInput = ({ disabled, currentModel, workflowId, menu, onSubmit, onMenuS
         ]}
         onSelect={(id) => onMenuSelect(id)}
         onCancel={() => onMenuSelect('deny')}
+      />
+    );
+  }
+
+  if (menu?.type === 'clarification') {
+    return (
+      <ClarificationMenu
+        question={menu.request.question}
+        options={menu.request.options}
+        allowCustom={menu.request.allowCustom}
+        onSelect={(value) => onMenuSelect(value)}
+        onSkip={() => onMenuSelect(null)}
       />
     );
   }

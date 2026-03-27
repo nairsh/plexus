@@ -93,11 +93,32 @@ export const runInteractiveChat = async (
       }
 
       if (currentWorkflowId) {
-        await streamWorkflow(currentWorkflowId, chatScreen, async (request: ApprovalRequestState) => {
-          const selection = await chatScreen.readMenuSelection(request);
-          const decision = (selection ?? 'deny') as ToolApprovalDecision;
-          resolveWorkflowApproval(currentWorkflowId!, request.id, decision);
-        });
+        // Stream the workflow and handle any clarification requests in a loop.
+        // When the workflow pauses for clarification, show the interactive UI,
+        // get the user's response, continue the workflow, and stream again.
+        let keepStreaming = true;
+        while (keepStreaming && currentWorkflowId) {
+          const streamResult = await streamWorkflow(currentWorkflowId, chatScreen, async (request: ApprovalRequestState) => {
+            const selection = await chatScreen.readMenuSelection(request);
+            const decision = (selection ?? 'deny') as ToolApprovalDecision;
+            resolveWorkflowApproval(currentWorkflowId!, request.id, decision);
+          });
+
+          if (streamResult.clarification) {
+            const response = await chatScreen.readClarification(streamResult.clarification);
+            if (response) {
+              chatScreen.beginUserTurn(response);
+              await continueWorkflow(currentWorkflowId, response);
+              // Loop to stream the resumed workflow
+            } else {
+              // User skipped the clarification — stop streaming and return to input
+              chatScreen.showSystem('Clarification skipped.', 'muted');
+              keepStreaming = false;
+            }
+          } else {
+            keepStreaming = false;
+          }
+        }
       }
     } catch (error) {
       chatScreen.failAssistantTurn(getErrorMessage(error, 'Interactive workflow failed'));

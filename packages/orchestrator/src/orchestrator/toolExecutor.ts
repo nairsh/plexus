@@ -466,12 +466,23 @@ export const executeOrchestratorToolCall = async (
       if (!question?.trim()) {
         return finish({ status: 'error', error: 'question is required' });
       }
+      const options = Array.isArray(args.options)
+        ? (args.options as Array<{ label: string; description?: string }>)
+        : undefined;
+      const allowCustom = args.allow_custom !== false;
+
       emitWorkflowEvent(state, {
         type: 'clarification_requested',
         workflow_id: state.id,
-        data: { question: question.trim() },
+        data: { question: question.trim(), options, allow_custom: allowCustom },
       });
-      return finish({ status: 'ok', clarification_question: question.trim(), pause_workflow: true });
+      return finish({
+        status: 'ok',
+        clarification_question: question.trim(),
+        options,
+        allow_custom: allowCustom,
+        pause_workflow: true,
+      });
     }
 
     case 'run_skill': {

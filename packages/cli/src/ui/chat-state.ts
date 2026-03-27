@@ -25,6 +25,17 @@ export interface ApprovalRequestState {
   command: string;
 }
 
+export interface ClarificationOption {
+  label: string;
+  description?: string;
+}
+
+export interface ClarificationRequestState {
+  question: string;
+  options?: ClarificationOption[];
+  allowCustom: boolean;
+}
+
 export type TranscriptEntry =
   | { id: string; type: 'user'; text: string }
   | { id: string; type: 'assistant'; text: string }
@@ -59,6 +70,7 @@ export type MenuState =
   | { type: 'model' }
   | { type: 'continue'; options: WorkflowHistoryItem[] }
   | { type: 'approval'; request: ApprovalRequestState }
+  | { type: 'clarification'; request: ClarificationRequestState }
   | null;
 
 export interface LoadedWorkflowState {
