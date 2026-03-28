@@ -243,6 +243,8 @@ export interface WorkflowConfig {
   human_approval?: boolean;
   context_files?: Array<{ filename: string; content_base64: string; media_type: string }>;
   background?: boolean;
+  /** Optional team ID — when set, team settings and shared context are applied to the workflow */
+  team_id?: string;
 }
 
 export type ConnectorProvider = 'github' | 'linear' | 'notion';

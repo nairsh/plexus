@@ -9,6 +9,7 @@ import {
 } from '@orchestrator/model-router';
 import {
   DEFAULT_TEMPERATURE,
+  getDb,
   ORCHESTRATOR_MAX_OUTPUT_TOKENS,
   WorkflowError,
   getErrorMessage,
@@ -264,6 +265,37 @@ export const callOrchestrator = async (
     modelBackend: runtimeContext.modelBackend,
   });
 
+  // Inject team shared instructions if workflow is associated with a team
+  let finalInstructions = instructions;
+  if (state.config.team_id) {
+    try {
+      const db = getDb();
+      const contexts = db
+        .prepare(
+          "SELECT content FROM team_shared_contexts WHERE team_id = ? AND content_type IN ('instructions', 'knowledge') ORDER BY created_at"
+        )
+        .all(state.config.team_id) as Array<{ content: string }>;
+      const teamRow = db
+        .prepare('SELECT settings FROM teams WHERE id = ?')
+        .get(state.config.team_id) as { settings: string } | undefined;
+
+      const teamInstructions: string[] = [];
+      if (teamRow) {
+        const settings = JSON.parse(teamRow.settings) as Record<string, unknown>;
+        if (typeof settings.shared_instructions === 'string' && settings.shared_instructions.trim()) {
+          teamInstructions.push(settings.shared_instructions);
+        }
+      }
+      teamInstructions.push(...contexts.map((c) => c.content));
+
+      if (teamInstructions.length > 0) {
+        finalInstructions = `${instructions}\n\n## Team Context\n\n${teamInstructions.join('\n\n---\n\n')}`;
+      }
+    } catch (err) {
+      logger.warn({ workflowId: state.id, teamId: state.config.team_id, error: getErrorMessage(err) }, 'Failed to load team instructions');
+    }
+  }
+
   const rawOutput: OutputBlock[] = [];
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
@@ -272,7 +304,7 @@ export const callOrchestrator = async (
   for await (const chunk of routeStreamingRequest({
     model: state.orchestratorModel,
     input: trimMessagesForContext(state.messages),
-    instructions,
+    instructions: finalInstructions,
     tools: ORCHESTRATOR_TOOLS,
     tool_execution: 'manual',
     max_output_tokens: ORCHESTRATOR_MAX_OUTPUT_TOKENS,
@@ -420,7 +452,34 @@ export const runWorkflow = async (
 ): Promise<{ workflowId: string; output: string; status: WorkflowStatus }> => {
   const isContinuing = !!workflowId && workflows.has(workflowId);
   const id = workflowId ?? crypto.randomUUID();
-  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator, userId);
+
+  // Apply team settings to workflow config if team_id is set
+  let effectiveConfig = config;
+  if (config.team_id && !isContinuing) {
+    try {
+      const db = getDb();
+      const teamRow = db.prepare('SELECT settings FROM teams WHERE id = ?').get(config.team_id) as { settings: string } | undefined;
+      if (teamRow) {
+        const teamSettings = JSON.parse(teamRow.settings) as Record<string, unknown>;
+        const teamModelOverrides = (teamSettings.shared_model_overrides ?? {}) as Record<string, string>;
+        effectiveConfig = {
+          ...config,
+          model_overrides: {
+            ...teamModelOverrides,
+            ...(config.model_overrides ?? {}), // workflow config takes precedence
+          },
+          human_approval: teamSettings.require_approval_for_bash === true ? true : config.human_approval,
+          max_credits: teamSettings.max_credits_per_workflow != null
+            ? Math.min(teamSettings.max_credits_per_workflow as number, config.max_credits ?? Infinity)
+            : config.max_credits,
+        };
+      }
+    } catch (err) {
+      logger.warn({ workflowId: id, teamId: config.team_id, error: getErrorMessage(err) }, 'Failed to apply team settings');
+    }
+  }
+
+  const orchestratorModel = resolveOrchestratorModel(effectiveConfig.orchestrator_model ?? effectiveConfig.model_overrides?.orchestrator, userId);
 
   let state: WorkflowState;
 
@@ -440,11 +499,11 @@ export const runWorkflow = async (
         throw new WorkflowError(`Cannot run workflow in status: ${state.status}`);
       }
     } else {
-      insertWorkflow(id, userId, config, orchestratorModel);
+      insertWorkflow(id, userId, effectiveConfig, orchestratorModel);
       state = createWorkflowState({
         id,
         userId,
-        config,
+        config: effectiveConfig,
         orchestratorModel,
         status: 'executing',
       });
@@ -454,7 +513,7 @@ export const runWorkflow = async (
 
   // Inject relevant memories from past sessions
   try {
-    const memories = recallMemory(userId, config.objective, 10);
+    const memories = recallMemory(userId, effectiveConfig.objective, 10);
     if (memories.length > 0) {
       const memoryLines = memories.map((m) => `- [${m.category}/${m.key}]: ${m.content}`).join('\n');
       const memoryContext = `\n\n## Relevant Memory from Past Sessions\n${memoryLines}\n`;
@@ -466,9 +525,9 @@ export const runWorkflow = async (
   }
 
   // Inject context_files — decode base64 files and attach as context
-  if (!isContinuing && config.context_files && config.context_files.length > 0) {
+  if (!isContinuing && effectiveConfig.context_files && effectiveConfig.context_files.length > 0) {
     try {
-      const fileTexts = config.context_files.flatMap((f) => {
+      const fileTexts = effectiveConfig.context_files.flatMap((f) => {
         try {
           const content = Buffer.from(f.content_base64, 'base64').toString('utf-8');
           // Only inject text-like files; skip binary content

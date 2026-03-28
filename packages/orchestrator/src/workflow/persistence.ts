@@ -167,15 +167,16 @@ export const insertWorkflow = (
     ...(config.working_directory ? { working_directory: normalizeWorkingDirectory(config.working_directory) } : {}),
   };
   db.prepare(
-    `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at)
-     VALUES (?, ?, ?, ?, ?, 'executing', ?, datetime('now'))`
+    `INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, team_id, started_at)
+     VALUES (?, ?, ?, ?, ?, 'executing', ?, ?, datetime('now'))`
   ).run(
     workflowId,
     userId,
     normalizedConfig.objective,
     normalizedConfig.objective,
     orchestratorModel,
-    JSON.stringify(normalizedConfig)
+    JSON.stringify(normalizedConfig),
+    normalizedConfig.team_id ?? null
   );
 };
 

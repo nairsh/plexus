@@ -684,6 +684,14 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_templates_public_user ON workflow_templates(is_public, created_by);
   `);
 
+  // Add team_id to workflows (nullable FK to teams)
+  try {
+    getDb().exec(`ALTER TABLE workflows ADD COLUMN team_id TEXT REFERENCES teams(id)`);
+    logger.info('Added team_id column to workflows');
+  } catch {
+    // Column already exists — expected on subsequent runs
+  }
+
   logger.info('Database migrations completed');
 }
 
