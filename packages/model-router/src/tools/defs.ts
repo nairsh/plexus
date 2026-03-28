@@ -37,6 +37,9 @@ export const BUILTIN_TOOL_NAMES = new Set<BuiltinToolName>([
   'remember',
   'recall',
   'search_knowledge',
+  'github_api',
+  'linear_api',
+  'notion_api',
 ]);
 
 export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinition>([
@@ -288,6 +291,59 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
           limit: { type: 'number', description: 'Maximum number of results to return (default: 5)' },
         },
         required: ['query'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'github_api',
+    {
+      name: 'github_api',
+      description:
+        'Call the GitHub REST API using the user\'s connected GitHub account. Supports any GitHub API endpoint. Use for creating issues, listing repos, managing PRs, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], description: 'HTTP method' },
+          endpoint: { type: 'string', description: 'API endpoint path (e.g. /repos/owner/repo/issues)' },
+          body: { type: 'object', description: 'Request body for POST/PUT/PATCH requests' },
+        },
+        required: ['method', 'endpoint'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'linear_api',
+    {
+      name: 'linear_api',
+      description:
+        'Query the Linear GraphQL API using the user\'s connected Linear account. Use for creating issues, listing projects, managing cycles, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'GraphQL query string' },
+          variables: { type: 'object', description: 'GraphQL variables' },
+        },
+        required: ['query'],
+      },
+      cost: 0,
+    },
+  ],
+  [
+    'notion_api',
+    {
+      name: 'notion_api',
+      description:
+        'Call the Notion API using the user\'s connected Notion account. Use for searching pages, querying databases, creating pages, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'DELETE'], description: 'HTTP method' },
+          endpoint: { type: 'string', description: 'API endpoint path (e.g. /v1/search, /v1/pages)' },
+          body: { type: 'object', description: 'Request body for POST/PATCH requests' },
+        },
+        required: ['method', 'endpoint'],
       },
       cost: 0,
     },

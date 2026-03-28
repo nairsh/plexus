@@ -20,6 +20,7 @@ import { getOpenTerminalSessionForChat } from './workspaceAccess.js';
 import { CANONICAL_TOOL_DEFS } from './defs.js';
 import { requestCommandApproval } from './approval.js';
 import { getFolderApprovalReason } from './folderScope.js';
+import { executeGitHubApi, executeLinearApi, executeNotionApi } from './connectorTools.js';
 import type { ToolCallResult } from './defs.js';
 
 const FILE_CONTEXT_ERROR = {
@@ -339,6 +340,34 @@ export const executeToolCall = async (
       }));
       await traceToolResult(request, name, { query, limit }, result);
       return { output: JSON.stringify({ results: result, count: result.length }), cost: 0 };
+    }
+
+    // ── Connector tools ──
+    if (name === 'github_api') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for GitHub API' }), cost: 0 };
+      await traceToolCall(request, name, args);
+      const result = await executeGitHubApi(userId, args);
+      await traceToolResult(request, name, args, result);
+      return { output: result, cost: 0 };
+    }
+
+    if (name === 'linear_api') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for Linear API' }), cost: 0 };
+      await traceToolCall(request, name, args);
+      const result = await executeLinearApi(userId, args);
+      await traceToolResult(request, name, args, result);
+      return { output: result, cost: 0 };
+    }
+
+    if (name === 'notion_api') {
+      const userId = request.user_id;
+      if (!userId) return { output: JSON.stringify({ error: 'user_id required for Notion API' }), cost: 0 };
+      await traceToolCall(request, name, args);
+      const result = await executeNotionApi(userId, args);
+      await traceToolResult(request, name, args, result);
+      return { output: result, cost: 0 };
     }
 
     return { output: JSON.stringify({ error: `Unknown tool: ${name}` }), cost: 0 };

@@ -5,6 +5,7 @@ import {
   completeConnectorOAuth,
   disconnectConnectorForUser,
   getConnectorForUser,
+  getConnectorCredentials,
   listConnectorsForUser,
   listConnectorProviders,
   validateConnectorForUser,
@@ -138,6 +139,74 @@ export async function connectorsRoutes(fastify: FastifyInstance): Promise<void> 
     disconnectConnectorForUser(request.user!.id, request.params.id);
     return { disconnected: true, id: request.params.id };
   });
+
+  // Proxy endpoint for making authenticated API calls via connectors
+  const ProxyRequestSchema = z.object({
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+    endpoint: z.string(),
+    body: z.any().optional(),
+    headers: z.record(z.string()).optional(),
+  });
+
+  fastify.post(
+    '/v1/connectors/:id/proxy',
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const parsed = ProxyRequestSchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw new InvalidRequestError('Invalid proxy request', 'validation_error');
+      }
+
+      const connector = getConnectorForUser(request.user!.id, request.params.id);
+      if (!connector) {
+        throw new InvalidRequestError('Connector not found', 'not_found');
+      }
+
+      const credentials = getConnectorCredentials(request.user!.id, request.params.id);
+      if (!credentials) {
+        throw new InvalidRequestError('Could not decrypt credentials', 'credentials_error');
+      }
+
+      const { method, endpoint, body, headers: extraHeaders } = parsed.data;
+
+      let baseUrl: string;
+      const reqHeaders: Record<string, string> = {
+        Authorization: `Bearer ${credentials.access_token}`,
+        ...extraHeaders,
+      };
+
+      switch (connector.provider) {
+        case 'github':
+          baseUrl = 'https://api.github.com';
+          reqHeaders['Accept'] = 'application/vnd.github+json';
+          reqHeaders['X-GitHub-Api-Version'] = '2022-11-28';
+          break;
+        case 'linear':
+          baseUrl = 'https://api.linear.app';
+          reqHeaders['Content-Type'] = 'application/json';
+          break;
+        case 'notion':
+          baseUrl = 'https://api.notion.com';
+          reqHeaders['Notion-Version'] = '2022-06-28';
+          reqHeaders['Content-Type'] = 'application/json';
+          break;
+        default:
+          throw new InvalidRequestError(`Unknown provider: ${connector.provider}`, 'validation_error');
+      }
+
+      const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+      const response = await fetch(url, {
+        method,
+        headers: reqHeaders,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      const responseData = await response.json().catch(() => response.text());
+      return {
+        status: response.status,
+        data: responseData,
+      };
+    }
+  );
 
   fastify.post(
     '/v1/workflows/:id/bash-approvals/:approvalId',

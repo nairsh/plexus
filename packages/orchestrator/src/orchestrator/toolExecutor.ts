@@ -29,6 +29,9 @@ const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
   'grep',
   'glob',
   'search_knowledge',
+  'github_api',
+  'linear_api',
+  'notion_api',
 ]);
 const WORKSPACE_ORCHESTRATOR_TOOLS = new Set(['bash', 'file_read', 'file_write', 'file_edit', 'grep', 'glob']);
 

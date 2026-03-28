@@ -132,7 +132,10 @@ export interface Tool {
     | 'run_skill'
     | 'remember'
     | 'recall'
-    | 'search_knowledge';
+    | 'search_knowledge'
+    | 'github_api'
+    | 'linear_api'
+    | 'notion_api';
   function?: { name: string; description: string; parameters: object };
 }
 
