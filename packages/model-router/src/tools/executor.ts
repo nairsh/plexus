@@ -1,7 +1,7 @@
 /**
  * Tool call executor — dispatches tool invocations to their implementations.
  */
-import { getErrorMessage, logger } from '@orchestrator/shared';
+import { getErrorMessage, logger, registerFileInIndex } from '@orchestrator/shared';
 import type { AgentRequest, OutputBlock } from '@orchestrator/shared';
 import type { ToolApprovalDecision } from '@orchestrator/shared';
 import { saveMemory, recallMemory } from '@orchestrator/memory';
@@ -210,6 +210,12 @@ export const executeToolCall = async (
           String(args['filePath'] ?? ''),
           String(args['content'] ?? '')
         );
+        // Register in file index for day-grouped Files page
+        if (request.user_id && request.trace?.workflow_id) {
+          try {
+            registerFileInIndex(request.user_id, request.trace.workflow_id, String(args['filePath'] ?? ''), result.bytes_written);
+          } catch { /* non-critical */ }
+        }
         outputBlocks.push({ type: 'file_write_result', result });
         await traceToolResult(request, name, { filePath: args['filePath'] }, result);
         return { output: JSON.stringify(result), cost: CANONICAL_TOOL_DEFS.get('file_write')!.cost };

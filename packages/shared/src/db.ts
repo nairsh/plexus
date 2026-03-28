@@ -692,7 +692,81 @@ export function runMigrations(): void {
     // Column already exists — expected on subsequent runs
   }
 
+  // File index for cross-workflow file listing grouped by day
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS file_index (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      extension TEXT,
+      size_bytes INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, workflow_id, file_path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_index_user_date ON file_index(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_file_index_workflow ON file_index(workflow_id);
+  `);
+
   logger.info('Database migrations completed');
+}
+
+// ── File Index ───────────────────────────────────────────────────────────────
+
+export interface FileIndexEntry {
+  id: number;
+  user_id: string;
+  workflow_id: string;
+  file_path: string;
+  file_name: string;
+  extension: string | null;
+  size_bytes: number;
+  created_at: string;
+}
+
+export interface FileIndexDayGroup {
+  date: string;
+  files: (FileIndexEntry & { workflow_objective?: string })[];
+}
+
+export function registerFileInIndex(
+  userId: string,
+  workflowId: string,
+  filePath: string,
+  sizeBytes: number = 0,
+): void {
+  const parts = filePath.split('/');
+  const fileName = parts[parts.length - 1] || filePath;
+  const dotIdx = fileName.lastIndexOf('.');
+  const extension = dotIdx > 0 ? fileName.slice(dotIdx + 1).toLowerCase() : null;
+
+  getDb().prepare(`
+    INSERT OR REPLACE INTO file_index (user_id, workflow_id, file_path, file_name, extension, size_bytes, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(userId, workflowId, filePath, fileName, extension, sizeBytes);
+}
+
+export function listFilesByDay(userId: string, limit: number = 200): FileIndexDayGroup[] {
+  const rows = getDb().prepare(`
+    SELECT f.id, f.user_id, f.workflow_id, f.file_path, f.file_name, f.extension, f.size_bytes, f.created_at,
+           w.objective as workflow_objective
+    FROM file_index f
+    LEFT JOIN workflows w ON f.workflow_id = w.id
+    WHERE f.user_id = ?
+    ORDER BY f.created_at DESC
+    LIMIT ?
+  `).all(userId, limit) as (FileIndexEntry & { workflow_objective?: string })[];
+
+  const groups = new Map<string, (FileIndexEntry & { workflow_objective?: string })[]>();
+  for (const row of rows) {
+    const date = row.created_at.slice(0, 10); // YYYY-MM-DD
+    const group = groups.get(date) ?? [];
+    group.push(row);
+    groups.set(date, group);
+  }
+
+  return Array.from(groups.entries()).map(([date, files]) => ({ date, files }));
 }
 
 export function closeDb(): void {
