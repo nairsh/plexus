@@ -397,6 +397,17 @@ export const callOrchestrator = async (
 
   if (reasoningText) {
     rawOutput.push({ type: 'reasoning', content: reasoningText });
+    
+    // Record streaming reasoning to database for persistence
+    recordStep(state, {
+      step_type: 'orchestrator_thinking',
+      model_name: actualModel,
+      message_content: reasoningText,
+      tool_name: null,
+      tool_input: { iteration, mode: 'stream' },
+      tool_output: null,
+      subagent_id: 'orchestrator',
+    });
   }
 
   const parsedText = parseStructuredOutputText(responseText);
@@ -409,6 +420,17 @@ export const callOrchestrator = async (
         iteration,
         mode: 'response',
       },
+    });
+    
+    // Record thinking to database for persistence
+    recordStep(state, {
+      step_type: 'orchestrator_thinking',
+      model_name: actualModel,
+      message_content: parsedText.thinking,
+      tool_name: null,
+      tool_input: { iteration, mode: 'response' },
+      tool_output: null,
+      subagent_id: 'orchestrator',
     });
   }
 

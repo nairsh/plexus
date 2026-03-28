@@ -401,7 +401,8 @@ export type WorkflowStepType =
   | 'subagent_message'
   | 'subagent_tool_call'
   | 'subagent_tool_result'
-  | 'system_event';
+  | 'system_event'
+  | 'orchestrator_thinking';
 
 export interface WorkflowTraceStep {
   step_id: string;

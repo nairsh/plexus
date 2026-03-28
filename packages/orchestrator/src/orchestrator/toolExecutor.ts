@@ -76,6 +76,23 @@ const buildToolDisplayInput = (
             )
           : args.todo_ids,
       };
+    case 'create_team':
+      return {
+        team_name: args.team_name,
+        purpose: args.purpose,
+        roles: Array.isArray(args.roles) ? (args.roles as Array<{name: string}>).map(r => r.name).join(', ') : args.roles,
+      };
+    case 'message_teammate':
+      return {
+        team_name: args.team_name,
+        to: args.to,
+        message: typeof args.message === 'string' ? args.message.slice(0, 200) : args.message,
+        priority: args.priority,
+      };
+    case 'check_team_status':
+      return { team_name: args.team_name };
+    case 'dissolve_team':
+      return { team_name: args.team_name, summary: args.summary };
     default:
       return args;
   }

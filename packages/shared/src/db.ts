@@ -175,7 +175,7 @@ export function runMigrations(): void {
       workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
       step_id TEXT NOT NULL,
       timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      step_type TEXT NOT NULL CHECK (step_type IN ('orchestrator_message','tool_call','tool_result','subagent_spawn','subagent_message','subagent_tool_call','subagent_tool_result','system_event')),
+      step_type TEXT NOT NULL CHECK (step_type IN ('orchestrator_message','tool_call','tool_result','subagent_spawn','subagent_message','subagent_tool_call','subagent_tool_result','system_event','orchestrator_thinking')),
       model_name TEXT,
       message_content TEXT,
       tool_name TEXT,
@@ -471,7 +471,7 @@ export function runMigrations(): void {
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       content TEXT NOT NULL,
-      content_type TEXT NOT NULL DEFAULT 'knowledge' CHECK (content_type IN ('instructions', 'knowledge', 'template')),
+      content_type TEXT NOT NULL DEFAULT 'knowledge' CHECK (content_type IN ('instructions', 'knowledge', 'template', 'shared_instructions', 'message')),
       created_by TEXT NOT NULL REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -690,6 +690,34 @@ export function runMigrations(): void {
     logger.info('Added team_id column to workflows');
   } catch {
     // Column already exists — expected on subsequent runs
+  }
+
+  // Migrate team_shared_contexts to support 'shared_instructions' and 'message' content types
+  try {
+    const hasOldConstraint = getDb()
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='team_shared_contexts'`)
+      .get() as { sql: string } | undefined;
+
+    if (hasOldConstraint?.sql && !hasOldConstraint.sql.includes('shared_instructions')) {
+      getDb().exec(`
+        CREATE TABLE IF NOT EXISTS team_shared_contexts_new (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          content_type TEXT NOT NULL DEFAULT 'knowledge' CHECK (content_type IN ('instructions', 'knowledge', 'template', 'shared_instructions', 'message')),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO team_shared_contexts_new SELECT * FROM team_shared_contexts;
+        DROP TABLE team_shared_contexts;
+        ALTER TABLE team_shared_contexts_new RENAME TO team_shared_contexts;
+      `);
+      logger.info('Migrated team_shared_contexts CHECK constraint');
+    }
+  } catch (e) {
+    logger.warn(`team_shared_contexts migration skipped: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // File index for cross-workflow file listing grouped by day
