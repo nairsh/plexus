@@ -1,4 +1,5 @@
 import type { AgentType } from '@orchestrator/shared';
+import { getDb } from '@orchestrator/shared';
 import {
   createWorkItem,
   getWorkItem,
@@ -18,6 +19,7 @@ import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { buildDisplayDescription } from './displayLabel.js';
 import { normalizeWorkingDirectory } from '../folderScope.js';
+import { randomUUID } from 'crypto';
 
 const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
   'web_search',
@@ -469,9 +471,36 @@ export const executeOrchestratorToolCall = async (
       if (!question?.trim()) {
         return finish({ status: 'error', error: 'question is required' });
       }
+      
+      // Validate options
       const options = Array.isArray(args.options)
         ? (args.options as Array<{ label: string; description?: string }>)
         : undefined;
+        
+      if (!options || options.length < 2) {
+        return finish({ 
+          status: 'error', 
+          error: 'At least 2 options are required. Provide 2-3 predefined options for the user to choose from.' 
+        });
+      }
+      
+      if (options.length > 3) {
+        return finish({ 
+          status: 'error', 
+          error: 'Maximum 3 options allowed. Please limit to 2-3 predefined options.' 
+        });
+      }
+      
+      // Validate each option has a label
+      for (const opt of options) {
+        if (!opt.label || typeof opt.label !== 'string' || !opt.label.trim()) {
+          return finish({ 
+            status: 'error', 
+            error: 'All options must have a non-empty label.' 
+          });
+        }
+      }
+      
       const allowCustom = args.allow_custom !== false;
 
       emitWorkflowEvent(state, {
@@ -505,6 +534,170 @@ export const executeOrchestratorToolCall = async (
         skill_activated: skillId,
         skill_name: skill.name,
         instructions: skill.prompt_addendum ?? null,
+      });
+    }
+
+    case 'create_team': {
+      const teamName = args.team_name as string;
+      const purpose = args.purpose as string;
+      const roles = args.roles as Array<{ name: string; description: string }>;
+
+      if (!teamName?.trim() || !purpose?.trim() || !roles?.length) {
+        return finish({ status: 'error', error: 'team_name, purpose, and roles are required' });
+      }
+
+      const teamId = randomUUID();
+      const db = getDb();
+      const settings = { purpose, workflow_id: state.id };
+
+      db.prepare(`INSERT INTO teams (id, name, owner_id, settings) VALUES (?, ?, ?, ?)`).run(
+        teamId, teamName.trim(), state.userId, JSON.stringify(settings)
+      );
+
+      // Add the orchestrator as owner member
+      db.prepare(`INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'owner')`).run(
+        teamId, state.userId
+      );
+
+      // Register each role as a shared context so teammates know their assignments
+      for (const role of roles) {
+        const contextId = randomUUID();
+        db.prepare(`INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'shared_instructions', ?)`).run(
+          contextId, teamId, `role:${role.name}`, role.description, state.userId
+        );
+      }
+
+      emitWorkflowEvent(state, {
+        type: 'team_created',
+        workflow_id: state.id,
+        data: {
+          team_id: teamId,
+          team_name: teamName,
+          purpose,
+          roles: roles.map(r => r.name),
+        },
+      });
+
+      return finish({
+        status: 'ok',
+        team_id: teamId,
+        team_name: teamName,
+        purpose,
+        roles: roles.map(r => ({ name: r.name, description: r.description })),
+        member_count: 1,
+      });
+    }
+
+    case 'message_teammate': {
+      const teamName = args.team_name as string;
+      const to = args.to as string;
+      const message = args.message as string;
+      const priority = (args.priority as string) ?? 'normal';
+
+      if (!teamName?.trim() || !to?.trim() || !message?.trim()) {
+        return finish({ status: 'error', error: 'team_name, to, and message are required' });
+      }
+
+      const db = getDb();
+      const team = db.prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string } | undefined;
+      if (!team) {
+        return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
+      }
+
+      // Store message as a shared context (message inbox pattern)
+      const msgId = randomUUID();
+      const msgContent = JSON.stringify({
+        from: 'orchestrator',
+        to,
+        message: message.trim(),
+        priority,
+        sent_at: new Date().toISOString(),
+        workflow_id: state.id,
+      });
+
+      db.prepare(`INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'message', ?)`).run(
+        msgId, team.id, `msg:${to}:${Date.now()}`, msgContent, state.userId
+      );
+
+      emitWorkflowEvent(state, {
+        type: 'team_message_sent',
+        workflow_id: state.id,
+        data: { team_name: teamName, to, priority, preview: message.trim().slice(0, 120) },
+      });
+
+      return finish({ status: 'ok', message_id: msgId, team_name: teamName, to, priority });
+    }
+
+    case 'check_team_status': {
+      const teamName = args.team_name as string;
+      if (!teamName?.trim()) {
+        return finish({ status: 'error', error: 'team_name is required' });
+      }
+
+      const db = getDb();
+      const team = db.prepare(`SELECT id, name, settings FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string; settings: string } | undefined;
+      if (!team) {
+        return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
+      }
+
+      const members = db.prepare(`SELECT user_id, role FROM team_members WHERE team_id = ?`).all(team.id) as Array<{ user_id: string; role: string }>;
+      const contexts = db.prepare(`SELECT name, content_type, created_at FROM team_shared_contexts WHERE team_id = ? ORDER BY created_at DESC LIMIT 20`).all(team.id) as Array<{ name: string; content_type: string; created_at: string }>;
+
+      const roles = contexts.filter(c => c.name.startsWith('role:')).map(c => c.name.replace('role:', ''));
+      const messages = contexts.filter(c => c.content_type === 'message');
+      const settings = JSON.parse(team.settings || '{}');
+
+      return finish({
+        status: 'ok',
+        team_name: teamName,
+        team_id: team.id,
+        purpose: settings.purpose ?? '',
+        member_count: members.length,
+        roles,
+        pending_messages: messages.length,
+        recent_activity: contexts.slice(0, 5).map(c => ({
+          type: c.content_type,
+          name: c.name,
+          at: c.created_at,
+        })),
+      });
+    }
+
+    case 'dissolve_team': {
+      const teamName = args.team_name as string;
+      const summary = args.summary as string;
+
+      if (!teamName?.trim()) {
+        return finish({ status: 'error', error: 'team_name is required' });
+      }
+
+      const db = getDb();
+      const team = db.prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string } | undefined;
+      if (!team) {
+        return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
+      }
+
+      // Collect final outputs before dissolution
+      const contexts = db.prepare(`SELECT name, content, content_type FROM team_shared_contexts WHERE team_id = ?`).all(team.id) as Array<{ name: string; content: string; content_type: string }>;
+      const roles = contexts.filter(c => c.name.startsWith('role:')).map(c => c.name.replace('role:', ''));
+
+      // Clean up: delete contexts, members, then team
+      db.prepare(`DELETE FROM team_shared_contexts WHERE team_id = ?`).run(team.id);
+      db.prepare(`DELETE FROM team_members WHERE team_id = ?`).run(team.id);
+      db.prepare(`DELETE FROM teams WHERE id = ?`).run(team.id);
+
+      emitWorkflowEvent(state, {
+        type: 'team_dissolved',
+        workflow_id: state.id,
+        data: { team_name: teamName, summary: summary ?? 'Team dissolved', roles },
+      });
+
+      return finish({
+        status: 'ok',
+        team_name: teamName,
+        dissolved: true,
+        roles_dissolved: roles,
+        summary: summary ?? 'Team work complete',
       });
     }
 

@@ -136,7 +136,7 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
     function: {
       name: 'request_clarification',
       description:
-        'Pause the workflow and ask the user for clarification when the request is ambiguous or missing critical information. Supports predefined options for structured questions. The workflow will resume when the user provides the clarification.',
+        'Pause the workflow and ask the user for clarification when the request is ambiguous or missing critical information. MUST provide 2-3 predefined options for the user to select from, plus an optional custom input option. The workflow will resume when the user provides the clarification.',
       parameters: {
         type: 'object',
         properties: {
@@ -154,16 +154,18 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
               },
               required: ['label'],
             },
+            minItems: 2,
+            maxItems: 3,
             description:
-              'Predefined answer options the user can select from. If omitted, user provides a free-text response.',
+              'REQUIRED: 2-3 predefined answer options the user can select from. Must provide at least 2 options.',
           },
           allow_custom: {
             type: 'boolean',
             description:
-              'Whether to allow a custom free-text response in addition to predefined options. Defaults to true.',
+              'Whether to allow a custom free-text response as an additional option. Defaults to true. When true, adds a "Other (specify)" option at the end.',
           },
         },
-        required: ['question'],
+        required: ['question', 'options'],
       },
     },
   },
@@ -183,6 +185,87 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
           },
         },
         required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_team',
+      description:
+        'Create an agent team for parallel collaborative work. The team is ephemeral — it exists only for this workflow. Define a purpose and roles, then assign tasks to teammates who work independently and communicate peer-to-peer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Short name for this team (e.g. "research-squad", "content-pipeline")' },
+          purpose: { type: 'string', description: 'What this team is assembled to accomplish' },
+          roles: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Role name (e.g. "researcher", "writer", "reviewer")' },
+                description: { type: 'string', description: 'What this role is responsible for' },
+              },
+              required: ['name', 'description'],
+            },
+            description: 'The roles needed on this team (2-6 roles)',
+          },
+        },
+        required: ['team_name', 'purpose', 'roles'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'message_teammate',
+      description:
+        'Send an async message to a teammate. Use this to assign work, share context, or relay results between agents. The teammate will process the message in their own context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Name of the team' },
+          to: { type: 'string', description: 'Role name of the recipient teammate' },
+          message: { type: 'string', description: 'The message content — task assignment, context, or results' },
+          priority: {
+            type: 'string',
+            enum: ['normal', 'urgent'],
+            description: 'Message priority. Defaults to normal.',
+          },
+        },
+        required: ['team_name', 'to', 'message'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_team_status',
+      description:
+        'Check the current status of all teammates in a team — who is working, who has finished, and any messages waiting.',
+      parameters: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Name of the team to check' },
+        },
+        required: ['team_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'dissolve_team',
+      description:
+        'Dissolve a team after its work is complete. Collects final outputs from all teammates and cleans up resources. Always dissolve teams when done.',
+      parameters: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Name of the team to dissolve' },
+          summary: { type: 'string', description: 'Brief summary of what the team accomplished' },
+        },
+        required: ['team_name'],
       },
     },
   },

@@ -365,7 +365,10 @@ export interface WorkflowEvent {
     | 'subagent_tool_result'
     | 'bash_approval_requested'
     | 'clarification_requested'
-    | 'workflow_progress';
+    | 'workflow_progress'
+    | 'team_created'
+    | 'team_message_sent'
+    | 'team_dissolved';
   workflow_id: string;
   task_id?: string;
   data: unknown;

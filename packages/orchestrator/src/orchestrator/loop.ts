@@ -657,6 +657,8 @@ export const runWorkflow = async (
       const toolResults: Array<Record<string, unknown>> = [];
       let explicitOutput: string | null = null;
       let clarificationQuestion: string | null = null;
+      let clarificationOptions: Array<{ label: string; description?: string }> | undefined;
+      let clarificationAllowCustom: boolean = true;
 
       for (const call of toolCalls) {
         const result = await executeOrchestratorToolCall(state, call);
@@ -668,6 +670,8 @@ export const runWorkflow = async (
 
         if (result.pause_workflow === true && typeof result.clarification_question === 'string') {
           clarificationQuestion = result.clarification_question;
+          clarificationOptions = result.options as Array<{ label: string; description?: string }> | undefined;
+          clarificationAllowCustom = result.allow_custom !== false;
         }
       }
 
@@ -677,6 +681,16 @@ export const runWorkflow = async (
         state.messages.push({ role: 'user', content: resultsMessage });
         state.status = 'paused';
         persistWorkflowStatus(id, 'paused', clarificationQuestion);
+        // Emit event with options and allow_custom
+        emitWorkflowEvent(state, {
+          type: 'clarification_requested',
+          workflow_id: state.id,
+          data: { 
+            question: clarificationQuestion, 
+            options: clarificationOptions, 
+            allow_custom: clarificationAllowCustom 
+          },
+        });
         return { workflowId: id, output: clarificationQuestion, status: 'paused' };
       }
 

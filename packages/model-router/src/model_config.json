@@ -8,7 +8,8 @@
     "litellm/ali/qwen3.5-plus",
     "litellm/gemini-3-flash-preview",
     "litellm/gemini-3.1-flash-lite-preview",
-    "litellm/gemini-3.1-pro-preview"
+    "litellm/gemini-3.1-pro-preview",
+    "litellm/firework/kimi-k2p5-turbo"
   ],
   "subagent_models": {},
   "agent_models": {},
