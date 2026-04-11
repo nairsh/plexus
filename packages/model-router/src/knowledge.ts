@@ -1,7 +1,7 @@
 import { TextDecoder } from 'node:util';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PDFParse } from 'pdf-parse';
-import { getDb, getEnv, getErrorMessage, InvalidRequestError, logger } from '@orchestrator/shared';
+import { getDb, getEnv, getErrorMessage, InvalidRequestError, logger, cosineSimilarity } from '@orchestrator/shared';
 import type { KnowledgeChunk, KnowledgeDocument } from '@orchestrator/shared';
 
 export interface KnowledgeUploadInput {
@@ -129,7 +129,7 @@ const extractPdfText = async (buffer: Buffer): Promise<string> => {
 
 const hasGoogleAI = (): boolean => Boolean(getEnv().GOOGLE_AI_API_KEY);
 
-const hasEmbeddingProvider = (userId: string): boolean => {
+export const hasEmbeddingProvider = (userId: string): boolean => {
   if (hasGoogleAI()) return true;
   return getUserEmbeddingConfig(userId) !== null;
 };
@@ -217,7 +217,7 @@ const embedChunkOpenAI = async (text: string, config: UserEmbeddingConfig): Prom
   return values.filter((v: unknown): v is number => typeof v === 'number');
 };
 
-const embedChunk = async (text: string, userId?: string): Promise<number[]> => {
+export const embedChunk = async (text: string, userId?: string): Promise<number[]> => {
   // If a user has configured a custom embedding provider, use it
   if (userId) {
     const userConfig = getUserEmbeddingConfig(userId);
@@ -237,22 +237,13 @@ const embedChunk = async (text: string, userId?: string): Promise<number[]> => {
   return values.filter((value: unknown): value is number => typeof value === 'number');
 };
 
-const cosineSimilarity = (left: number[], right: number[]): number => {
-  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
-    return -1;
+/** Return the embedding model identifier for a user (custom provider or default). */
+export const getEmbeddingModelId = (userId?: string): string => {
+  if (userId) {
+    const config = getUserEmbeddingConfig(userId);
+    if (config) return config.model;
   }
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    const l = left[index] ?? 0;
-    const r = right[index] ?? 0;
-    dot += l * r;
-    leftNorm += l * l;
-    rightNorm += r * r;
-  }
-  if (leftNorm === 0 || rightNorm === 0) return -1;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+  return getEnv().GOOGLE_EMBEDDING_MODEL;
 };
 
 const parseDocumentRow = (row: Record<string, unknown>): KnowledgeDocument => ({

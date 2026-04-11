@@ -68,6 +68,60 @@ describe('schema validation edge cases', () => {
     expect(valid.success).toBe(true);
   });
 
+  test('WorkflowConfigSchema rejects webhook_secret without callback_url', async () => {
+    const { WorkflowConfigSchema } = await import('@orchestrator/shared');
+    const result = WorkflowConfigSchema.safeParse({
+      objective: 'test',
+      webhook_secret: 'my-secret-key',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.errors.map((e) => e.path.join('.'));
+      expect(paths).toContain('callback_url');
+      expect(result.error.errors[0]?.message).toContain('callback_url is required');
+    }
+  });
+
+  test('WorkflowConfigSchema accepts webhook_secret with callback_url', async () => {
+    const { WorkflowConfigSchema } = await import('@orchestrator/shared');
+    const result = WorkflowConfigSchema.safeParse({
+      objective: 'test',
+      webhook_secret: 'my-secret-key',
+      callback_url: 'https://example.com/webhook',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.webhook_secret).toBe('my-secret-key');
+    expect(result.data?.callback_url).toBe('https://example.com/webhook');
+  });
+
+  test('WorkflowConfigSchema accepts callback_url without webhook_secret', async () => {
+    const { WorkflowConfigSchema } = await import('@orchestrator/shared');
+    const result = WorkflowConfigSchema.safeParse({
+      objective: 'test',
+      callback_url: 'https://example.com/webhook',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.webhook_secret).toBeUndefined();
+  });
+
+  test('WorkflowConfigSchema rejects empty-string webhook_secret', async () => {
+    const { WorkflowConfigSchema } = await import('@orchestrator/shared');
+    const result = WorkflowConfigSchema.safeParse({
+      objective: 'test',
+      webhook_secret: '',
+      callback_url: 'https://example.com/webhook',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('WorkflowConfigSchema accepts omitting both callback_url and webhook_secret', async () => {
+    const { WorkflowConfigSchema } = await import('@orchestrator/shared');
+    const result = WorkflowConfigSchema.safeParse({ objective: 'test' });
+    expect(result.success).toBe(true);
+    expect(result.data?.callback_url).toBeUndefined();
+    expect(result.data?.webhook_secret).toBeUndefined();
+  });
+
   test('WorkflowConfigSchema limits context_files count', async () => {
     const { WorkflowConfigSchema } = await import('@orchestrator/shared');
     const files = Array.from({ length: 25 }, (_, i) => ({

@@ -1,4 +1,4 @@
-import { getDb, logger } from '@orchestrator/shared';
+import { getDb, logger, cosineSimilarity, MIN_MEMORY_SIMILARITY } from '@orchestrator/shared';
 
 export interface Memory {
   id: string;
@@ -16,12 +16,29 @@ export interface SaveMemoryInput {
   category?: string;
   key: string;
   content: string;
+  /** Pre-computed embedding vector for semantic search. */
+  embedding?: number[];
+  /** Model identifier that produced the embedding. */
+  embeddingModel?: string;
+}
+
+/** Parse a JSON-stringified embedding from a DB column value. */
+function parseEmbedding(raw: unknown): number[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is number => typeof v === 'number') : [];
+  } catch {
+    return [];
+  }
 }
 
 export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
   const db = getDb();
   const category = input.category ?? 'general';
   const relevanceScore = computeRelevanceScore(input.content);
+  const embeddingJson = input.embedding && input.embedding.length > 0 ? JSON.stringify(input.embedding) : null;
+  const embeddingModel = input.embeddingModel ?? null;
 
   const existing = db
     .prepare('SELECT id FROM user_memories WHERE user_id = ? AND key = ?')
@@ -29,8 +46,8 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
 
   if (existing) {
     db.prepare(
-      "UPDATE user_memories SET content = ?, category = ?, relevance_score = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
-    ).run(input.content, category, relevanceScore, existing.id, userId);
+      "UPDATE user_memories SET content = ?, category = ?, relevance_score = ?, embedding = ?, embedding_model = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+    ).run(input.content, category, relevanceScore, embeddingJson, embeddingModel, existing.id, userId);
 
     const updated = db.prepare('SELECT * FROM user_memories WHERE id = ?').get(existing.id) as Memory;
     logger.debug({ userId, key: input.key }, 'Memory updated');
@@ -39,8 +56,8 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
 
   const id = crypto.randomUUID();
   db.prepare(
-    'INSERT INTO user_memories (id, user_id, category, key, content, relevance_score) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, userId, category, input.key, input.content, relevanceScore);
+    'INSERT INTO user_memories (id, user_id, category, key, content, relevance_score, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, userId, category, input.key, input.content, relevanceScore, embeddingJson, embeddingModel);
 
   const created = db.prepare('SELECT * FROM user_memories WHERE id = ?').get(id) as Memory;
   logger.debug({ userId, key: input.key }, 'Memory saved');
@@ -70,7 +87,16 @@ const STOP_WORDS = new Set([
   'tell', 'know', 'remember', 'recall',
 ]);
 
-export function recallMemory(userId: string, query: string, limit = 10): Memory[] {
+/**
+ * Recall memories for a user by keyword or semantic similarity.
+ *
+ * When `queryEmbedding` is supplied, cosine-similarity search is used and
+ * matches below `MIN_MEMORY_SIMILARITY` are filtered out.  When it is
+ * omitted the function falls back to OR-based keyword search on content.
+ *
+ * Returns `[]` when no meaningful keywords exist and no embedding is provided.
+ */
+export function recallMemory(userId: string, query: string, limit = 10, queryEmbedding?: number[]): Memory[] {
   const db = getDb();
   // Filter stop-words and keep meaningful keywords for OR-based search
   const words = query
@@ -80,13 +106,41 @@ export function recallMemory(userId: string, query: string, limit = 10): Memory[
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
     .slice(0, 6);
 
-  if (words.length === 0) {
-    // Fall back to returning recent memories when no keywords match
-    return db
-      .prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?')
-      .all(userId, limit) as Memory[];
+  // No meaningful keywords and no embedding → nothing useful to search.
+  if (words.length === 0 && (!queryEmbedding || queryEmbedding.length === 0)) {
+    return [];
   }
 
+  // ── Semantic path ─────────────────────────────────────────────────────────
+  if (queryEmbedding && queryEmbedding.length > 0) {
+    const rows = db
+      .prepare('SELECT * FROM user_memories WHERE user_id = ?')
+      .all(userId) as Array<Record<string, unknown>>;
+
+    const scored = rows
+      .map((row) => {
+        const embedding = parseEmbedding(row['embedding']);
+        const score = embedding.length > 0 ? cosineSimilarity(queryEmbedding, embedding) : -1;
+        return { row: row as unknown as Memory, score };
+      })
+      .filter(({ score }) => Number.isFinite(score) && score >= MIN_MEMORY_SIMILARITY)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    const memories = scored.map(({ row }) => row);
+
+    if (memories.length > 0) {
+      const ids = memories.map((m) => m.id);
+      const placeholders = ids.map(() => '?').join(',');
+      db.prepare(
+        `UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`
+      ).run(...ids);
+    }
+
+    return memories;
+  }
+
+  // ── Keyword path ──────────────────────────────────────────────────────────
   const conditions = words.map(() => 'LOWER(content) LIKE ?').join(' OR ');
   const params = words.map((w) => `%${w}%`);
 

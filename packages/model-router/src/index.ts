@@ -84,7 +84,10 @@ export {
 export {
   chunkKnowledgeText,
   deleteKnowledgeDocumentForUser,
+  embedChunk,
+  getEmbeddingModelId,
   getKnowledgeDocumentForUser,
+  hasEmbeddingProvider,
   inferKnowledgeExtractionMode,
   ingestKnowledgeDocument,
   listKnowledgeDocumentsForUser,

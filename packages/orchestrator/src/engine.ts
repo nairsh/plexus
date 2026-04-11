@@ -12,6 +12,7 @@ import {
   listWorkflows,
   countWorkflows,
   persistWorkflowCancellation,
+  persistWorkflowSnapshot,
   persistWorkflowStatus,
   toPublicTask,
   updateWorkflowObjectiveForContinuation,
@@ -57,6 +58,7 @@ export async function planWorkflow(
   });
 
   workflows.set(workflowId, state);
+  persistWorkflowSnapshot(state);
 
   recordStep(state, {
     step_type: 'orchestrator_message',
@@ -89,11 +91,18 @@ export function executeWorkflow(workflowId: string): WorkflowStreamIterator {
         data: { output: state.lastOutput ?? '', total_credits: state.creditsConsumed },
         timestamp: new Date().toISOString(),
       });
-    } else if (state.status === 'failed' || state.status === 'cancelled') {
+    } else if (state.status === 'failed') {
       terminalEvents.push({
         type: 'workflow_failed',
         workflow_id: workflowId,
-        data: { error: state.status === 'cancelled' ? 'Workflow cancelled' : 'Workflow failed' },
+        data: { error: 'Workflow failed' },
+        timestamp: new Date().toISOString(),
+      });
+    } else if (state.status === 'cancelled') {
+      terminalEvents.push({
+        type: 'workflow_cancelled',
+        workflow_id: workflowId,
+        data: { reason: 'Workflow cancelled' },
         timestamp: new Date().toISOString(),
       });
     }
@@ -183,15 +192,28 @@ export function cancelWorkflow(workflowId: string): void {
     throw new WorkflowError(`Workflow not found: ${workflowId}`);
   }
 
+  // Idempotent: already cancelled is a no-op
+  if (state.status === 'cancelled') return;
+
+  if (state.status === 'completed') {
+    throw new WorkflowError(`Cannot cancel a completed workflow: ${workflowId}`);
+  }
+
   state.abortController.abort();
   state.status = 'cancelled';
   persistWorkflowCancellation(workflowId);
   cleanupSessions(state);
 
+  // Resolve pending approvals as denied — they cannot proceed after cancel
+  for (const pending of state.approvalState.pending.values()) {
+    pending.resolve('deny');
+  }
+  state.approvalState.pending.clear();
+
   emitWorkflowEvent(state, {
-    type: 'workflow_failed',
+    type: 'workflow_cancelled',
     workflow_id: workflowId,
-    data: { error: 'Workflow cancelled by user' },
+    data: { reason: 'Workflow cancelled by user' },
   });
 }
 
@@ -354,6 +376,9 @@ export function continueWorkflow(
   updateWorkflowObjectiveForContinuation(workflowId, followUpQuery);
   // Clear any pending clarification question now that user has responded
   persistWorkflowStatus(workflowId, 'executing');
+  // Durably persist the full conversational state so crash recovery and
+  // subsequent hydrations see the follow-up context.
+  persistWorkflowSnapshot(state);
   state.executionPromise = undefined;
   return { workflowId, status: 'executing' };
 }
@@ -369,12 +394,19 @@ export function pauseWorkflow(workflowId: string): void {
 
   state.status = 'paused';
   persistWorkflowStatus(workflowId, 'paused');
+  persistWorkflowSnapshot(state);
 }
 
 /**
  * Retry a failed or cancelled workflow.
- * Resets failed tasks back to pending so the loop can re-attempt them.
- * Completed tasks are preserved — only failed/cancelled items are retried.
+ * Resets non-terminal tasks back to pending so the loop can re-attempt them.
+ * Completed and skipped tasks are preserved.
+ *
+ * NOTE: Running tasks must also be reset. When a workflow fails
+ * (via persistWorkflowFailure), running tasks are NOT cascaded — unlike
+ * cancel which sets pending/running → cancelled. Those orphaned running
+ * tasks have no backing process after workflow failure and would be stuck
+ * forever without this reset.
  */
 export function retryWorkflow(workflowId: string): { workflowId: string; resetTasks: number } {
   const state = hydrateWorkflowState(workflowId);
@@ -383,12 +415,15 @@ export function retryWorkflow(workflowId: string): { workflowId: string; resetTa
     throw new WorkflowError(`Can only retry failed or cancelled workflows, current status: ${state.status}`);
   }
 
-  // Reset failed/cancelled tasks to pending in DB
+  // Reset failed/cancelled/running tasks to pending in DB.
+  // Running tasks are included because persistWorkflowFailure does NOT
+  // cascade to tasks — a task can legitimately be 'running' when a
+  // workflow enters 'failed' state.
   const db = getDb();
   const result = db.prepare(`
     UPDATE tasks
     SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-    WHERE workflow_id = ? AND status IN ('failed', 'cancelled')
+    WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')
   `).run(workflowId);
 
   const resetTasks = result.changes;
@@ -396,6 +431,7 @@ export function retryWorkflow(workflowId: string): { workflowId: string; resetTa
   state.status = 'executing';
   state.abortController = new AbortController();
   persistWorkflowStatus(workflowId, 'executing');
+  persistWorkflowSnapshot(state);
   startWorkflowExecution(state);
 
   return { workflowId, resetTasks };
@@ -416,5 +452,6 @@ export function resumeWorkflow(
   state.status = 'executing';
   state.abortController = new AbortController();
   persistWorkflowStatus(workflowId, 'executing');
+  persistWorkflowSnapshot(state);
   startWorkflowExecution(state);
 }

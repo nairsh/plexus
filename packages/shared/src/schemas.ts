@@ -109,29 +109,35 @@ export const ExecuteCodeSchema = z.object({
 });
 
 // ── Workflow config ──
-export const WorkflowConfigSchema = z.object({
-  objective: z.string().trim().min(1, 'Objective cannot be empty').max(10000),
-  orchestrator_model: z.string().optional(),
-  chat_id: z.string().min(1).optional(),
-  model_overrides: z.record(z.string()).optional(),
-  model_fallback: z.array(z.string()).optional(),
-  working_directory: z.string().min(1).optional(),
-  tools: z.array(z.string()).optional(),
-  max_credits: z.number().positive().max(10000).optional(),
-  callback_url: z.string().url().optional(),
-  human_approval: z.boolean().optional().default(false),
-  context_files: z
-    .array(
-      z.object({
-        filename: z.string().max(500),
-        content_base64: z.string().max(2 * 1024 * 1024), // ~1.5MB decoded
-        media_type: z.string().max(100),
-      })
-    )
-    .max(20)
-    .optional(),
-  background: z.boolean().optional().default(false),
-});
+export const WorkflowConfigSchema = z
+  .object({
+    objective: z.string().trim().min(1, 'Objective cannot be empty').max(10000),
+    orchestrator_model: z.string().optional(),
+    chat_id: z.string().min(1).optional(),
+    model_overrides: z.record(z.string()).optional(),
+    model_fallback: z.array(z.string()).optional(),
+    working_directory: z.string().min(1).optional(),
+    tools: z.array(z.string()).optional(),
+    max_credits: z.number().positive().max(10000).optional(),
+    callback_url: z.string().url().optional(),
+    webhook_secret: z.string().min(1).optional(),
+    human_approval: z.boolean().optional().default(false),
+    context_files: z
+      .array(
+        z.object({
+          filename: z.string().max(500),
+          content_base64: z.string().max(2 * 1024 * 1024), // ~1.5MB decoded
+          media_type: z.string().max(100),
+        })
+      )
+      .max(20)
+      .optional(),
+    background: z.boolean().optional().default(false),
+  })
+  .refine((data) => !data.webhook_secret || !!data.callback_url, {
+    message: 'callback_url is required when webhook_secret is provided',
+    path: ['callback_url'],
+  });
 
 // ── Agent type ──
 export const AgentTypeSchema = z.enum(['research', 'analyze', 'write', 'code', 'file', 'deep_research']);

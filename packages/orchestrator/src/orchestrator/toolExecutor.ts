@@ -1,14 +1,16 @@
 import type { AgentType } from '@orchestrator/shared';
-import { getDb } from '@orchestrator/shared';
+import { getDb, logger } from '@orchestrator/shared';
 import {
   createWorkItem,
   getWorkItem,
   getWorkItemDisplayId,
+  isWorkItemDependencySatisfied,
   listWorkItems,
   resolveWorkItemId,
   updateWorkItem,
   type WorkItemStatus,
 } from '../workItems.js';
+import { validateWorkItemGraph, formatGraphErrors } from '../validateWorkItemGraph.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
 import type { WorkflowState } from '../workflow/state.js';
 import { areDependenciesSatisfied, spawnSubagentRun, waitForRuns } from '../subagents/runner.js';
@@ -19,6 +21,7 @@ import { createSession } from '@orchestrator/sandbox';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { buildDisplayDescription } from './displayLabel.js';
 import { normalizeWorkingDirectory } from '../folderScope.js';
+import { verifyOutput } from '../outputVerifier.js';
 import { randomUUID } from 'crypto';
 
 const BUILTIN_ORCHESTRATOR_TOOLS = new Set([
@@ -297,7 +300,10 @@ export const executeOrchestratorToolCall = async (
 
   switch (name) {
     case 'write_todo': {
-      const existing = getWorkItem(state.id, args.todo_id as string);
+      const todoId = args.todo_id as string;
+      const dependsOnRaw = args.depends_on as string[] | undefined;
+
+      const existing = getWorkItem(state.id, todoId);
       if (existing) {
         return finish({
           status: 'skipped',
@@ -307,12 +313,23 @@ export const executeOrchestratorToolCall = async (
         });
       }
 
+      // Reject self-dependency before persisting — return error so the LLM
+      // can self-correct rather than crashing the workflow.
+      if (dependsOnRaw?.some((depId) => depId === todoId)) {
+        return finish({
+          status: 'error',
+          error: 'self_dependency',
+          message: `Task '${todoId}' cannot depend on itself. Remove it from depends_on.`,
+          todo_id: todoId,
+        });
+      }
+
       const created = createWorkItem({
         workflowId: state.id,
-        itemId: args.todo_id as string,
+        itemId: todoId,
         description: args.description as string,
         agentType: args.agent_type as AgentType,
-        dependsOn: args.depends_on as string[] | undefined,
+        dependsOn: dependsOnRaw,
         metadata: {
           origin: 'planned',
           output_artifact: args.output_artifact as string | undefined,
@@ -432,13 +449,35 @@ export const executeOrchestratorToolCall = async (
         });
       }
 
-      if (!areDependenciesSatisfied(state, item)) {
-        return finish({
-          status: 'blocked',
-          reason: 'dependencies_not_satisfied',
-          todo_id: item.id,
-          description: item.description,
+      // Validate dependencies explicitly: distinguish dangling (structural
+      // error) from unsatisfied (normal blocked state).
+      if (item.dependsOn.length > 0) {
+        const allItems = listWorkItems(state.id);
+        const byId = new Map(allItems.map((i) => [i.id, i] as const));
+
+        const dangling = item.dependsOn.filter((depId) => !byId.has(depId));
+        if (dangling.length > 0) {
+          const displayDangling = dangling.map((d) => getWorkItemDisplayId(state.id, d));
+          return finish({
+            status: 'error',
+            error: 'dangling_dependency',
+            message: `Task '${getWorkItemDisplayId(state.id, item.id)}' depends on non-existent tasks: ${displayDangling.join(', ')}. Create these tasks first or remove the dependency.`,
+            todo_id: item.id,
+          });
+        }
+
+        const unsatisfied = item.dependsOn.some((depId) => {
+          const dep = byId.get(depId)!;
+          return !isWorkItemDependencySatisfied(dep.status);
         });
+        if (unsatisfied) {
+          return finish({
+            status: 'blocked',
+            reason: 'dependencies_not_satisfied',
+            todo_id: item.id,
+            description: item.description,
+          });
+        }
       }
 
       const run = await spawnSubagentRun(
@@ -477,11 +516,23 @@ export const executeOrchestratorToolCall = async (
     case 'plan_commit':
       return finish({ status: 'ok', committed: true });
 
-    case 'answer_directly':
-      return finish({ status: 'ok', workflow_output: String(args.answer ?? '') });
+    case 'answer_directly': {
+      const answerRaw = String(args.answer ?? '');
+      const answerCheck = verifyOutput(answerRaw);
+      if (!answerCheck.valid) {
+        return finish({ status: 'error', error: `Invalid output: ${answerCheck.reason}` });
+      }
+      return finish({ status: 'ok', workflow_output: answerRaw });
+    }
 
-    case 'complete_workflow':
-      return finish({ status: 'ok', workflow_output: String(args.output ?? '') });
+    case 'complete_workflow': {
+      const outputRaw = String(args.output ?? '');
+      const outputCheck = verifyOutput(outputRaw);
+      if (!outputCheck.valid) {
+        return finish({ status: 'error', error: `Invalid output: ${outputCheck.reason}` });
+      }
+      return finish({ status: 'ok', workflow_output: outputRaw });
+    }
 
     case 'request_clarification': {
       const question = args.question as string;

@@ -452,6 +452,26 @@ export function useWorkflowStream(config: ApiConfig, workflowId: string, isActiv
           };
         }
 
+        case 'workflow_cancelled': {
+          const data = event.data as { reason?: string };
+          const pills = upsertStepPill(prev.pills, {
+            id: `system:cancelled:${workflowId}`,
+            title: 'Workflow cancelled',
+            subtitle: data.reason ?? 'Cancelled by user',
+            status: 'failed',
+            updatedAt: nextStamp(),
+            source: 'system',
+          });
+
+          return {
+            ...prev,
+            current_activity: 'Cancelled',
+            pills: latestStepPills(pills),
+            is_terminal: true,
+            error: data.reason,
+          };
+        }
+
         default:
           return prev;
       }

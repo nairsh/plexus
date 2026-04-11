@@ -22,6 +22,7 @@ import { incrementWorkflowCredits } from '../workflow/persistence.js';
 import type { SubagentRun, WorkflowState } from '../workflow/state.js';
 import { buildToolTraceHooks, recordStep } from '../orchestrator/tracing.js';
 import { buildDisplayDescription } from '../orchestrator/displayLabel.js';
+import { verifyOutput } from '../outputVerifier.js';
 
 // ── Per-agent-type timeout configuration ─────────────────────────────────────
 
@@ -291,6 +292,12 @@ async function runSubagentWithRetry(
       );
 
       stopHeartbeat();
+
+      // Verify output is meaningfully usable before accepting as success
+      const verification = verifyOutput(result.output);
+      if (!verification.valid) {
+        throw new Error(`Subagent output rejected: ${verification.reason}`);
+      }
 
       updateWorkItem({ workflowId: state.id, itemId: item.id, status: 'completed', output: result.output });
 

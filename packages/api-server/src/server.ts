@@ -34,6 +34,7 @@ import { providersRoutes } from './routes/providers.js';
 import { connectorsRoutes } from './routes/connectors.js';
 import { knowledgeRoutes } from './routes/knowledge.js';
 import { filesRoutes } from './routes/files.js';
+import { registerTemplatesRoutes } from './routes/templates.js';
 import { startScheduler, stopScheduler, abortAllWorkflows } from '@orchestrator/orchestrator';
 
 export async function createServer() {
@@ -191,6 +192,7 @@ export async function createServer() {
   await fastify.register(connectorsRoutes);
   await fastify.register(knowledgeRoutes);
   await fastify.register(filesRoutes);
+  await registerTemplatesRoutes(fastify);
 
   return fastify;
 }

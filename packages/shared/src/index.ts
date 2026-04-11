@@ -11,3 +11,4 @@ export type { FileIndexEntry, FileIndexDayGroup } from './db.js';
 export { logger } from './logger.js';
 export { getEnv, resetEnvCache } from './env.js';
 export type { Env } from './env.js';
+export { cosineSimilarity, MIN_MEMORY_SIMILARITY } from './vector.js';

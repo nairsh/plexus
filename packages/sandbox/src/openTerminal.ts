@@ -18,11 +18,62 @@ const runDocker = (args: string[]): string => {
   }
 };
 
+/** Best-effort removal of a container. Logs but never throws. */
+const forceRemoveContainer = (containerName: string): void => {
+  try {
+    execFileSync('docker', ['rm', '-f', containerName], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (error) {
+    logger.warn(
+      { containerName, error: (error as Error).message },
+      'Failed to force-remove orphaned container'
+    );
+  }
+};
+
 const sanitizeName = (value: string) =>
   value
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '-')
     .slice(0, 40);
+
+/** Build the docker run argument list. Exported for testability. */
+export const buildDockerRunArgs = (opts: {
+  containerName: string;
+  apiKey: string;
+  chatId: string;
+  workspacePath: string;
+  host: string;
+  image: string;
+}): string[] => [
+  'run',
+  '-d',
+  '--rm',
+  '--name',
+  opts.containerName,
+
+  // ── Container hardening ──
+  '--cap-drop=ALL',
+  '--security-opt=no-new-privileges',
+  '--pids-limit=256',
+  '--memory=512m',
+
+  '-w',
+  '/home/user',
+  '-p',
+  `${opts.host}::8000`,
+  '-v',
+  `${opts.workspacePath}:/home/user`,
+  '-v',
+  `${opts.workspacePath}:/workspace`,
+  '-e',
+  `OPEN_TERMINAL_API_KEY=${opts.apiKey}`,
+  '-e',
+  `OPEN_TERMINAL_INFO=Persistent workspace for chat ${opts.chatId}`,
+  opts.image,
+];
 
 const waitForHealth = async (baseUrl: string) => {
   const deadline = Date.now() + getEnv().OPEN_TERMINAL_START_TIMEOUT_MS;
@@ -46,47 +97,47 @@ const waitForHealth = async (baseUrl: string) => {
 export const startOpenTerminal = async (chatId: string, workspacePath: string): Promise<OpenTerminalSession> => {
   const containerName = `orchestrator-${sanitizeName(chatId)}-${randomUUID().slice(0, 6)}`;
   const apiKey = `sk-ot-${randomUUID().replace(/-/g, '')}`;
-  runDocker([
-    'run',
-    '-d',
-    '--rm',
-    '--name',
-    containerName,
-    '-w',
-    '/home/user',
-    '-p',
-    `${getEnv().OPEN_TERMINAL_HOST}::8000`,
-    '-v',
-    `${workspacePath}:/home/user`,
-    '-v',
-    `${workspacePath}:/workspace`,
-    '-e',
-    `OPEN_TERMINAL_API_KEY=${apiKey}`,
-    '-e',
-    `OPEN_TERMINAL_INFO=Persistent workspace for chat ${chatId}`,
-    getEnv().OPEN_TERMINAL_IMAGE,
-  ]);
+  const env = getEnv();
 
-  const portInfo = runDocker(['port', containerName, '8000/tcp']);
-  const port = portInfo.split(':').pop()?.trim();
-  if (!port) {
-    throw new SandboxError(
-      `Failed to determine mapped port for container ${containerName}`,
-      'open_terminal_port_error'
-    );
-  }
-
-  const baseUrl = `http://${getEnv().OPEN_TERMINAL_HOST}:${port}`;
-  await waitForHealth(baseUrl);
-
-  logger.info({ chatId, containerName, baseUrl }, 'Open Terminal environment started');
-
-  return {
+  const args = buildDockerRunArgs({
     containerName,
     apiKey,
-    baseUrl,
+    chatId,
     workspacePath,
-  };
+    host: env.OPEN_TERMINAL_HOST,
+    image: env.OPEN_TERMINAL_IMAGE,
+  });
+
+  runDocker(args);
+
+  // Everything after container creation must clean up on failure.
+  try {
+    const portInfo = runDocker(['port', containerName, '8000/tcp']);
+    const port = portInfo.split(':').pop()?.trim();
+    if (!port) {
+      throw new SandboxError(
+        `Failed to determine mapped port for container ${containerName}`,
+        'open_terminal_port_error'
+      );
+    }
+
+    const baseUrl = `http://${env.OPEN_TERMINAL_HOST}:${port}`;
+    await waitForHealth(baseUrl);
+
+    logger.info({ chatId, containerName, baseUrl }, 'Open Terminal environment started');
+
+    return {
+      containerName,
+      apiKey,
+      baseUrl,
+      workspacePath,
+    };
+  } catch (error) {
+    // Clean up the orphaned container before re-throwing.
+    logger.warn({ containerName, chatId }, 'Startup failed after container creation — removing orphaned container');
+    forceRemoveContainer(containerName);
+    throw error;
+  }
 };
 
 export const stopOpenTerminal = (session: OpenTerminalSession): void => {
@@ -108,6 +159,16 @@ export const executeInOpenTerminal = async (
 ): Promise<ExecutionResult> => {
   const extension = language === 'python' ? 'py' : language === 'javascript' ? 'js' : 'sql';
   const filename = `_script.${extension}`;
+
+  // Snapshot file listing before execution for truthful files_modified.
+  let filesBefore: string[] = [];
+  try {
+    filesBefore = await listOpenTerminalFiles(session, '.');
+  } catch {
+    // Best-effort: if listing fails we proceed with empty baseline.
+  }
+
+  const startTime = process.hrtime.bigint();
 
   await openTerminalFetchJson(session, '/files/write', {
     method: 'POST',
@@ -137,6 +198,19 @@ export const executeInOpenTerminal = async (
     Math.max(30_000, (Math.max(1, timeoutSeconds) + 5) * 1000)
   );
 
+  const endTime = process.hrtime.bigint();
+  const executionTimeMs = Math.round(Number(endTime - startTime) / 1_000_000);
+
+  // Snapshot file listing after execution and diff against before.
+  let filesModified: string[] = [];
+  try {
+    const filesAfter = await listOpenTerminalFiles(session, '.');
+    const beforeSet = new Set(filesBefore);
+    filesModified = filesAfter.filter((f) => !f.startsWith('_script.') && !beforeSet.has(f));
+  } catch {
+    // Best-effort: on failure, return empty list rather than placeholder.
+  }
+
   const stdout = response.output
     .filter((entry) => entry.type === 'stdout' || entry.type === 'output')
     .map((entry) => entry.data)
@@ -150,8 +224,8 @@ export const executeInOpenTerminal = async (
     stdout,
     stderr,
     exit_code: response.exit_code ?? (response.status === 'done' ? 0 : 1),
-    execution_time_ms: 0,
-    files_modified: [filename],
+    execution_time_ms: executionTimeMs,
+    files_modified: filesModified,
   };
 };
 

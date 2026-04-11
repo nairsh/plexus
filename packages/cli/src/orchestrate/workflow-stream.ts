@@ -105,6 +105,10 @@ class ConsoleWorkflowRenderer {
         return this.onWorkflowCompleted(event.data as { output?: string; total_credits?: number });
       case 'workflow_failed':
         return this.onWorkflowFailed(event.data as { error?: string });
+      case 'workflow_cancelled': {
+        const cancelled = event.data as { reason?: string };
+        return this.onWorkflowFailed({ error: cancelled.reason ?? 'Workflow cancelled' });
+      }
       default:
         return null;
     }
@@ -478,6 +482,14 @@ export const streamWorkflow = async (
           chatScreen.setStatusMessage('');
           chatScreen.failAssistantTurn(data.error || 'Unknown error');
           result = { error: data.error };
+          break;
+        }
+        case 'workflow_cancelled': {
+          const data = event.data as { reason?: string };
+          chatScreen.stopAssistantThinking();
+          chatScreen.setStatusMessage('');
+          chatScreen.failAssistantTurn(data.reason || 'Workflow cancelled');
+          result = { error: data.reason };
           break;
         }
         default:

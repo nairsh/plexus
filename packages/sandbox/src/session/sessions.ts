@@ -1,7 +1,7 @@
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DEFAULT_CREDIT_BALANCE, getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
+import { DEFAULT_CREDIT_BALANCE, encryptJson, getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession } from '@orchestrator/shared';
 import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspacePaths } from '../workspaces.js';
 import { startOpenTerminal, stopOpenTerminal, writeOpenTerminalFile } from '../openTerminal.js';
@@ -81,7 +81,7 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
         state.openTerminal = openTerminal;
         db.prepare('UPDATE sandbox_sessions SET open_terminal_url = ?, open_terminal_api_key = ? WHERE id = ?').run(
           openTerminal.baseUrl,
-          openTerminal.apiKey,
+          encryptJson(openTerminal.apiKey),
           sessionId
         );
       } catch (err) {

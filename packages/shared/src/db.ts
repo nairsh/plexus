@@ -737,6 +737,38 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_file_index_workflow ON file_index(workflow_id);
   `);
 
+  // ── Add base_branch to git_snapshots for safe rollback ──────────────────────
+  // Without this column, rollback guesses main/master which can corrupt the
+  // user's original branch.  Legacy rows without a value get NULL; rollback
+  // falls back to detaching HEAD at baseCommit for those rows.
+  addColumnIfMissing('git_snapshots', 'base_branch', 'TEXT');
+
+  // ── Embedding columns for semantic memory recall ──────────────────────────
+  addColumnIfMissing('user_memories', 'embedding', 'TEXT');
+  addColumnIfMissing('user_memories', 'embedding_model', 'TEXT');
+
+  // ── Workflow state snapshots for durable pause/resume & crash recovery ────
+  // Keyed by (workflow_id, version) so each state transition is auditable.
+  // The latest version is used for hydration; older versions are retained for
+  // debugging but never read during normal operation.
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS workflow_state_snapshots (
+      workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      messages TEXT NOT NULL,
+      conversation_history TEXT NOT NULL,
+      config TEXT NOT NULL,
+      pending_approval_metadata TEXT,
+      subagent_summaries TEXT,
+      credits_consumed REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (workflow_id, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_snapshots_latest
+      ON workflow_state_snapshots(workflow_id, version DESC);
+  `);
+
   logger.info('Database migrations completed');
 }
 

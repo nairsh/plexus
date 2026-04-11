@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import { getEnv } from './env.js';
 import { logger } from './logger.js';
+import { cosineSimilarity, MIN_MEMORY_SIMILARITY } from './vector.js';
 
 export type StorageBackend = 'sqlite' | 'convex';
 
@@ -48,8 +49,8 @@ export interface StorageAdapter {
     environment_status: string;
     workspace_path: string | null;
   } | null>;
-  saveMemory(input: { userId: string; category: string; key: string; content: string }): Promise<Record<string, unknown>>;
-  recallMemory(input: { userId: string; words: string[]; limit: number }): Promise<Array<Record<string, unknown>>>;
+  saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>>;
+  recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>>;
   bumpMemoryAccess(ids: string[]): Promise<void>;
   deleteMemory(userId: string, id: string): Promise<boolean>;
   listMemories(userId: string, category?: string): Promise<Array<Record<string, unknown>>>;
@@ -211,34 +212,63 @@ class SqliteStorageAdapter implements StorageAdapter {
     return row ?? null;
   }
 
-  async saveMemory(input: { userId: string; category: string; key: string; content: string }): Promise<Record<string, unknown>> {
+  async saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>> {
     const db = getDb();
+    const embeddingJson = input.embedding && input.embedding.length > 0 ? JSON.stringify(input.embedding) : null;
+    const embeddingModel = input.embeddingModel ?? null;
     const existing = db
       .prepare('SELECT id FROM user_memories WHERE user_id = ? AND key = ?')
       .get(input.userId, input.key) as { id: string } | undefined;
 
     if (existing) {
       db.prepare(
-        "UPDATE user_memories SET content = ?, category = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
-      ).run(input.content, input.category, existing.id, input.userId);
+        "UPDATE user_memories SET content = ?, category = ?, embedding = ?, embedding_model = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+      ).run(input.content, input.category, embeddingJson, embeddingModel, existing.id, input.userId);
       return db.prepare('SELECT * FROM user_memories WHERE id = ?').get(existing.id) as Record<string, unknown>;
     }
 
     const id = crypto.randomUUID();
-    db.prepare('INSERT INTO user_memories (id, user_id, category, key, content) VALUES (?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO user_memories (id, user_id, category, key, content, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
       id,
       input.userId,
       input.category,
       input.key,
-      input.content
+      input.content,
+      embeddingJson,
+      embeddingModel
     );
     return db.prepare('SELECT * FROM user_memories WHERE id = ?').get(id) as Record<string, unknown>;
   }
 
-  async recallMemory(input: { userId: string; words: string[]; limit: number }): Promise<Array<Record<string, unknown>>> {
+  async recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>> {
+    // Semantic path
+    if (input.queryEmbedding && input.queryEmbedding.length > 0) {
+      const rows = getDb()
+        .prepare('SELECT * FROM user_memories WHERE user_id = ?')
+        .all(input.userId) as Array<Record<string, unknown>>;
+
+      return rows
+        .map((row) => {
+          let embedding: number[] = [];
+          if (typeof row['embedding'] === 'string' && row['embedding']) {
+            try {
+              const parsed: unknown = JSON.parse(row['embedding']);
+              embedding = Array.isArray(parsed) ? parsed.filter((v): v is number => typeof v === 'number') : [];
+            } catch { /* ignore malformed */ }
+          }
+          const score = embedding.length > 0 ? cosineSimilarity(input.queryEmbedding!, embedding) : -1;
+          return { row, score };
+        })
+        .filter(({ score }) => Number.isFinite(score) && score >= MIN_MEMORY_SIMILARITY)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, input.limit)
+        .map(({ row }) => row);
+    }
+
+    // Keyword path — OR-joined, case-insensitive (matches memory.ts)
     if (input.words.length === 0) return [];
-    const conditions = input.words.map(() => 'content LIKE ?').join(' AND ');
-    const params = input.words.map((word) => `%${word}%`);
+    const conditions = input.words.map(() => 'LOWER(content) LIKE ?').join(' OR ');
+    const params = input.words.map((word) => `%${word.toLowerCase()}%`);
     return getDb()
       .prepare(
         `SELECT * FROM user_memories WHERE user_id = ? AND (${conditions})
@@ -398,11 +428,11 @@ class ConvexStorageAdapter implements StorageAdapter {
     return this.invoke('/storage/getSessionForChat', { userId, chatId });
   }
 
-  async saveMemory(input: { userId: string; category: string; key: string; content: string }): Promise<Record<string, unknown>> {
+  async saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>> {
     return this.invoke('/storage/saveMemory', input);
   }
 
-  async recallMemory(input: { userId: string; words: string[]; limit: number }): Promise<Array<Record<string, unknown>>> {
+  async recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>> {
     return this.invoke('/storage/recallMemory', input);
   }
 

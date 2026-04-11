@@ -21,7 +21,6 @@ import {
   executeWorkflow,
   executeWorkflowToCompletion,
   cancelWorkflow,
-  deleteWorkflow,
   resumeWorkflow,
   continueWorkflow,
   retryWorkflow,
@@ -233,11 +232,17 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
               workflow_id: id,
               data: { output: workflow.output ?? '', total_credits: workflow.credits_consumed }
             })}\n\n`);
-          } else if (workflow.status === 'failed' || workflow.status === 'cancelled') {
+          } else if (workflow.status === 'failed') {
             reply.raw.write(`event: workflow_failed\ndata: ${JSON.stringify({
               type: 'workflow_failed',
               workflow_id: id,
-              data: { error: workflow.error ?? `Workflow ${workflow.status}` }
+              data: { error: workflow.error ?? 'Workflow failed' }
+            })}\n\n`);
+          } else if (workflow.status === 'cancelled') {
+            reply.raw.write(`event: workflow_cancelled\ndata: ${JSON.stringify({
+              type: 'workflow_cancelled',
+              workflow_id: id,
+              data: { reason: workflow.error ?? 'Workflow cancelled' }
             })}\n\n`);
           }
         }
@@ -267,7 +272,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           return;
         }
 
-        if (event.type === 'workflow_completed' || event.type === 'workflow_failed') {
+        if (event.type === 'workflow_completed' || event.type === 'workflow_failed' || event.type === 'workflow_cancelled') {
           cleanup();
           setTimeout(() => {
             try { reply.raw.end(); } catch { /* already closed */ }
@@ -462,30 +467,51 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
-   * DELETE /v1/workflows/:id — Cancel (if running) and permanently delete a workflow.
+   * POST /v1/workflows/:id/cancel — Cancel a running or paused workflow.
+   * Preserves workflow history, tasks, and traceability. Idempotent.
+   */
+  fastify.post(
+    '/v1/workflows/:id/cancel',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+      ensureWorkflowOwned(id, request.user!.id);
+      cancelWorkflow(id);
+
+      try {
+        getDb()
+          .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
+          .run(crypto.randomUUID(), request.user!.id, 'workflow_cancel', JSON.stringify({ workflow_id: id }));
+      } catch (err) {
+        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
+      }
+
+      reply.status(200);
+      return { status: 'cancelled', workflow_id: id };
+    }
+  );
+
+  /**
+   * DELETE /v1/workflows/:id — Cancel a workflow (preserves history).
+   * Backward-compatible alias for POST /v1/workflows/:id/cancel.
+   * Does NOT delete the workflow row — cancelled workflows remain fetchable/listable.
    */
   fastify.delete(
     '/v1/workflows/:id',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const { id } = request.params;
       ensureWorkflowOwned(id, request.user!.id);
-
-      const details = getWorkflowDetails(id);
-      if (details?.workflow.status === 'executing' || details?.workflow.status === 'paused') {
-        cancelWorkflow(id);
-      }
-      deleteWorkflow(id);
+      cancelWorkflow(id);
 
       try {
         getDb()
           .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
-          .run(crypto.randomUUID(), request.user!.id, 'workflow_delete', JSON.stringify({ workflow_id: id }));
+          .run(crypto.randomUUID(), request.user!.id, 'workflow_cancel', JSON.stringify({ workflow_id: id }));
       } catch (err) {
         logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
       }
 
       reply.status(200);
-      return { status: 'deleted', workflow_id: id };
+      return { status: 'cancelled', workflow_id: id };
     }
   );
 }

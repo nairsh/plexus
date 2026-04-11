@@ -1,5 +1,6 @@
-import { getDb, getErrorMessage, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
+import { getDb, getErrorMessage, InvalidRequestError, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
 import type { AgentType, TaskMetadata, TaskRow } from '@orchestrator/shared';
+import { validateWorkItemGraph, formatGraphErrors } from './validateWorkItemGraph.js';
 
 export type WorkItemStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'skipped';
 
@@ -121,6 +122,15 @@ export function createWorkItem(input: {
   const db = getDb();
   const id = resolveWorkItemId(input.workflowId, input.itemId);
   const dependsOn = (input.dependsOn ?? []).map((depId) => resolveWorkItemId(input.workflowId, depId));
+
+  // Hard invariant: a task must never depend on itself.
+  if (dependsOn.includes(id)) {
+    throw new InvalidRequestError(
+      `Task '${input.itemId}' cannot depend on itself`,
+      'depends_on',
+    );
+  }
+
   const metadata = {
     origin: input.metadata?.origin === 'runtime_generated' ? 'runtime_generated' : 'planned',
     semantic_key: input.metadata?.semantic_key ?? null,
@@ -233,6 +243,22 @@ export function updateWorkItem(input: {
 }
 
 export function getReadyWorkItems(workItems: WorkItem[]): WorkItem[] {
+  // Validate graph structure — throw on hard errors (cycles, self-deps) that
+  // would cause the workflow to hang silently.
+  const validation = validateWorkItemGraph(workItems);
+  if (!validation.valid) {
+    const blocking = validation.errors.filter(
+      (e) => e.type === 'dependency_cycle' || e.type === 'self_dependency' || e.type === 'duplicate_id',
+    );
+    if (blocking.length > 0) {
+      throw new InvalidRequestError(
+        `Invalid work item graph: ${formatGraphErrors(blocking)}`,
+        'depends_on',
+      );
+    }
+    // Dangling deps are non-blocking here — more items may be added later.
+  }
+
   const byId = new Map(workItems.map((item) => [item.id, item] as const));
   return workItems.filter((item) => {
     if (item.status !== 'pending') return false;

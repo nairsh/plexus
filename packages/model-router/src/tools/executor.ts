@@ -5,7 +5,7 @@ import { getErrorMessage, logger, registerFileInIndex } from '@orchestrator/shar
 import type { AgentRequest, OutputBlock } from '@orchestrator/shared';
 import type { ToolApprovalDecision } from '@orchestrator/shared';
 import { saveMemory, recallMemory } from '@orchestrator/memory';
-import { searchKnowledgeForUser } from '../knowledge.js';
+import { searchKnowledgeForUser, embedChunk, hasEmbeddingProvider, getEmbeddingModelId } from '../knowledge.js';
 import {
   executeBash,
   executeEditFile,
@@ -315,10 +315,23 @@ export const executeToolCall = async (
     if (name === 'remember') {
       const userId = request.user_id;
       if (!userId) return { output: JSON.stringify({ error: 'user_id required for memory operations' }), cost: 0 };
+      const content = String(args['content'] ?? '');
+      let embedding: number[] | undefined;
+      let embeddingModel: string | undefined;
+      try {
+        if (userId && hasEmbeddingProvider(userId) && content.trim()) {
+          embedding = await embedChunk(content, userId);
+          embeddingModel = getEmbeddingModelId(userId);
+        }
+      } catch (err) {
+        logger.debug({ userId, error: getErrorMessage(err) }, 'Embedding generation failed for remember; saving without embedding');
+      }
       const memory = saveMemory(userId, {
         key: String(args['key'] ?? ''),
-        content: String(args['content'] ?? ''),
+        content,
         category: typeof args['category'] === 'string' ? args['category'] : 'general',
+        embedding,
+        embeddingModel,
       });
       return { output: JSON.stringify({ saved: true, id: memory.id }), cost: 0 };
     }
@@ -326,7 +339,16 @@ export const executeToolCall = async (
     if (name === 'recall') {
       const userId = request.user_id;
       if (!userId) return { output: JSON.stringify({ error: 'user_id required for memory operations' }), cost: 0 };
-      const memories = recallMemory(userId, String(args['query'] ?? ''), typeof args['limit'] === 'number' ? args['limit'] : 5);
+      const query = String(args['query'] ?? '');
+      let queryEmbedding: number[] | undefined;
+      try {
+        if (userId && hasEmbeddingProvider(userId) && query.trim()) {
+          queryEmbedding = await embedChunk(query, userId);
+        }
+      } catch (err) {
+        logger.debug({ userId, error: getErrorMessage(err) }, 'Embedding generation failed for recall; falling back to keyword search');
+      }
+      const memories = recallMemory(userId, query, typeof args['limit'] === 'number' ? args['limit'] : 5, queryEmbedding);
       return { output: JSON.stringify({ memories }), cost: 0 };
     }
 

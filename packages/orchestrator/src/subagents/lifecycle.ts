@@ -1,7 +1,7 @@
 import { terminateSession } from '@orchestrator/sandbox';
 import { getErrorMessage, logger } from '@orchestrator/shared';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
-import { persistWorkflowCompletion, persistWorkflowFailure } from '../workflow/persistence.js';
+import { persistWorkflowCompletion, persistWorkflowFailure, persistWorkflowSnapshot } from '../workflow/persistence.js';
 import type { WorkflowState } from '../workflow/state.js';
 import { workflows } from '../workflow/state.js';
 import { recordStep } from '../orchestrator/tracing.js';
@@ -80,6 +80,7 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
   state.lastOutput = output;
 
   persistWorkflowCompletion(state, output);
+  persistWorkflowSnapshot(state);
 
   recordStep(state, {
     step_type: 'system_event',
@@ -113,6 +114,7 @@ export const completeWorkflow = (state: WorkflowState, output: string): void => 
 export const failWorkflow = async (state: WorkflowState, message: string): Promise<void> => {
   state.status = 'failed';
   persistWorkflowFailure(state, message);
+  persistWorkflowSnapshot(state);
 
   emitWorkflowEvent(state, {
     type: 'workflow_failed',

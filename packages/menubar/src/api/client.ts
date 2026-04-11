@@ -97,7 +97,7 @@ export async function listWorkflows(
 }
 
 export async function cancelWorkflow(config: ApiConfig, workflowId: string): Promise<void> {
-  await request(config, `/v1/workflows/${workflowId}`, { method: 'DELETE' });
+  await request(config, `/v1/workflows/${workflowId}/cancel`, { method: 'POST' });
 }
 
 export async function getWorkflowDetails(config: ApiConfig, workflowId: string): Promise<WorkflowDetails> {

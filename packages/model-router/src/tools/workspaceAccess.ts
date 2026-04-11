@@ -1,4 +1,4 @@
-import { getDb, logger, parseRowOrNull, SandboxSessionRowSchema } from '@orchestrator/shared';
+import { decryptJson, getDb, logger, parseRowOrNull, SandboxSessionRowSchema } from '@orchestrator/shared';
 import type { WorkspaceSession } from './fileOperations.js';
 
 const activeSessions = new Map<string, WorkspaceSession>();
@@ -66,11 +66,20 @@ export async function getOpenTerminalSessionForChat(userId: string, chatId: stri
     };
   }
 
-  // Read API key directly from DB (stored when container was started)
-  const apiKey = row.open_terminal_api_key;
-  if (!apiKey) {
+  // Read API key from DB. It may be encrypted (base64 blob) or legacy plaintext.
+  const rawKey = row.open_terminal_api_key;
+  if (!rawKey) {
     logger.warn({ chatId, sessionId: row.id }, 'No API key stored for OpenTerminal session');
     return null;
+  }
+  let apiKey: string;
+  const decrypted = decryptJson<string>(rawKey);
+  if (decrypted !== null) {
+    apiKey = decrypted;
+  } else {
+    // Legacy plaintext key — use as-is.
+    apiKey = rawKey;
+    logger.debug({ chatId, sessionId: row.id }, 'Using legacy plaintext API key from DB');
   }
 
   const workspacePath = row.workspace_path ?? '/home/user';

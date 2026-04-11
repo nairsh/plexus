@@ -21,6 +21,7 @@ import {
   TEAMS_FEATURE_FLAG,
 } from '@orchestrator/shared';
 import type { Team, TeamMember, TeamSettings, TeamSharedContext } from '@orchestrator/shared';
+import { AgentTypeSchema } from '@orchestrator/shared';
 
 // ── Feature flag guard ────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const CreateTeamSchema = z.object({
       max_credits_per_workflow: z.number().positive().optional(),
       require_approval_for_bash: z.boolean().optional(),
       allowed_agent_types: z
-        .array(z.enum(['research', 'analyze', 'write', 'code', 'file']))
+        .array(AgentTypeSchema)
         .optional(),
       feature_flags: z.record(z.boolean()).optional(),
     })

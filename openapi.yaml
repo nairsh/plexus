@@ -268,6 +268,13 @@ components:
         callback_url:
           type: string
           format: uri
+          description: URL to receive webhook callbacks on workflow completion or failure.
+        webhook_secret:
+          type: string
+          minLength: 1
+          description: >
+            HMAC secret for signing outbound webhook payloads.
+            When provided, callback_url must also be set.
         human_approval:
           type: boolean
           default: false
@@ -285,6 +292,8 @@ components:
                 type: string
               media_type:
                 type: string
+      dependentRequired:
+        webhook_secret: [callback_url]
 
     WorkflowSummary:
       type: object
@@ -330,6 +339,96 @@ components:
               completed_at:
                 type: string
                 nullable: true
+
+    # ── Templates ──
+    WorkflowTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        config:
+          type: object
+          properties:
+            orchestrator_model:
+              type: string
+            model_overrides:
+              type: object
+              additionalProperties:
+                type: string
+            tools:
+              type: array
+              items:
+                type: string
+            max_credits:
+              type: number
+            human_approval:
+              type: boolean
+        created_by:
+          type: string
+        is_public:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        usage_count:
+          type: integer
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    # ── Teams ──
+    AgentType:
+      type: string
+      enum: [research, analyze, write, code, file, deep_research]
+
+    TeamSettings:
+      type: object
+      properties:
+        shared_model_overrides:
+          type: object
+          additionalProperties:
+            type: string
+        shared_tools:
+          type: array
+          items:
+            type: string
+        shared_instructions:
+          type: string
+          maxLength: 10000
+        max_credits_per_workflow:
+          type: number
+        require_approval_for_bash:
+          type: boolean
+        allowed_agent_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentType'
+        feature_flags:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        owner_id:
+          type: string
+        settings:
+          $ref: '#/components/schemas/TeamSettings'
+        created_at:
+          type: string
+        updated_at:
+          type: string
 
 paths:
   /health:
@@ -779,7 +878,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkflowSummary'
     delete:
-      summary: Cancel a workflow
+      summary: Cancel a workflow (preserves history)
+      description: |
+        Cancels a running or paused workflow. The workflow row, tasks, and trace
+        history are preserved — cancelled workflows remain fetchable, listable,
+        and retryable. Idempotent: cancelling an already-cancelled workflow is a
+        no-op. Backward-compatible alias for POST /v1/workflows/{id}/cancel.
       tags: [Workflows]
       parameters:
         - name: id
@@ -790,6 +894,44 @@ paths:
       responses:
         "200":
           description: Workflow cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [cancelled]
+                  workflow_id:
+                    type: string
+
+  /v1/workflows/{id}/cancel:
+    post:
+      summary: Cancel a workflow
+      description: |
+        Cancels a running or paused workflow. Preserves workflow history, tasks,
+        and traceability. The workflow remains fetchable, listable, and retryable
+        via POST /v1/workflows/{id}/retry. Idempotent.
+      tags: [Workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [cancelled]
+                  workflow_id:
+                    type: string
 
   /v1/workflows/{id}/stream:
     get:
@@ -797,7 +939,7 @@ paths:
       description: |
         Server-Sent Events stream of workflow progress.
         Events: planning_complete, task_started, task_completed, task_failed,
-        human_approval_required, workflow_completed, workflow_failed, credit_update.
+        human_approval_required, workflow_completed, workflow_failed, workflow_cancelled, credit_update.
       tags: [Workflows]
       parameters:
         - name: id
@@ -841,6 +983,283 @@ paths:
         "200":
           description: Approval processed
 
+  # ── Templates ──
+
+  /v1/templates:
+    get:
+      summary: List workflow templates
+      description: Returns public templates and templates owned by the authenticated user. Supports filtering by tag and keyword search.
+      tags: [Templates]
+      parameters:
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Filter templates by tag
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search templates by name or description
+      responses:
+        "200":
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowTemplate'
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+    post:
+      summary: Create a workflow template
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description, config]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                config:
+                  type: object
+                  properties:
+                    orchestrator_model:
+                      type: string
+                    model_overrides:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    tools:
+                      type: array
+                      items:
+                        type: string
+                    max_credits:
+                      type: number
+                    human_approval:
+                      type: boolean
+                is_public:
+                  type: boolean
+                  default: false
+                tags:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 50
+                  maxItems: 20
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplate'
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  /v1/templates/{id}:
+    get:
+      summary: Get a workflow template
+      tags: [Templates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplate'
+        "400":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+    delete:
+      summary: Delete a workflow template (owner only)
+      tags: [Templates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Template deleted
+        "400":
+          description: Template not found or not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  /v1/templates/{id}/use:
+    post:
+      summary: Use a template to generate workflow config
+      tags: [Templates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                objective:
+                  type: string
+                  description: Custom objective for the workflow. Defaults to a template-based objective.
+      responses:
+        "200":
+          description: Workflow config generated from template
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template_id:
+                    type: string
+                  config:
+                    type: object
+        "400":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+
+  # ── Teams (beta) ──
+
+  /v1/teams:
+    get:
+      summary: List user's teams
+      tags: [Teams]
+      responses:
+        "200":
+          description: List of teams the authenticated user belongs to
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+    post:
+      summary: Create a team
+      tags: [Teams]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                settings:
+                  $ref: '#/components/schemas/TeamSettings'
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+
+  /v1/teams/{id}:
+    get:
+      summary: Get team details
+      tags: [Teams]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team details with members
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+    patch:
+      summary: Update team settings
+      tags: [Teams]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                settings:
+                  $ref: '#/components/schemas/TeamSettings'
+      responses:
+        "200":
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+    delete:
+      summary: Delete team (owner only)
+      tags: [Teams]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Team deleted
+
 tags:
   - name: System
     description: Health check and system info
@@ -854,3 +1273,7 @@ tags:
     description: Isolated code execution environments
   - name: Workflows
     description: Workflow orchestration engine
+  - name: Templates
+    description: Reusable workflow configuration templates
+  - name: Teams
+    description: Team management with shared context and settings (beta)

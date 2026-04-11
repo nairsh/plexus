@@ -17,6 +17,7 @@ export type WorkflowEventType =
   | 'human_approval_required'
   | 'workflow_completed'
   | 'workflow_failed'
+  | 'workflow_cancelled'
   | 'credit_update'
   | 'subagent_tool_call'
   | 'subagent_tool_result'

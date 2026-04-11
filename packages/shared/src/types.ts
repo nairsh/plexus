@@ -243,6 +243,8 @@ export interface WorkflowConfig {
   tools?: string[];
   max_credits?: number;
   callback_url?: string;
+  /** HMAC secret for signing outbound webhook payloads. Requires `callback_url` to also be set. */
+  webhook_secret?: string;
   human_approval?: boolean;
   context_files?: Array<{ filename: string; content_base64: string; media_type: string }>;
   background?: boolean;
@@ -360,6 +362,7 @@ export interface WorkflowEvent {
     | 'human_approval_required'
     | 'workflow_completed'
     | 'workflow_failed'
+    | 'workflow_cancelled'
     | 'credit_update'
     | 'subagent_tool_call'
     | 'subagent_tool_result'

@@ -1,5 +1,5 @@
 import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
-import type { OrchestratorTask, WorkflowConfig } from '@orchestrator/shared';
+import type { ConversationMessage, OrchestratorTask, WorkflowConfig } from '@orchestrator/shared';
 import { resolveOrchestratorModel } from '@orchestrator/model-router';
 import type { WorkItem } from '../workItems.js';
 import { normalizeWorkingDirectory } from '../folderScope.js';
@@ -11,6 +11,155 @@ import {
   type WorkflowSummary,
   workflows,
 } from './state.js';
+
+// ── Workflow State Snapshot Types ──────────────────────────────────────────────
+
+/** Serialisable metadata for a pending approval (excludes the Promise resolver). */
+export interface ApprovalMetadata {
+  approvalId: string;
+  commandKey?: string;
+  command?: string;
+  toolName?: string;
+  subagentId?: string;
+  requestedAt: string;
+}
+
+/** Serialisable summary of a subagent run (excludes the live Promise). */
+export interface SubagentRunSummary {
+  runId: string;
+  workItemId: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  output?: string;
+  error?: string;
+}
+
+export interface WorkflowStateSnapshot {
+  workflowId: string;
+  version: number;
+  messages: ConversationMessage[];
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
+  config: WorkflowConfig;
+  pendingApprovalMetadata: ApprovalMetadata[];
+  subagentSummaries: SubagentRunSummary[];
+  creditsConsumed: number;
+  status: WorkflowStatus;
+  createdAt: string;
+}
+
+// ── Snapshot Persistence ──────────────────────────────────────────────────────
+
+/**
+ * Persist a durable snapshot of the workflow's conversational state.
+ *
+ * Each call auto-increments `version` per workflow so the snapshot history is
+ * fully auditable. Only the latest version is used during hydration.
+ */
+export const persistWorkflowSnapshot = (state: WorkflowState): void => {
+  const db = getDb();
+
+  // Derive next version number
+  const lastRow = db
+    .prepare('SELECT MAX(version) AS max_v FROM workflow_state_snapshots WHERE workflow_id = ?')
+    .get(state.id) as { max_v: number | null } | undefined;
+  const nextVersion = (lastRow?.max_v ?? 0) + 1;
+
+  // Serialise approval metadata (strip the Promise-based `resolve` callback)
+  const approvalMetadata: ApprovalMetadata[] = Array.from(
+    state.approvalState.pending.entries(),
+  ).map(([approvalId, entry]) => ({
+    approvalId,
+    commandKey: entry.commandKey,
+    command: entry.command,
+    toolName: entry.toolName,
+    subagentId: entry.subagentId,
+    requestedAt: entry.requestedAt,
+  }));
+
+  // Serialise subagent runs (strip the live Promise)
+  const subagentSummaries: SubagentRunSummary[] = Array.from(state.subagentRuns.values()).map(
+    (run) => ({
+      runId: run.runId,
+      workItemId: run.workItemId,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      output: run.output,
+      error: run.error,
+    }),
+  );
+
+  db.prepare(
+    `INSERT INTO workflow_state_snapshots
+       (workflow_id, version, messages, conversation_history, config,
+        pending_approval_metadata, subagent_summaries, credits_consumed, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    state.id,
+    nextVersion,
+    JSON.stringify(state.messages),
+    JSON.stringify(state.conversationHistory),
+    JSON.stringify(state.config),
+    JSON.stringify(approvalMetadata),
+    JSON.stringify(subagentSummaries),
+    state.creditsConsumed,
+    state.status,
+  );
+};
+
+/**
+ * Load the latest durable snapshot for a workflow, or `null` if none exists.
+ */
+export const loadLatestSnapshot = (workflowId: string): WorkflowStateSnapshot | null => {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT workflow_id, version, messages, conversation_history, config,
+              pending_approval_metadata, subagent_summaries, credits_consumed, status, created_at
+       FROM workflow_state_snapshots
+       WHERE workflow_id = ?
+       ORDER BY version DESC
+       LIMIT 1`,
+    )
+    .get(workflowId) as
+    | {
+        workflow_id: string;
+        version: number;
+        messages: string;
+        conversation_history: string;
+        config: string;
+        pending_approval_metadata: string | null;
+        subagent_summaries: string | null;
+        credits_consumed: number;
+        status: string;
+        created_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    workflowId: row.workflow_id,
+    version: row.version,
+    messages: JSON.parse(row.messages) as ConversationMessage[],
+    conversationHistory: JSON.parse(row.conversation_history) as Array<{
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: string;
+    }>,
+    config: JSON.parse(row.config) as WorkflowConfig,
+    pendingApprovalMetadata: row.pending_approval_metadata
+      ? (JSON.parse(row.pending_approval_metadata) as ApprovalMetadata[])
+      : [],
+    subagentSummaries: row.subagent_summaries
+      ? (JSON.parse(row.subagent_summaries) as SubagentRunSummary[])
+      : [],
+    creditsConsumed: row.credits_consumed,
+    status: row.status as WorkflowStatus,
+    createdAt: row.created_at,
+  };
+};
 
 const readWorkflowOutputFromTrace = (workflowId: string): string | null => {
   const db = getDb();
@@ -59,8 +208,15 @@ export const hydrateWorkflowState = (workflowId: string): WorkflowState | null =
 
   if (!row) return null;
 
+  // Try loading a durable snapshot first — this preserves the full conversational
+  // state across server restarts and pause/resume cycles.
+  const snapshot = loadLatestSnapshot(workflowId);
+
   let config: WorkflowConfig = { objective: row.objective };
-  if (row.config) {
+  if (snapshot) {
+    // Snapshot config is authoritative — it reflects continuation updates.
+    config = snapshot.config;
+  } else if (row.config) {
     try {
       const parsed = JSON.parse(row.config) as WorkflowConfig;
       if (parsed && typeof parsed === 'object' && typeof parsed.objective === 'string') {
@@ -71,25 +227,45 @@ export const hydrateWorkflowState = (workflowId: string): WorkflowState | null =
     }
   }
 
-  const output = readWorkflowOutputFromTrace(workflowId);
-  const baseHistory = [{ role: 'user' as const, content: row.objective, timestamp: new Date().toISOString() }];
+  let messages: ConversationMessage[];
+  let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
+  let creditsConsumed: number;
+  let lastOutput: string | undefined;
+
+  if (snapshot) {
+    messages = snapshot.messages;
+    conversationHistory = snapshot.conversationHistory;
+    creditsConsumed = snapshot.creditsConsumed;
+    // Derive lastOutput from the last assistant message in the snapshot
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    lastOutput = typeof lastAssistant?.content === 'string' ? lastAssistant.content : undefined;
+  } else {
+    // Fallback: reconstruct minimal state from trace (legacy path for pre-snapshot workflows)
+    const output = readWorkflowOutputFromTrace(workflowId);
+    const baseHistory = [{ role: 'user' as const, content: row.objective, timestamp: new Date().toISOString() }];
+    creditsConsumed = row.credits_consumed ?? 0;
+    lastOutput = output ?? undefined;
+    messages = output
+      ? [
+          { role: 'user', content: row.objective },
+          { role: 'assistant', content: output },
+        ]
+      : [{ role: 'user', content: row.objective }];
+    conversationHistory = output
+      ? [...baseHistory, { role: 'assistant' as const, content: output, timestamp: new Date().toISOString() }]
+      : baseHistory;
+  }
+
   const state = createWorkflowState({
     id: row.id,
     userId: row.user_id,
     config,
     orchestratorModel: row.orchestrator_model ?? resolveOrchestratorModel(undefined, row.user_id),
     status: row.status,
-    creditsConsumed: row.credits_consumed ?? 0,
-    lastOutput: output ?? undefined,
-    messages: output
-      ? [
-          { role: 'user', content: row.objective },
-          { role: 'assistant', content: output },
-        ]
-      : [{ role: 'user', content: row.objective }],
-    conversationHistory: output
-      ? [...baseHistory, { role: 'assistant' as const, content: output, timestamp: new Date().toISOString() }]
-      : baseHistory,
+    creditsConsumed,
+    lastOutput,
+    messages,
+    conversationHistory,
   });
 
   workflows.set(workflowId, state);
@@ -182,10 +358,26 @@ export const insertWorkflow = (
 
 export const updateWorkflowObjectiveForContinuation = (workflowId: string, followUpQuery: string): void => {
   const db = getDb();
-  db.prepare(`UPDATE workflows SET status = 'executing', objective = ?, updated_at = datetime('now') WHERE id = ?`).run(
-    followUpQuery,
-    workflowId
-  );
+  // Update objective and also patch the config JSON so the persisted config
+  // stays consistent with the in-memory state after continuation.
+  const existingRow = db
+    .prepare('SELECT config FROM workflows WHERE id = ?')
+    .get(workflowId) as { config: string | null } | undefined;
+  let updatedConfig: string | null = null;
+  if (existingRow?.config) {
+    try {
+      const parsed = JSON.parse(existingRow.config) as WorkflowConfig;
+      parsed.objective = followUpQuery;
+      updatedConfig = JSON.stringify(parsed);
+    } catch {
+      updatedConfig = JSON.stringify({ objective: followUpQuery });
+    }
+  } else {
+    updatedConfig = JSON.stringify({ objective: followUpQuery });
+  }
+  db.prepare(
+    `UPDATE workflows SET status = 'executing', objective = ?, config = ?, updated_at = datetime('now') WHERE id = ?`,
+  ).run(followUpQuery, updatedConfig, workflowId);
 };
 
 export const toPublicTask = (item: WorkItem): OrchestratorTask => ({

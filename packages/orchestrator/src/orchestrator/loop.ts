@@ -18,12 +18,14 @@ import {
 import type { ConversationMessage, OutputBlock, WorkflowConfig } from '@orchestrator/shared';
 import { formatConversationHistory, getPromptRuntimeContext, loadPrompt } from '../promptLoader.js';
 import { formatWorkItemsForPrompt, isWorkItemSettled, listWorkItems } from '../workItems.js';
+import { validateWorkItemGraph, formatGraphErrors } from '../validateWorkItemGraph.js';
 import { completeWorkflow, failWorkflow, cleanupSessions } from '../subagents/lifecycle.js';
 import { executeOrchestratorToolCall } from './toolExecutor.js';
 import { buildToolTraceHooks, recordStep } from './tracing.js';
 import { extractToolCallsFromOutput, normalizeToolCall, ORCHESTRATOR_TOOLS, type ToolCall } from './tools.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
 import { waitForRuns } from '../subagents/runner.js';
+import { verifyOutput } from '../outputVerifier.js';
 import {
   createWorkflowState,
   MAX_TURNS,
@@ -31,7 +33,7 @@ import {
   type WorkflowStatus,
   workflows,
 } from '../workflow/state.js';
-import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow, persistWorkflowStatus } from '../workflow/persistence.js';
+import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow, persistWorkflowSnapshot, persistWorkflowStatus } from '../workflow/persistence.js';
 import { ensureEnvironmentSession } from '../agents.js';
 
 const ensureWorkflowEnvironmentReady = async (state: WorkflowState): Promise<void> => {
@@ -156,6 +158,29 @@ const ensureWorkflowCanComplete = async (
   candidateOutput: string,
   iteration: number
 ): Promise<boolean> => {
+  // ── Verify the candidate output is meaningfully usable ────────────────────
+  const outputCheck = verifyOutput(candidateOutput);
+  if (!outputCheck.valid) {
+    pushUserMessage(
+      state,
+      `Workflow completion blocked: ${outputCheck.reason}.\n` +
+        'Produce a substantive final answer before completing the workflow.'
+    );
+
+    logger.warn(
+      {
+        workflowId: state.id,
+        iteration,
+        verificationReason: outputCheck.reason,
+        blockedOutputPreview: candidateOutput.slice(0, 200),
+      },
+      'Prevented workflow completion with invalid output'
+    );
+
+    return false;
+  }
+
+  // ── Wait for running subagents to settle ──────────────────────────────────
   const runningTodoIds = Array.from(state.subagentRuns.values())
     .filter((run) => run.status === 'running')
     .map((run) => run.workItemId);
@@ -530,6 +555,7 @@ export const runWorkflow = async (
         status: 'executing',
       });
       workflows.set(id, state);
+      persistWorkflowSnapshot(state);
     }
   }
 
@@ -665,6 +691,7 @@ export const runWorkflow = async (
             });
             state.status = 'paused';
             persistWorkflowStatus(id, 'paused', responseText);
+            persistWorkflowSnapshot(state);
             return { workflowId: id, output: responseText, status: 'paused' };
           }
         }
@@ -697,12 +724,39 @@ export const runWorkflow = async (
         }
       }
 
+      // --- Graph validation after plan mutations ---
+      // If any write_todo calls were in this batch, validate the full graph
+      // for cycles.  Cycles are unrecoverable and would otherwise cause the
+      // workflow to spin until MAX_TURNS with no progress.
+      const hadPlanMutation = toolCalls.some((c) => c.name === 'write_todo');
+      if (hadPlanMutation) {
+        const currentItems = listWorkItems(state.id);
+        const graphResult = validateWorkItemGraph(currentItems);
+        if (!graphResult.valid) {
+          const cycles = graphResult.errors.filter((e) => e.type === 'dependency_cycle');
+          if (cycles.length > 0) {
+            const msg = formatGraphErrors(cycles);
+            logger.error({ workflowId: state.id, errors: cycles }, 'Dependency cycle detected in plan graph');
+            await failWorkflow(state, `Invalid plan: ${msg}`);
+            return { workflowId: id, output: `Workflow failed: ${msg}`, status: 'failed' };
+          }
+          // Self-deps and dangling refs are caught at the tool handler level
+          // and returned as error results for the LLM to self-correct.
+          // Log for observability but do not fail the workflow.
+          logger.warn(
+            { workflowId: state.id, errorCount: graphResult.errors.length },
+            'Plan graph has structural warnings',
+          );
+        }
+      }
+
       if (clarificationQuestion) {
         // Persist tool results so the model sees them when the workflow resumes
         const resultsMessage = `Tool results:\n${toolResults.map((r) => `- ${r.tool}: ${JSON.stringify(truncateToolResult(r))}`).join('\n')}`;
         state.messages.push({ role: 'user', content: resultsMessage });
         state.status = 'paused';
         persistWorkflowStatus(id, 'paused', clarificationQuestion);
+        persistWorkflowSnapshot(state);
         // Emit event with options and allow_custom
         emitWorkflowEvent(state, {
           type: 'clarification_requested',
