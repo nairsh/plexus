@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  getWorkItemDisplayId,
-  resolveWorkItemId,
-} from '../packages/orchestrator/src/workItems.js';
+import { getWorkItemDisplayId, resolveWorkItemId } from '../packages/orchestrator/src/workItems.js';
 
 const WF_ID = 'wf-abc123';
 

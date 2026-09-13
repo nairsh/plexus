@@ -23,10 +23,7 @@ const expectValid = (result: GraphValidationResult) => {
 };
 
 /** Assert result is invalid and contains at least one error of the given type. */
-const expectErrorOfType = (
-  result: GraphValidationResult,
-  type: string,
-) => {
+const expectErrorOfType = (result: GraphValidationResult, type: string) => {
   expect(result.valid).toBe(false);
   expect(result.errors.some((e) => e.type === type)).toBe(true);
 };
@@ -49,37 +46,25 @@ describe('valid acyclic plans', () => {
   });
 
   test('simple chain: a → b → c', () => {
-    expectValid(
-      validateWorkItemGraph([
-        node('a'),
-        node('b', ['a']),
-        node('c', ['b']),
-      ]),
-    );
+    expectValid(validateWorkItemGraph([node('a'), node('b', ['a']), node('c', ['b'])]));
   });
 
   test('diamond DAG: a → b, a → c, b → d, c → d', () => {
-    expectValid(
-      validateWorkItemGraph([
-        node('a'),
-        node('b', ['a']),
-        node('c', ['a']),
-        node('d', ['b', 'c']),
-      ]),
-    );
+    expectValid(validateWorkItemGraph([node('a'), node('b', ['a']), node('c', ['a']), node('d', ['b', 'c'])]));
   });
 
   test('wide fan-out: single root with many dependents', () => {
     const root = node('root');
-    const children = Array.from({ length: 10 }, (_, i) =>
-      node(`child-${i}`, ['root']),
-    );
+    const children = Array.from({ length: 10 }, (_, i) => node(`child-${i}`, ['root']));
     expectValid(validateWorkItemGraph([root, ...children]));
   });
 
   test('wide fan-in: many roots converging on a single node', () => {
     const roots = Array.from({ length: 5 }, (_, i) => node(`root-${i}`));
-    const sink = node('sink', roots.map((r) => r.id));
+    const sink = node(
+      'sink',
+      roots.map((r) => r.id)
+    );
     expectValid(validateWorkItemGraph([...roots, sink]));
   });
 
@@ -93,7 +78,7 @@ describe('valid acyclic plans', () => {
         node('test-backend', ['build-backend']),
         node('integration-test', ['test-frontend', 'test-backend']),
         node('deploy', ['integration-test']),
-      ]),
+      ])
     );
   });
 });
@@ -111,23 +96,14 @@ describe('duplicate IDs', () => {
   });
 
   test('detects multiple distinct duplicates', () => {
-    const result = validateWorkItemGraph([
-      node('a'),
-      node('b'),
-      node('a'),
-      node('b'),
-    ]);
+    const result = validateWorkItemGraph([node('a'), node('b'), node('a'), node('b')]);
     expect(result.valid).toBe(false);
     expect(result.errors.filter((e) => e.type === 'duplicate_id')).toHaveLength(2);
   });
 
   test('duplicate IDs prevent further checks (no false cycle errors)', () => {
     // With duplicates, the graph is ambiguous — only duplicate errors reported.
-    const result = validateWorkItemGraph([
-      node('a', ['b']),
-      node('a', ['b']),
-      node('b'),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['b']), node('a', ['b']), node('b')]);
     expect(result.errors.every((e) => e.type === 'duplicate_id')).toBe(true);
   });
 });
@@ -145,30 +121,20 @@ describe('self-dependencies', () => {
   });
 
   test('detects self-dependency mixed with valid dependencies', () => {
-    const result = validateWorkItemGraph([
-      node('a'),
-      node('b', ['a', 'b']),
-    ]);
+    const result = validateWorkItemGraph([node('a'), node('b', ['a', 'b'])]);
     expectErrorOfType(result, 'self_dependency');
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].taskIds).toEqual(['b']);
   });
 
   test('multiple nodes with self-dependencies', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['a']),
-      node('b', ['b']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['a']), node('b', ['b'])]);
     expect(result.errors.filter((e) => e.type === 'self_dependency')).toHaveLength(2);
   });
 
   test('self-dependency does not prevent cycle detection', () => {
     // Self-dep on 'a' + cycle between b and c
-    const result = validateWorkItemGraph([
-      node('a', ['a']),
-      node('b', ['c']),
-      node('c', ['b']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['a']), node('b', ['c']), node('c', ['b'])]);
     expect(result.errors.some((e) => e.type === 'self_dependency')).toBe(true);
     expect(result.errors.some((e) => e.type === 'dependency_cycle')).toBe(true);
   });
@@ -187,25 +153,17 @@ describe('dangling dependencies', () => {
   });
 
   test('detects multiple dangling references on one node', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['missing-1', 'missing-2']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['missing-1', 'missing-2'])]);
     expect(result.errors.filter((e) => e.type === 'dangling_dependency')).toHaveLength(2);
   });
 
   test('dangling deps across multiple nodes', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['x']),
-      node('b', ['y']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['x']), node('b', ['y'])]);
     expect(result.errors.filter((e) => e.type === 'dangling_dependency')).toHaveLength(2);
   });
 
   test('mixed valid and dangling dependencies', () => {
-    const result = validateWorkItemGraph([
-      node('a'),
-      node('b', ['a', 'ghost']),
-    ]);
+    const result = validateWorkItemGraph([node('a'), node('b', ['a', 'ghost'])]);
     expectErrorOfType(result, 'dangling_dependency');
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].message).toContain('ghost');
@@ -214,10 +172,7 @@ describe('dangling dependencies', () => {
   test('dangling deps prevent cycle detection (graph is incomplete)', () => {
     // b → c → b would be a cycle, but c depends on 'missing' which is dangling.
     // Cycle detection is skipped because the graph is incomplete.
-    const result = validateWorkItemGraph([
-      node('b', ['c']),
-      node('c', ['b', 'missing']),
-    ]);
+    const result = validateWorkItemGraph([node('b', ['c']), node('c', ['b', 'missing'])]);
     expect(result.errors.some((e) => e.type === 'dangling_dependency')).toBe(true);
     expect(result.errors.some((e) => e.type === 'dependency_cycle')).toBe(false);
   });
@@ -229,21 +184,14 @@ describe('dangling dependencies', () => {
 
 describe('dependency cycles', () => {
   test('detects simple two-node cycle: a ↔ b', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['b']),
-      node('b', ['a']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['b']), node('b', ['a'])]);
     expectErrorOfType(result, 'dependency_cycle');
     expect(result.errors[0].taskIds).toContain('a');
     expect(result.errors[0].taskIds).toContain('b');
   });
 
   test('detects three-node cycle: a → b → c → a', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['c']),
-      node('b', ['a']),
-      node('c', ['b']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['c']), node('b', ['a']), node('c', ['b'])]);
     expectErrorOfType(result, 'dependency_cycle');
     const cycleIds = result.errors.find((e) => e.type === 'dependency_cycle')!.taskIds;
     expect(cycleIds).toHaveLength(3);
@@ -254,12 +202,7 @@ describe('dependency cycles', () => {
 
   test('cycle with non-cyclic nodes attached', () => {
     // root → a → b → c → a  (cycle: a,b,c; root is not in cycle)
-    const result = validateWorkItemGraph([
-      node('root'),
-      node('a', ['root', 'c']),
-      node('b', ['a']),
-      node('c', ['b']),
-    ]);
+    const result = validateWorkItemGraph([node('root'), node('a', ['root', 'c']), node('b', ['a']), node('c', ['b'])]);
     expectErrorOfType(result, 'dependency_cycle');
     const cycleIds = result.errors.find((e) => e.type === 'dependency_cycle')!.taskIds;
     expect(cycleIds).toContain('a');
@@ -269,12 +212,7 @@ describe('dependency cycles', () => {
   });
 
   test('two independent cycles in one graph', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['b']),
-      node('b', ['a']),
-      node('x', ['y']),
-      node('y', ['x']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['b']), node('b', ['a']), node('x', ['y']), node('y', ['x'])]);
     expectErrorOfType(result, 'dependency_cycle');
     const cycleError = result.errors.find((e) => e.type === 'dependency_cycle')!;
     // All four nodes are in cycles (reported as one combined error)
@@ -305,10 +243,7 @@ describe('formatGraphErrors', () => {
   });
 
   test('formats multiple errors with numbering', () => {
-    const result = validateWorkItemGraph([
-      node('a', ['a']),
-      node('b', ['b']),
-    ]);
+    const result = validateWorkItemGraph([node('a', ['a']), node('b', ['b'])]);
     const formatted = formatGraphErrors(result.errors);
     expect(formatted).toContain('1.');
     expect(formatted).toContain('2.');
@@ -325,21 +260,12 @@ describe('edge cases', () => {
   });
 
   test('node depending on multiple valid nodes', () => {
-    expectValid(
-      validateWorkItemGraph([
-        node('a'),
-        node('b'),
-        node('c'),
-        node('d', ['a', 'b', 'c']),
-      ]),
-    );
+    expectValid(validateWorkItemGraph([node('a'), node('b'), node('c'), node('d', ['a', 'b', 'c'])]));
   });
 
   test('duplicate dependency references are tolerated (not an error)', () => {
     // Same dep listed twice — not ideal but not a structural graph error.
-    expectValid(
-      validateWorkItemGraph([node('a'), node('b', ['a', 'a'])]),
-    );
+    expectValid(validateWorkItemGraph([node('a'), node('b', ['a', 'a'])]));
   });
 
   test('self-dependency combined with dangling dependency', () => {
@@ -355,7 +281,7 @@ describe('edge cases', () => {
         node('wf-123_setup'),
         node('wf-123_build', ['wf-123_setup']),
         node('wf-123_test', ['wf-123_build']),
-      ]),
+      ])
     );
   });
 

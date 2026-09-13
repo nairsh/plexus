@@ -18,7 +18,10 @@ describe('workflow listing and filtering', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId, 'wftest@example.test', 'pro', 100
+      userId,
+      'wftest@example.test',
+      'pro',
+      100
     );
 
     // Insert sample workflows
@@ -88,7 +91,10 @@ describe('workflow listing and filtering', () => {
   test('listWorkflows does not return other users workflows', () => {
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      'other-user', 'other@example.test', 'free', 10
+      'other-user',
+      'other@example.test',
+      'free',
+      10
     );
     db.prepare(
       `INSERT INTO workflows (id, user_id, objective, status, config)

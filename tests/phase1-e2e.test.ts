@@ -7,8 +7,11 @@
  */
 import { describe, test, expect, beforeAll } from 'vitest';
 import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
+import { isServerReachable } from './helpers/server.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
+const serverUp = await isServerReachable(BASE_URL);
+
 let AUTH_TOKEN = '';
 
 async function api(method: string, path: string, body?: unknown) {
@@ -40,6 +43,7 @@ async function pollWorkflow(workflowId: string, timeoutMs = 90_000): Promise<Rec
 }
 
 beforeAll(async () => {
+  if (!serverUp) return;
   const health = await fetch(`${BASE_URL}/health`).catch(() => null);
   if (!health?.ok) throw new Error('Server not running');
 
@@ -48,7 +52,7 @@ beforeAll(async () => {
 
 // ── Task 1: Research with web search (Perplexity-style) ──
 
-describe('Task 1: Web research with domain filters', () => {
+describe.skipIf(!serverUp)('Task 1: Web research with domain filters', () => {
   test('can research a topic and return structured answer', async () => {
     const { status, data } = await api('POST', '/v1/responses', {
       model: 'litellm/gemini-3.1-flash-lite-preview',
@@ -72,7 +76,7 @@ describe('Task 1: Web research with domain filters', () => {
 
 // ── Task 2: Enhanced search with recency filter ──
 
-describe('Task 2: Enhanced search with recency + domain filters', () => {
+describe.skipIf(!serverUp)('Task 2: Enhanced search with recency + domain filters', () => {
   test('web_search with days_recency and include_domains params', async () => {
     const { status, data } = await api('POST', '/v1/responses', {
       model: 'litellm/gemini-3.1-flash-lite-preview',
@@ -89,7 +93,7 @@ describe('Task 2: Enhanced search with recency + domain filters', () => {
 
 // ── Task 3: Memory — store and recall across a "session boundary" ──
 
-describe('Task 3: Persistent memory store and recall', () => {
+describe.skipIf(!serverUp)('Task 3: Persistent memory store and recall', () => {
   test('save a preference and retrieve it', async () => {
     // Save memory
     const { status: s1, data: d1 } = await api('POST', '/v1/memory', {
@@ -144,7 +148,7 @@ describe('Task 3: Persistent memory store and recall', () => {
 
 // ── Task 4: Scheduled workflow — create, inspect, pause, resume, delete ──
 
-describe('Task 4: Scheduled workflow lifecycle', () => {
+describe.skipIf(!serverUp)('Task 4: Scheduled workflow lifecycle', () => {
   let scheduleId: string;
 
   test('full schedule CRUD cycle', async () => {
@@ -198,7 +202,7 @@ describe('Task 4: Scheduled workflow lifecycle', () => {
 
 // ── Task 5: Full orchestrated workflow (Perplexity Computer-style) ──
 
-describe('Task 5: Full multi-step orchestrated workflow', () => {
+describe.skipIf(!serverUp)('Task 5: Full multi-step orchestrated workflow', () => {
   test('plan and execute a research + write workflow', async () => {
     // Workflow runs 2 LLM iterations + web search, typically 60–120s total
     const { status, data } = await api('POST', '/v1/workflows', {

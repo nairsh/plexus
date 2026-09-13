@@ -36,9 +36,7 @@ afterEach(() => {
 
 describe('/v1/templates route registration', () => {
   test('GET /v1/templates is mounted (not 404)', async () => {
-    const { createServer } = await import(
-      '../packages/api-server/src/server.js'
-    );
+    const { createServer } = await import('../packages/api-server/src/server.js');
     const app = await createServer();
 
     const res = await app.inject({
@@ -53,9 +51,7 @@ describe('/v1/templates route registration', () => {
   });
 
   test('POST /v1/templates is mounted (not 404)', async () => {
-    const { createServer } = await import(
-      '../packages/api-server/src/server.js'
-    );
+    const { createServer } = await import('../packages/api-server/src/server.js');
     const app = await createServer();
 
     const res = await app.inject({
@@ -71,9 +67,7 @@ describe('/v1/templates route registration', () => {
   });
 
   test('GET /v1/templates/:id is mounted (not 404)', async () => {
-    const { createServer } = await import(
-      '../packages/api-server/src/server.js'
-    );
+    const { createServer } = await import('../packages/api-server/src/server.js');
     const app = await createServer();
 
     const res = await app.inject({
@@ -91,9 +85,7 @@ describe('/v1/templates route registration', () => {
     delete process.env['DISABLE_AUTH'];
     resetEnvCache();
 
-    const { createServer } = await import(
-      '../packages/api-server/src/server.js'
-    );
+    const { createServer } = await import('../packages/api-server/src/server.js');
     const app = await createServer();
 
     const templatesRes = await app.inject({

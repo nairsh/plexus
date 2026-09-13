@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
+import { isServerReachable } from './helpers/server.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
+const serverUp = await isServerReachable(BASE_URL);
+
 let AUTH_TOKEN = '';
 
 /**
@@ -36,6 +39,7 @@ async function api(
 }
 
 beforeAll(async () => {
+  if (!serverUp) return;
   // Verify server is running
   try {
     const res = await fetch(`${BASE_URL}/health`);
@@ -47,7 +51,7 @@ beforeAll(async () => {
   AUTH_TOKEN = await prepareTestAuth({ baseUrl: BASE_URL, testLabel: 'file-operations' });
 });
 
-describe('File Operations Tools Integration', () => {
+describe.skipIf(!serverUp)('File Operations Tools Integration', () => {
   let chatId: string;
   let sandboxSessionId: string;
 

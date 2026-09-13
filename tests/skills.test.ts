@@ -2,13 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  deleteSkill,
-  getAllSkills,
-  getSkillById,
-  refreshSkillsCache,
-  upsertSkill,
-} from '@orchestrator/model-router';
+import { deleteSkill, getAllSkills, getSkillById, refreshSkillsCache, upsertSkill } from '@orchestrator/model-router';
 
 const ORIGINAL_SKILLS_PATH = process.env['CLAUDE_SKILLS_PATH'];
 
@@ -59,23 +53,14 @@ describe('skills loader', () => {
     expect(skills[0]?.name).toBe('test-skill');
     expect(skills[0]?.description).toBe('Example skill');
     expect(skills[0]?.prompt_addendum).toContain('Use this skill to gather data.');
-    expect(skills[0]?.tools?.map((tool) => tool.type)).toEqual([
-      'web_search',
-      'fetch_url',
-    ]);
+    expect(skills[0]?.tools?.map((tool) => tool.type)).toEqual(['web_search', 'fetch_url']);
   });
 
   test('rejects a folder/name mismatch', () => {
     writeSkill(
       tempRoot,
       'mismatch-skill',
-      [
-        '---',
-        'name: other-skill',
-        'description: Example skill',
-        '---',
-        'Body.',
-      ].join('\n')
+      ['---', 'name: other-skill', 'description: Example skill', '---', 'Body.'].join('\n')
     );
 
     expect(() => getAllSkills()).toThrow(/folder.*match/i);

@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
+import { isServerReachable } from './helpers/server.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
+const serverUp = await isServerReachable(BASE_URL);
+
 let AUTH_TOKEN = '';
 // True when auth enforcement is active (Clerk required). False in DISABLE_AUTH dev mode.
 let AUTH_ENFORCED = true;
@@ -46,6 +49,7 @@ async function api(
 // ── Setup ──
 
 beforeAll(async () => {
+  if (!serverUp) return;
   // Verify server is running
   try {
     const res = await fetch(`${BASE_URL}/health`);
@@ -61,7 +65,7 @@ beforeAll(async () => {
 
 // ── Health & Discovery ──
 
-describe('Health & Discovery', () => {
+describe.skipIf(!serverUp)('Health & Discovery', () => {
   test('GET /health returns ok', async () => {
     const { status, data } = await api('GET', '/health');
     expect(status).toBe(200);
@@ -94,7 +98,7 @@ describe('Health & Discovery', () => {
 
 // ── Authentication ──
 
-describe('Authentication', () => {
+describe.skipIf(!serverUp)('Authentication', () => {
   test('Request without auth returns 401', async () => {
     if (!AUTH_ENFORCED) return; // DISABLE_AUTH mode — auth not enforced
     const savedToken = AUTH_TOKEN;
@@ -126,7 +130,7 @@ describe('Authentication', () => {
 
 // ── Billing ──
 
-describe('Billing', () => {
+describe.skipIf(!serverUp)('Billing', () => {
   test('GET /v1/billing/balance returns balance info', async () => {
     const { status, data } = await api('GET', '/v1/billing/balance');
     expect(status).toBe(200);
@@ -162,7 +166,7 @@ describe('Billing', () => {
 
 // ── Sandbox API ──
 
-describe('Sandbox API', () => {
+describe.skipIf(!serverUp)('Sandbox API', () => {
   let pythonSessionId: string;
   let jsSessionId: string;
 
@@ -279,7 +283,7 @@ describe('Sandbox API', () => {
 
 // ── Concurrent Sandbox Sessions ──
 
-describe('Concurrent Sandbox Sessions', () => {
+describe.skipIf(!serverUp)('Concurrent Sandbox Sessions', () => {
   test('10 concurrent sessions execute without cross-contamination', async () => {
     const sessionIds: string[] = [];
 
@@ -314,7 +318,7 @@ describe('Concurrent Sandbox Sessions', () => {
 
 // ── Error Format ──
 
-describe('Error Format', () => {
+describe.skipIf(!serverUp)('Error Format', () => {
   test('Invalid request body returns standard error format', async () => {
     const { status, data } = await api('POST', '/v1/sandbox/sessions', {
       language: 'invalid_language',
@@ -344,7 +348,7 @@ describe('Error Format', () => {
 
 // ── Agent API (requires real LLM keys) ──
 
-describe.skipIf(skipLLM)('Agent API (real LLM calls)', () => {
+describe.skipIf(!serverUp || skipLLM)('Agent API (real LLM calls)', () => {
   test('POST /v1/responses with OpenAI returns response', async () => {
     const { status, data } = await api('POST', '/v1/responses', {
       model: 'openai/gpt-4o-mini',
@@ -402,7 +406,7 @@ describe.skipIf(skipLLM)('Agent API (real LLM calls)', () => {
 
 // ── Workflow API (requires real LLM keys) ──
 
-describe.skipIf(skipLLM)('Workflow API (real LLM calls)', () => {
+describe.skipIf(!serverUp || skipLLM)('Workflow API (real LLM calls)', () => {
   test('POST /v1/workflows creates and starts a workflow', async () => {
     const { status, data } = await api('POST', '/v1/workflows', {
       objective: 'Calculate the first 10 Fibonacci numbers and format them as a JSON array',
@@ -436,7 +440,7 @@ describe.skipIf(skipLLM)('Workflow API (real LLM calls)', () => {
 
 // ── New Feature Tests (Session 2) ──
 
-describe('Schedule trigger endpoint', () => {
+describe.skipIf(!serverUp)('Schedule trigger endpoint', () => {
   test('POST /v1/schedules/:id/trigger triggers a schedule', async () => {
     const { status: createStatus, data: sched } = await api('POST', '/v1/schedules', {
       objective: 'Integration test trigger',
@@ -453,13 +457,13 @@ describe('Schedule trigger endpoint', () => {
       headers: authHeaders(AUTH_TOKEN),
     });
     expect(triggerRes.status).toBe(200);
-    const triggerData = await triggerRes.json() as Record<string, unknown>;
+    const triggerData = (await triggerRes.json()) as Record<string, unknown>;
     expect(triggerData['status']).toBe('triggered');
     expect(triggerData['schedule_id']).toBe(schedId);
   });
 });
 
-describe('Workflow pending-approvals endpoint', () => {
+describe.skipIf(!serverUp)('Workflow pending-approvals endpoint', () => {
   test('GET /v1/workflows/:id/pending-approvals returns empty list for new workflow', async () => {
     const { status: createStatus, data } = await api('POST', '/v1/workflows', {
       objective: 'Say hello',
@@ -480,7 +484,7 @@ describe('Workflow pending-approvals endpoint', () => {
 
 // ── New Feature Tests (Session 3) ──
 
-describe('Workflow progress endpoint', () => {
+describe.skipIf(!serverUp)('Workflow progress endpoint', () => {
   test('GET /v1/workflows/:id/progress returns progress summary', async () => {
     const { status: createStatus, data } = await api('POST', '/v1/workflows', {
       objective: 'Count to 10',
@@ -502,15 +506,13 @@ describe('Workflow progress endpoint', () => {
   });
 });
 
-describe('context_files injection', () => {
+describe.skipIf(!serverUp)('context_files injection', () => {
   test('Workflow accepts context_files and creates successfully', async () => {
     const content = Buffer.from('function greet(name) { return `Hello, ${name}!`; }').toString('base64');
     const { status, data } = await api('POST', '/v1/workflows', {
       objective: 'Analyze the provided JavaScript function',
       background: true,
-      context_files: [
-        { filename: 'greet.js', content_base64: content, media_type: 'text/javascript' },
-      ],
+      context_files: [{ filename: 'greet.js', content_base64: content, media_type: 'text/javascript' }],
     });
     expect(status).toBe(201);
     expect(data).toHaveProperty('workflow_id');
@@ -520,7 +522,7 @@ describe('context_files injection', () => {
   });
 });
 
-describe('model_fallback in workflow config', () => {
+describe.skipIf(!serverUp)('model_fallback in workflow config', () => {
   test('Workflow accepts model_fallback field', async () => {
     const { status, data } = await api('POST', '/v1/workflows', {
       objective: 'Write one sentence',

@@ -39,29 +39,24 @@ import {
   updateWorkflowObjectiveForContinuation,
   type ApprovalMetadata,
 } from '../packages/orchestrator/src/workflow/persistence.js';
-import {
-  createWorkflowState,
-  type WorkflowState,
-  workflows,
-} from '../packages/orchestrator/src/workflow/state.js';
+import { createWorkflowState, type WorkflowState, workflows } from '../packages/orchestrator/src/workflow/state.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const TEST_USER = 'test-user';
 
 /** Insert a test user (idempotent) and a workflow row with the given config. */
-function seedWorkflow(
-  workflowId: string,
-  config: WorkflowConfig,
-  status: string = 'executing',
-): void {
+function seedWorkflow(workflowId: string, config: WorkflowConfig, status: string = 'executing'): void {
   const db = getDb();
-  db.prepare(
-    `INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)`,
-  ).run(TEST_USER, 'test@example.test', 'pro', 100);
+  db.prepare(`INSERT OR IGNORE INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)`).run(
+    TEST_USER,
+    'test@example.test',
+    'pro',
+    100
+  );
   db.prepare(
     `INSERT INTO workflows (id, user_id, objective, status, config, orchestrator_model, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(workflowId, TEST_USER, config.objective, status, JSON.stringify(config), 'test-model');
 }
 
@@ -69,7 +64,7 @@ function seedWorkflow(
 function buildState(
   workflowId: string,
   config: WorkflowConfig,
-  overrides?: Partial<Parameters<typeof createWorkflowState>[0]>,
+  overrides?: Partial<Parameters<typeof createWorkflowState>[0]>
 ): WorkflowState {
   const state = createWorkflowState({
     id: workflowId,
@@ -127,8 +122,16 @@ describe('workflow state snapshot recovery', () => {
     state.messages.push({ role: 'user', content: 'Tool results:\n- write_todo: {"status":"ok"}' });
     state.messages.push({ role: 'assistant', content: 'Which database do you prefer: PostgreSQL or SQLite?' });
     state.conversationHistory.push(
-      { role: 'assistant', content: 'I will start by setting up the project structure.', timestamp: '2025-01-01T00:00:01Z' },
-      { role: 'assistant', content: 'Which database do you prefer: PostgreSQL or SQLite?', timestamp: '2025-01-01T00:00:02Z' },
+      {
+        role: 'assistant',
+        content: 'I will start by setting up the project structure.',
+        timestamp: '2025-01-01T00:00:01Z',
+      },
+      {
+        role: 'assistant',
+        content: 'Which database do you prefer: PostgreSQL or SQLite?',
+        timestamp: '2025-01-01T00:00:02Z',
+      }
     );
     state.creditsConsumed = 0.42;
 
@@ -145,7 +148,10 @@ describe('workflow state snapshot recovery', () => {
     // All 4 messages preserved (initial user + 3 added)
     expect(hydrated!.messages).toHaveLength(4);
     expect(hydrated!.messages[0]).toEqual({ role: 'user', content: 'Build a REST API' });
-    expect(hydrated!.messages[1]).toEqual({ role: 'assistant', content: 'I will start by setting up the project structure.' });
+    expect(hydrated!.messages[1]).toEqual({
+      role: 'assistant',
+      content: 'I will start by setting up the project structure.',
+    });
     expect(hydrated!.messages[2]).toEqual({ role: 'user', content: 'Tool results:\n- write_todo: {"status":"ok"}' });
     expect(hydrated!.messages[3]).toEqual({
       role: 'assistant',
@@ -326,7 +332,9 @@ describe('workflow state snapshot recovery', () => {
     // Snapshot v2: one turn of progress
     state.messages.push({ role: 'assistant', content: 'Step 1 done' });
     state.conversationHistory.push({
-      role: 'assistant', content: 'Step 1 done', timestamp: '2025-01-01T00:01:00Z',
+      role: 'assistant',
+      content: 'Step 1 done',
+      timestamp: '2025-01-01T00:01:00Z',
     });
     persistWorkflowSnapshot(state);
 
@@ -396,7 +404,9 @@ describe('workflow state snapshot recovery', () => {
     // Add a pending approval with a live resolve callback
     let resolverCalled = false;
     state.approvalState.pending.set('approval-1', {
-      resolve: () => { resolverCalled = true; },
+      resolve: () => {
+        resolverCalled = true;
+      },
       commandKey: 'bash:rm -rf',
       command: 'rm -rf /tmp/test',
       toolName: 'bash',
@@ -514,13 +524,21 @@ describe('workflow state snapshot recovery', () => {
 
     const db = getDb();
     expect(
-      (db.prepare('SELECT COUNT(*) AS cnt FROM workflow_state_snapshots WHERE workflow_id = ?').get(wfId) as { cnt: number }).cnt,
+      (
+        db.prepare('SELECT COUNT(*) AS cnt FROM workflow_state_snapshots WHERE workflow_id = ?').get(wfId) as {
+          cnt: number;
+        }
+      ).cnt
     ).toBe(2);
 
     db.prepare('DELETE FROM workflows WHERE id = ?').run(wfId);
 
     expect(
-      (db.prepare('SELECT COUNT(*) AS cnt FROM workflow_state_snapshots WHERE workflow_id = ?').get(wfId) as { cnt: number }).cnt,
+      (
+        db.prepare('SELECT COUNT(*) AS cnt FROM workflow_state_snapshots WHERE workflow_id = ?').get(wfId) as {
+          cnt: number;
+        }
+      ).cnt
     ).toBe(0);
   });
 
@@ -546,7 +564,11 @@ describe('workflow state snapshot recovery', () => {
     state.messages.push({ role: 'assistant', content: 'Do you want session-based or token-based auth?' });
     state.conversationHistory.push(
       { role: 'assistant', content: 'I will implement JWT-based authentication.', timestamp: '2025-01-01T00:00:01Z' },
-      { role: 'assistant', content: 'Do you want session-based or token-based auth?', timestamp: '2025-01-01T00:00:02Z' },
+      {
+        role: 'assistant',
+        content: 'Do you want session-based or token-based auth?',
+        timestamp: '2025-01-01T00:00:02Z',
+      }
     );
     state.creditsConsumed = 1.0;
 
@@ -561,7 +583,9 @@ describe('workflow state snapshot recovery', () => {
     state.status = 'executing';
     state.messages.push({ role: 'user', content: followUp });
     state.conversationHistory.push({
-      role: 'user', content: followUp, timestamp: '2025-01-01T00:01:00Z',
+      role: 'user',
+      content: followUp,
+      timestamp: '2025-01-01T00:01:00Z',
     });
     state.creditsConsumed = 1.2;
     updateWorkflowObjectiveForContinuation(wfId, followUp);
@@ -582,9 +606,9 @@ describe('workflow state snapshot recovery', () => {
 
     // All 7 messages preserved across the full lifecycle
     expect(hydrated!.messages).toHaveLength(7);
-    expect(hydrated!.messages[0].content).toBe('Implement user auth');           // original
+    expect(hydrated!.messages[0].content).toBe('Implement user auth'); // original
     expect(hydrated!.messages[3].content).toBe('Do you want session-based or token-based auth?'); // clarification
-    expect(hydrated!.messages[4].content).toBe('Use token-based JWT auth');      // follow-up
+    expect(hydrated!.messages[4].content).toBe('Use token-based JWT auth'); // follow-up
     expect(hydrated!.messages[6].content).toBe('Tool results:\n- code: {"files_written":3}'); // latest
 
     // Config reflects continuation
@@ -602,4 +626,3 @@ describe('workflow state snapshot recovery', () => {
     expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4]);
   });
 });
-

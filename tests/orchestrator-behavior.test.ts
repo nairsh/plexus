@@ -423,8 +423,7 @@ describe('orchestrator behavior', () => {
     });
 
     const { getOpenTerminalSessionForChat } = await import('@orchestrator/model-router');
-    vi
-      .mocked(getOpenTerminalSessionForChat)
+    vi.mocked(getOpenTerminalSessionForChat)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);

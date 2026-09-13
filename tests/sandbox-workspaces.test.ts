@@ -21,12 +21,9 @@ describe('sandbox workspaces', () => {
     process.env['SANDBOX_WORKSPACE_ROOT'] = join(tempDir, 'workspaces');
     runMigrations();
 
-    getDb().prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      'user-1',
-      'sandbox@test.local',
-      'pro',
-      100
-    );
+    getDb()
+      .prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)')
+      .run('user-1', 'sandbox@test.local', 'pro', 100);
   });
 
   afterEach(() => {
@@ -41,10 +38,12 @@ describe('sandbox workspaces', () => {
 
     writeFileSync(join(workspace.filesPath, 'existing.txt'), 'already here');
 
-    getDb().prepare(
-      `INSERT INTO sandbox_sessions (id, user_id, chat_id, language, working_dir, environment_status, status, config)
+    getDb()
+      .prepare(
+        `INSERT INTO sandbox_sessions (id, user_id, chat_id, language, working_dir, environment_status, status, config)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run('session-1', 'user-1', 'chat-1', 'python', join(tempDir, 'session-files'), 'running', 'ready', '{}');
+      )
+      .run('session-1', 'user-1', 'chat-1', 'python', join(tempDir, 'session-files'), 'running', 'ready', '{}');
 
     const sessionDir = join(tempDir, 'session-files');
     const sessionFile = join(sessionDir, 'artifact.txt');
@@ -70,10 +69,12 @@ describe('sandbox workspaces', () => {
     const sessionDir = join(tempDir, 'session-files-open-terminal');
     mkdirSync(sessionDir, { recursive: true });
 
-    getDb().prepare(
-      `INSERT INTO sandbox_sessions (id, user_id, chat_id, language, working_dir, environment_status, status, config)
+    getDb()
+      .prepare(
+        `INSERT INTO sandbox_sessions (id, user_id, chat_id, language, working_dir, environment_status, status, config)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run('session-2', 'user-1', 'chat-2', 'python', sessionDir, 'running', 'ready', '{}');
+      )
+      .run('session-2', 'user-1', 'chat-2', 'python', sessionDir, 'running', 'ready', '{}');
 
     activateWorkspace('user-1', 'chat-2', 'session-2', 'python', sessionDir);
     writeFileSync(join(workspace.filesPath, 'created-open-terminal.txt'), 'from open terminal');

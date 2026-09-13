@@ -18,7 +18,10 @@ describe('memory operations', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId, 'memtest@example.test', 'pro', 100
+      userId,
+      'memtest@example.test',
+      'pro',
+      100
     );
   });
 
@@ -60,7 +63,9 @@ describe('memory operations', () => {
     });
 
     const db = getDb();
-    const row = db.prepare('SELECT embedding, embedding_model FROM user_memories WHERE key = ?').get('with-embedding') as {
+    const row = db
+      .prepare('SELECT embedding, embedding_model FROM user_memories WHERE key = ?')
+      .get('with-embedding') as {
       embedding: string | null;
       embedding_model: string | null;
     };
@@ -283,7 +288,8 @@ describe('memory operations', () => {
     const short = saveMemory(userId, { key: 'short', content: 'hi' });
     const long = saveMemory(userId, {
       key: 'long',
-      content: 'I prefer using TypeScript with strict mode enabled and React with functional components and hooks for all frontend development projects',
+      content:
+        'I prefer using TypeScript with strict mode enabled and React with functional components and hooks for all frontend development projects',
     });
 
     expect(long.relevance_score).toBeGreaterThan(short.relevance_score);
@@ -306,7 +312,10 @@ describe('SqliteStorageAdapter memory parity', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      userId, 'storagetest@example.test', 'pro', 100
+      userId,
+      'storagetest@example.test',
+      'pro',
+      100
     );
   });
 

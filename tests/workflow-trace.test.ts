@@ -22,7 +22,7 @@ describe('workflow trace', () => {
       100
     );
     db.prepare(
-      'INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
+      "INSERT INTO workflows (id, user_id, objective, user_prompt, orchestrator_model, status, config, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
     ).run('wf-1', 'user-1', 'trace objective', 'trace objective', 'litellm/gemini-3-flash-preview', 'executing', '{}');
   });
 

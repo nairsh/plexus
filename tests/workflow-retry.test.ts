@@ -35,7 +35,7 @@ describe('workflow retry semantics', () => {
       'test-user',
       'test@example.test',
       'pro',
-      100,
+      100
     );
   });
 
@@ -48,25 +48,37 @@ describe('workflow retry semantics', () => {
 
   test('retry resets failed tasks to pending and preserves completed tasks', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-retry-1', 'test-user', 'Retry test', 'failed', '{"objective":"Retry test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-retry-1',
+      'test-user',
+      'Retry test',
+      'failed',
+      '{"objective":"Retry test"}'
+    );
 
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run('t-failed', 'wf-retry-1', 'code', 'Failed task', 'failed', 'error output', '2024-01-01T00:00:00Z');
 
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run('t-completed', 'wf-retry-1', 'research', 'Done task', 'completed', 'good output', '2024-01-01T00:00:00Z');
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-cancelled', 'wf-retry-1', 'write', 'Cancelled task', 'cancelled');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-cancelled',
+      'wf-retry-1',
+      'write',
+      'Cancelled task',
+      'cancelled'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-skipped', 'wf-retry-1', 'analyze', 'Skipped task', 'skipped');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-skipped',
+      'wf-retry-1',
+      'analyze',
+      'Skipped task',
+      'skipped'
+    );
 
     // retryWorkflow calls hydrateWorkflowState which needs in-memory state or snapshot.
     // Test at the persistence layer directly via SQL to verify the reset logic.
@@ -74,7 +86,7 @@ describe('workflow retry semantics', () => {
       .prepare(
         `UPDATE tasks
          SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`,
+         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`
       )
       .run('wf-retry-1');
 
@@ -121,35 +133,45 @@ describe('workflow retry semantics', () => {
     const db = getDb();
 
     // Step 1: Create an executing workflow with tasks in various states
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-regression', 'test-user', 'Regression test', 'executing', '{"objective":"Regression test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-regression',
+      'test-user',
+      'Regression test',
+      'executing',
+      '{"objective":"Regression test"}'
+    );
 
     // Task A: running (actively being processed by a subagent)
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-running-1', 'wf-regression', 'code', 'Active subagent task', 'running');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-running-1',
+      'wf-regression',
+      'code',
+      'Active subagent task',
+      'running'
+    );
 
     // Task B: also running
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-running-2', 'wf-regression', 'research', 'Another active task', 'running');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-running-2',
+      'wf-regression',
+      'research',
+      'Another active task',
+      'running'
+    );
 
     // Task C: already completed (should be preserved)
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run('t-done', 'wf-regression', 'write', 'Already finished', 'completed', 'Result A', '2024-01-01T00:00:00Z');
 
     // Task D: failed (e.g., the task whose failure caused the workflow to fail)
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`
     ).run('t-crashed', 'wf-regression', 'analyze', 'This caused the failure', 'failed', 'Error: OOM');
 
     // Step 2: Workflow fails. persistWorkflowFailure only updates the workflow
     // row — it does NOT touch tasks. Running tasks remain 'running'.
-    const { persistWorkflowFailure } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
-    );
+    const { persistWorkflowFailure } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowFailure({ id: 'wf-regression' } as any, 'Subagent crashed');
 
     // Verify: workflow is failed
@@ -174,7 +196,7 @@ describe('workflow retry semantics', () => {
       .prepare(
         `UPDATE tasks
          SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`,
+         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`
       )
       .run('wf-regression');
 
@@ -208,26 +230,36 @@ describe('workflow retry semantics', () => {
     const db = getDb();
 
     // Workflow was executing, then cancelled (which cascades running/pending → cancelled)
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-cancel-retry', 'test-user', 'Cancel then retry', 'executing', '{"objective":"Cancel then retry"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-retry',
+      'test-user',
+      'Cancel then retry',
+      'executing',
+      '{"objective":"Cancel then retry"}'
+    );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-was-running',
+      'wf-cancel-retry',
+      'code',
+      'Was running, now will be cancelled',
+      'running'
+    );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-was-pending',
+      'wf-cancel-retry',
+      'research',
+      'Was pending, now will be cancelled',
+      'pending'
+    );
 
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-was-running', 'wf-cancel-retry', 'code', 'Was running, now will be cancelled', 'running');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-was-pending', 'wf-cancel-retry', 'research', 'Was pending, now will be cancelled', 'pending');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`
     ).run('t-was-completed', 'wf-cancel-retry', 'write', 'Already done', 'completed', 'done output');
 
     // Cancel: cascades running/pending → cancelled
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
-    );
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-retry');
 
     // Verify cancel state
@@ -245,7 +277,7 @@ describe('workflow retry semantics', () => {
       .prepare(
         `UPDATE tasks
          SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`,
+         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`
       )
       .run('wf-cancel-retry');
 
@@ -264,9 +296,13 @@ describe('workflow retry semantics', () => {
 
   test('retry on executing workflow throws', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-executing', 'test-user', 'Still running', 'executing', '{"objective":"Still running"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-executing',
+      'test-user',
+      'Still running',
+      'executing',
+      '{"objective":"Still running"}'
+    );
 
     // retryWorkflow requires hydration which needs snapshot; test the guard logic directly
     const row = db.prepare('SELECT status FROM workflows WHERE id = ?').get('wf-executing') as { status: string };
@@ -276,9 +312,13 @@ describe('workflow retry semantics', () => {
 
   test('retry on completed workflow throws', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-completed', 'test-user', 'Finished', 'completed', '{"objective":"Finished"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-completed',
+      'test-user',
+      'Finished',
+      'completed',
+      '{"objective":"Finished"}'
+    );
 
     const row = db.prepare('SELECT status FROM workflows WHERE id = ?').get('wf-completed') as { status: string };
     expect(row.status).toBe('completed');
@@ -287,23 +327,27 @@ describe('workflow retry semantics', () => {
 
   test('retry clears output and completed_at on reset tasks', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-clear', 'test-user', 'Clear test', 'failed', '{"objective":"Clear test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-clear',
+      'test-user',
+      'Clear test',
+      'failed',
+      '{"objective":"Clear test"}'
+    );
 
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run('t-with-output', 'wf-clear', 'code', 'Had output', 'failed', 'Some error trace', '2024-01-01T12:00:00Z');
 
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`
     ).run('t-running-out', 'wf-clear', 'research', 'Running with partial output', 'running', 'Partial...');
 
     const result = db
       .prepare(
         `UPDATE tasks
          SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`,
+         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`
       )
       .run('wf-clear');
 
@@ -322,24 +366,32 @@ describe('workflow retry semantics', () => {
 
   test('retry with no resettable tasks returns zero changes', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-no-reset', 'test-user', 'All done', 'failed', '{"objective":"All done"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-no-reset',
+      'test-user',
+      'All done',
+      'failed',
+      '{"objective":"All done"}'
+    );
 
     // Only completed tasks — nothing to reset
     db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`
     ).run('t-ok', 'wf-no-reset', 'code', 'Finished fine', 'completed', 'output');
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-skip', 'wf-no-reset', 'research', 'Skipped', 'skipped');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-skip',
+      'wf-no-reset',
+      'research',
+      'Skipped',
+      'skipped'
+    );
 
     const result = db
       .prepare(
         `UPDATE tasks
          SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
-         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`,
+         WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')`
       )
       .run('wf-no-reset');
 
@@ -357,17 +409,23 @@ describe('workflow retry semantics', () => {
     const db = getDb();
 
     // --- Scenario A: Cancel cascades running → cancelled ---
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-cancel-asym', 'test-user', 'Cancel scenario', 'executing', '{"objective":"Cancel scenario"}');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-cancel-running', 'wf-cancel-asym', 'code', 'Running task', 'running');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-asym',
+      'test-user',
+      'Cancel scenario',
+      'executing',
+      '{"objective":"Cancel scenario"}'
     );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-cancel-running',
+      'wf-cancel-asym',
+      'code',
+      'Running task',
+      'running'
+    );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-asym');
 
     const cancelTask = db.prepare('SELECT status FROM tasks WHERE id = ?').get('t-cancel-running') as {
@@ -376,17 +434,23 @@ describe('workflow retry semantics', () => {
     expect(cancelTask.status).toBe('cancelled'); // Cancel DID cascade
 
     // --- Scenario B: Fail does NOT cascade running ---
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`,
-    ).run('wf-fail-asym', 'test-user', 'Fail scenario', 'executing', '{"objective":"Fail scenario"}');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`,
-    ).run('t-fail-running', 'wf-fail-asym', 'code', 'Running task', 'running');
-
-    const { persistWorkflowFailure } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-fail-asym',
+      'test-user',
+      'Fail scenario',
+      'executing',
+      '{"objective":"Fail scenario"}'
     );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-fail-running',
+      'wf-fail-asym',
+      'code',
+      'Running task',
+      'running'
+    );
+
+    const { persistWorkflowFailure } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowFailure({ id: 'wf-fail-asym' } as any, 'Something broke');
 
     const failTask = db.prepare('SELECT status FROM tasks WHERE id = ?').get('t-fail-running') as { status: string };

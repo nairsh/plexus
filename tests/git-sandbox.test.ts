@@ -3,12 +3,7 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  createGitSandbox,
-  rollbackGitSandbox,
-  commitGitSandbox,
-  GitOperationError,
-} from '@orchestrator/sandbox';
+import { createGitSandbox, rollbackGitSandbox, commitGitSandbox, GitOperationError } from '@orchestrator/sandbox';
 import { closeDb, getDb, runMigrations } from '@orchestrator/shared';
 
 function gitSync(cwd: string, ...args: string[]): string {
@@ -49,7 +44,9 @@ describe('createGitSandbox', () => {
     expect(session).not.toBeNull();
     expect(session!.baseBranch).toBe('develop');
     const db = getDb();
-    const row = db.prepare('SELECT base_branch FROM git_snapshots WHERE id = ?').get(session!.id) as { base_branch: string };
+    const row = db.prepare('SELECT base_branch FROM git_snapshots WHERE id = ?').get(session!.id) as {
+      base_branch: string;
+    };
     expect(row.base_branch).toBe('develop');
   });
 
@@ -327,7 +324,9 @@ describe('commitGitSandbox reliability', () => {
     expect(result.filesChanged).toContain('a.txt');
     expect(result.filesChanged).toContain('b.txt');
     const db = getDb();
-    const row = db.prepare('SELECT files_changed FROM git_snapshots WHERE id = ?').get(session!.id) as { files_changed: string };
+    const row = db.prepare('SELECT files_changed FROM git_snapshots WHERE id = ?').get(session!.id) as {
+      files_changed: string;
+    };
     const recorded = JSON.parse(row.files_changed);
     expect(recorded).toContain('a.txt');
     expect(recorded).toContain('b.txt');

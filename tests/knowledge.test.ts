@@ -13,7 +13,10 @@ describe('knowledge helpers', () => {
   });
 
   test('chunks long text into overlapping segments', () => {
-    const text = Array.from({ length: 120 }, (_, index) => `Paragraph ${index} with enough text to force chunking.`).join('\n\n');
+    const text = Array.from(
+      { length: 120 },
+      (_, index) => `Paragraph ${index} with enough text to force chunking.`
+    ).join('\n\n');
     const chunks = chunkKnowledgeText(text);
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks[0]?.length).toBeGreaterThan(100);

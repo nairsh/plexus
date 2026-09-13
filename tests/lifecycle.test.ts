@@ -20,7 +20,10 @@ describe('workflow lifecycle', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      'test-user', 'test@example.test', 'pro', 100
+      'test-user',
+      'test@example.test',
+      'pro',
+      100
     );
   });
 
@@ -34,33 +37,55 @@ describe('workflow lifecycle', () => {
     const db = getDb();
 
     // Create a workflow with tasks
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-cancel', 'test-user', 'Cancel test', 'executing', '{"objective":"cancel test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel',
+      'test-user',
+      'Cancel test',
+      'executing',
+      '{"objective":"cancel test"}'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('task-1', 'wf-cancel', 'code', 'Do something', 'running');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      'task-1',
+      'wf-cancel',
+      'code',
+      'Do something',
+      'running'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('task-2', 'wf-cancel', 'research', 'Research something', 'pending');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      'task-2',
+      'wf-cancel',
+      'research',
+      'Research something',
+      'pending'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('task-3', 'wf-cancel', 'code', 'Already done', 'completed');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      'task-3',
+      'wf-cancel',
+      'code',
+      'Already done',
+      'completed'
+    );
 
     // Import and call
     const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel');
 
     // Verify workflow is cancelled
-    const workflow = db.prepare('SELECT status, ended_at FROM workflows WHERE id = ?').get('wf-cancel') as { status: string; ended_at: string | null };
+    const workflow = db.prepare('SELECT status, ended_at FROM workflows WHERE id = ?').get('wf-cancel') as {
+      status: string;
+      ended_at: string | null;
+    };
     expect(workflow.status).toBe('cancelled');
     expect(workflow.ended_at).not.toBeNull();
 
     // Verify running/pending tasks are cancelled
-    const task1 = db.prepare('SELECT status, completed_at FROM tasks WHERE id = ?').get('task-1') as { status: string; completed_at: string | null };
+    const task1 = db.prepare('SELECT status, completed_at FROM tasks WHERE id = ?').get('task-1') as {
+      status: string;
+      completed_at: string | null;
+    };
     expect(task1.status).toBe('cancelled');
     expect(task1.completed_at).not.toBeNull();
 
@@ -74,9 +99,13 @@ describe('workflow lifecycle', () => {
 
   test('persistWorkflowCompletion saves output to DB', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-complete', 'test-user', 'Complete test', 'executing', '{"objective":"complete test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-complete',
+      'test-user',
+      'Complete test',
+      'executing',
+      '{"objective":"complete test"}'
+    );
 
     const { persistWorkflowCompletion } = await import('../packages/orchestrator/src/workflow/persistence.js');
 
@@ -90,7 +119,10 @@ describe('workflow lifecycle', () => {
 
     persistWorkflowCompletion(mockState as any, 'Explicit output text');
 
-    const row = db.prepare('SELECT status, output FROM workflows WHERE id = ?').get('wf-complete') as { status: string; output: string | null };
+    const row = db.prepare('SELECT status, output FROM workflows WHERE id = ?').get('wf-complete') as {
+      status: string;
+      output: string | null;
+    };
     expect(row.status).toBe('completed');
     expect(row.output).toBe('Explicit output text');
   });

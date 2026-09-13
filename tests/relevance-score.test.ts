@@ -23,7 +23,10 @@ describe('relevance score computation', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      'user-rel', 'test@test.com', 'free', 100
+      'user-rel',
+      'test@test.com',
+      'free',
+      100
     );
   });
 
@@ -43,13 +46,18 @@ describe('relevance score computation', () => {
     // Long content with more vocabulary
     saveMemory('user-rel', {
       key: 'long',
-      content: 'The orchestrator platform is a comprehensive system that manages workflow execution including model routing, billing, and sandbox management across multiple providers',
+      content:
+        'The orchestrator platform is a comprehensive system that manages workflow execution including model routing, billing, and sandbox management across multiple providers',
       category: 'test',
     });
 
     const db = getDb();
-    const short = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('short') as { relevance_score: number };
-    const long = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('long') as { relevance_score: number };
+    const short = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('short') as {
+      relevance_score: number;
+    };
+    const long = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('long') as {
+      relevance_score: number;
+    };
 
     expect(long.relevance_score).toBeGreaterThan(short.relevance_score);
   });
@@ -57,12 +65,15 @@ describe('relevance score computation', () => {
   test('relevance score is between 0 and 5', () => {
     saveMemory('user-rel', {
       key: 'bounded',
-      content: 'A moderately long piece of text with various unique words including orchestrator, platform, billing, sandbox, workflow, model, router, and scheduler components',
+      content:
+        'A moderately long piece of text with various unique words including orchestrator, platform, billing, sandbox, workflow, model, router, and scheduler components',
       category: 'test',
     });
 
     const db = getDb();
-    const row = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('bounded') as { relevance_score: number };
+    const row = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('bounded') as {
+      relevance_score: number;
+    };
 
     expect(row.relevance_score).toBeGreaterThanOrEqual(0);
     expect(row.relevance_score).toBeLessThanOrEqual(5);
@@ -76,7 +87,9 @@ describe('relevance score computation', () => {
     });
 
     const db = getDb();
-    const row = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('empty') as { relevance_score: number };
+    const row = db.prepare('SELECT relevance_score FROM user_memories WHERE key = ?').get('empty') as {
+      relevance_score: number;
+    };
 
     expect(row.relevance_score).toBe(0);
   });
@@ -85,7 +98,8 @@ describe('relevance score computation', () => {
     saveMemory('user-rel', { key: 'low', content: 'hi', category: 'test' });
     saveMemory('user-rel', {
       key: 'high',
-      content: 'The comprehensive platform includes orchestration, billing, memory management, sandbox execution, model routing, and scheduling capabilities with robust error handling',
+      content:
+        'The comprehensive platform includes orchestration, billing, memory management, sandbox execution, model routing, and scheduling capabilities with robust error handling',
       category: 'test',
     });
 

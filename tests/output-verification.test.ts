@@ -55,14 +55,14 @@ describe('verifyOutput', () => {
       "I am sorry, I'm not able to do that.",
       "Sorry, I can't help with that request.",
       "I can't do this task.",
-      "I cannot provide that information.",
-      "Unfortunately, I cannot fulfill this request.",
-      "Regrettably, I am unable to help with that.",
-      "This is beyond my capabilities.",
-      "This goes outside the scope.",
+      'I cannot provide that information.',
+      'Unfortunately, I cannot fulfill this request.',
+      'Regrettably, I am unable to help with that.',
+      'This is beyond my capabilities.',
+      'This goes outside the scope.',
       "I don't have the ability to do that.",
-      "I do not have the capability to complete this.",
-      "Apologies, but I cannot assist with this.",
+      'I do not have the capability to complete this.',
+      'Apologies, but I cannot assist with this.',
     ];
 
     for (const refusal of refusals) {
@@ -77,9 +77,9 @@ describe('verifyOutput', () => {
 
     test('does NOT reject refusal buried in long content', () => {
       const longContent =
-        "Here are the analysis results.\n".repeat(30) +
+        'Here are the analysis results.\n'.repeat(30) +
         "I'm sorry, I cannot complete this task." +
-        "\nBut here is what I found anyway.".repeat(10);
+        '\nBut here is what I found anyway.'.repeat(10);
       expect(verifyOutput(longContent).valid).toBe(true);
     });
   });
@@ -146,7 +146,10 @@ describe('verifyOutput', () => {
 
     test('long response that starts with refusal-like phrase', () => {
       // Over 500 chars, should not trigger refusal check
-      const longOutput = "I'm sorry, I cannot complete this task. ".padEnd(600, 'But here are alternative approaches: ');
+      const longOutput = "I'm sorry, I cannot complete this task. ".padEnd(
+        600,
+        'But here are alternative approaches: '
+      );
       expect(verifyOutput(longOutput).valid).toBe(true);
     });
 

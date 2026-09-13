@@ -43,13 +43,15 @@ describe('workflow cancel semantics', () => {
 
   test('cancel preserves workflow row in database', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-cancel-1', 'test-user', 'Test objective', 'executing', '{"objective":"Test objective"}');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-1',
+      'test-user',
+      'Test objective',
+      'executing',
+      '{"objective":"Test objective"}'
     );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-1');
 
     // Workflow row must still exist
@@ -66,29 +68,43 @@ describe('workflow cancel semantics', () => {
 
   test('cancel preserves task history — pending/running become cancelled, completed stays completed', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-cancel-2', 'test-user', 'Multi-task', 'executing', '{"objective":"Multi-task"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-2',
+      'test-user',
+      'Multi-task',
+      'executing',
+      '{"objective":"Multi-task"}'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-running', 'wf-cancel-2', 'code', 'Running task', 'running');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-running',
+      'wf-cancel-2',
+      'code',
+      'Running task',
+      'running'
+    );
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-pending', 'wf-cancel-2', 'research', 'Pending task', 'pending');
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-pending',
+      'wf-cancel-2',
+      'research',
+      'Pending task',
+      'pending'
+    );
 
     db.prepare(
       `INSERT INTO tasks (id, workflow_id, task_type, description, status, output) VALUES (?, ?, ?, ?, ?, ?)`
     ).run('t-completed', 'wf-cancel-2', 'write', 'Done task', 'completed', 'Output from completed task');
 
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-failed', 'wf-cancel-2', 'analyze', 'Failed task', 'failed');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-failed',
+      'wf-cancel-2',
+      'analyze',
+      'Failed task',
+      'failed'
     );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-2');
 
     // All tasks must still exist (not deleted)
@@ -117,22 +133,26 @@ describe('workflow cancel semantics', () => {
 
   test('cancelled workflow remains fetchable via getWorkflowDetails', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-cancel-3', 'test-user', 'Fetchable after cancel', 'executing', '{"objective":"Fetchable after cancel"}');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-fetch-1', 'wf-cancel-3', 'code', 'Task A', 'running');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-3',
+      'test-user',
+      'Fetchable after cancel',
+      'executing',
+      '{"objective":"Fetchable after cancel"}'
     );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-fetch-1',
+      'wf-cancel-3',
+      'code',
+      'Task A',
+      'running'
+    );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-3');
 
-    const { getWorkflowDetails } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
-    );
+    const { getWorkflowDetails } = await import('../packages/orchestrator/src/workflow/persistence.js');
     const details = getWorkflowDetails('wf-cancel-3');
 
     expect(details).not.toBeNull();
@@ -143,13 +163,15 @@ describe('workflow cancel semantics', () => {
 
   test('cancelled workflow appears in listWorkflows', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-cancel-list', 'test-user', 'Should be listed', 'executing', '{"objective":"Should be listed"}');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-cancel-list',
+      'test-user',
+      'Should be listed',
+      'executing',
+      '{"objective":"Should be listed"}'
     );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-cancel-list');
 
     const { listWorkflows } = await import('../packages/orchestrator/src/workflow/persistence.js');
@@ -166,17 +188,19 @@ describe('workflow cancel semantics', () => {
 
   test('cancel is idempotent — second cancel on already-cancelled workflow is a no-op', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-idempotent', 'test-user', 'Idempotent cancel', 'cancelled', '{"objective":"Idempotent cancel"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-idempotent',
+      'test-user',
+      'Idempotent cancel',
+      'cancelled',
+      '{"objective":"Idempotent cancel"}'
+    );
 
     // cancelWorkflow imports engine which has side effects (in-memory state),
     // so we test idempotency at the persistence layer and engine layer separately.
 
     // Persistence layer: calling persistWorkflowCancellation on already-cancelled is safe
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
-    );
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     // Should not throw
     persistWorkflowCancellation('wf-idempotent');
 
@@ -192,17 +216,23 @@ describe('workflow cancel semantics', () => {
       'pro',
       100
     );
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-other', 'other-user', 'Other user workflow', 'executing', '{"objective":"Other user workflow"}');
-
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-mine', 'test-user', 'My workflow', 'executing', '{"objective":"My workflow"}');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-other',
+      'other-user',
+      'Other user workflow',
+      'executing',
+      '{"objective":"Other user workflow"}'
     );
+
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-mine',
+      'test-user',
+      'My workflow',
+      'executing',
+      '{"objective":"My workflow"}'
+    );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-mine');
 
     // Other user's workflow untouched
@@ -216,7 +246,7 @@ describe('workflow cancel semantics', () => {
 
   test('workflow_cancelled event type exists in WorkflowEvent union', async () => {
     // Verify at the type level by constructing a valid event
-    const { } = await import('@orchestrator/shared');
+    const {} = await import('@orchestrator/shared');
 
     // This is a compile-time check — if workflow_cancelled is not in the type,
     // TypeScript would reject this. At runtime we verify the string is accepted.
@@ -233,21 +263,31 @@ describe('workflow cancel semantics', () => {
 
   test('cancellation is transactional — workflow and task updates are atomic', async () => {
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-atomic', 'test-user', 'Atomic cancel', 'executing', '{"objective":"Atomic cancel"}');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-atomic-1', 'wf-atomic', 'code', 'Task 1', 'running');
-
-    db.prepare(
-      `INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`
-    ).run('t-atomic-2', 'wf-atomic', 'code', 'Task 2', 'pending');
-
-    const { persistWorkflowCancellation } = await import(
-      '../packages/orchestrator/src/workflow/persistence.js'
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-atomic',
+      'test-user',
+      'Atomic cancel',
+      'executing',
+      '{"objective":"Atomic cancel"}'
     );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-atomic-1',
+      'wf-atomic',
+      'code',
+      'Task 1',
+      'running'
+    );
+
+    db.prepare(`INSERT INTO tasks (id, workflow_id, task_type, description, status) VALUES (?, ?, ?, ?, ?)`).run(
+      't-atomic-2',
+      'wf-atomic',
+      'code',
+      'Task 2',
+      'pending'
+    );
+
+    const { persistWorkflowCancellation } = await import('../packages/orchestrator/src/workflow/persistence.js');
     persistWorkflowCancellation('wf-atomic');
 
     // Both the workflow and both tasks should be cancelled (transaction atomicity)

@@ -16,7 +16,10 @@ describe('workflow state management', () => {
 
     const db = getDb();
     db.prepare('INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)').run(
-      'test-user', 'test@example.test', 'pro', 100
+      'test-user',
+      'test@example.test',
+      'pro',
+      100
     );
   });
 
@@ -43,9 +46,13 @@ describe('workflow state management', () => {
   test('listWorkflows with invalid status returns empty', async () => {
     const { listWorkflows } = await import('@orchestrator/orchestrator');
     const db = getDb();
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-1', 'test-user', 'Test', 'completed', '{"objective":"test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-1',
+      'test-user',
+      'Test',
+      'completed',
+      '{"objective":"test"}'
+    );
 
     expect(listWorkflows('test-user', { status: 'nonexistent' as any })).toEqual([]);
   });
@@ -54,9 +61,13 @@ describe('workflow state management', () => {
     const { persistWorkflowStatus } = await import('../packages/orchestrator/src/workflow/persistence.js');
     const db = getDb();
 
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-pause', 'test-user', 'Test', 'executing', '{"objective":"test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-pause',
+      'test-user',
+      'Test',
+      'executing',
+      '{"objective":"test"}'
+    );
 
     persistWorkflowStatus('wf-pause', 'paused', 'Waiting for user clarification');
 
@@ -90,9 +101,13 @@ describe('workflow state management', () => {
     const { persistWorkflowFailure } = await import('../packages/orchestrator/src/workflow/persistence.js');
     const db = getDb();
 
-    db.prepare(
-      `INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`
-    ).run('wf-fail', 'test-user', 'Test', 'executing', '{"objective":"test"}');
+    db.prepare(`INSERT INTO workflows (id, user_id, objective, status, config) VALUES (?, ?, ?, ?, ?)`).run(
+      'wf-fail',
+      'test-user',
+      'Test',
+      'executing',
+      '{"objective":"test"}'
+    );
 
     const mockState = { id: 'wf-fail', creditsConsumed: 1.23 };
     persistWorkflowFailure(mockState as any, 'Out of memory');

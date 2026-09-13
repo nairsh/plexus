@@ -46,14 +46,14 @@ describe('user-scoped skills and model preferences', () => {
   });
 
   test('skills are isolated per user', () => {
-    upsertSkillForUser('user-a', 'code-review', {
+    upsertSkillForUser('user-a', 'custom-review-style', {
       description: 'User A review style',
       prompt_addendum: 'Focus on readability and tests.',
       tools: [{ type: 'file_read' }, { type: 'grep' }],
     });
 
-    const userASkill = getSkillByIdForUser('user-a', 'code-review');
-    const userBSkill = getSkillByIdForUser('user-b', 'code-review');
+    const userASkill = getSkillByIdForUser('user-a', 'custom-review-style');
+    const userBSkill = getSkillByIdForUser('user-b', 'custom-review-style');
 
     expect(userASkill?.description).toContain('User A');
     expect(userBSkill).toBeNull();
@@ -61,8 +61,8 @@ describe('user-scoped skills and model preferences', () => {
     const userASkills = getAllSkillsForUser('user-a');
     const userBSkills = getAllSkillsForUser('user-b');
 
-    expect(userASkills.some((skill) => skill.id === 'code-review')).toBe(true);
-    expect(userBSkills.some((skill) => skill.id === 'code-review')).toBe(false);
+    expect(userASkills.some((skill) => skill.id === 'custom-review-style')).toBe(true);
+    expect(userBSkills.some((skill) => skill.id === 'custom-review-style')).toBe(false);
   });
 
   test('model preferences are isolated per user', () => {

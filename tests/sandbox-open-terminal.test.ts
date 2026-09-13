@@ -159,12 +159,23 @@ describe('API key encryption in DB', () => {
     db.prepare(
       `INSERT INTO sandbox_sessions (id, user_id, chat_id, language, working_dir, open_terminal_url, open_terminal_api_key, environment_status, status, config)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run('session-enc', 'user-1', 'chat-enc', 'python', '/tmp/ws', 'http://localhost:9000', encrypted, 'running', 'ready', '{}');
+    ).run(
+      'session-enc',
+      'user-1',
+      'chat-enc',
+      'python',
+      '/tmp/ws',
+      'http://localhost:9000',
+      encrypted,
+      'running',
+      'ready',
+      '{}'
+    );
 
     // Read the raw column value — it must NOT be the plaintext key.
-    const row = db
-      .prepare('SELECT open_terminal_api_key FROM sandbox_sessions WHERE id = ?')
-      .get('session-enc') as { open_terminal_api_key: string };
+    const row = db.prepare('SELECT open_terminal_api_key FROM sandbox_sessions WHERE id = ?').get('session-enc') as {
+      open_terminal_api_key: string;
+    };
 
     expect(row.open_terminal_api_key).not.toBe(apiKey);
     expect(row.open_terminal_api_key).not.toContain('sk-ot-');

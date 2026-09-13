@@ -35,12 +35,7 @@ export function authHeaders(token: string, extra?: Record<string, string>): Reco
   };
 }
 
-async function assertAuthTokenWorks(
-  baseUrl: string,
-  token: string,
-  probePath: string,
-  message: string
-): Promise<void> {
+async function assertAuthTokenWorks(baseUrl: string, token: string, probePath: string, message: string): Promise<void> {
   const ok = await canAuthenticate(baseUrl, token, probePath);
   if (!ok) {
     throw new Error(message);

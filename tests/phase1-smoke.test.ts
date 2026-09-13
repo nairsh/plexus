@@ -7,9 +7,12 @@
  */
 import { describe, test, expect, beforeAll } from 'vitest';
 import { prepareTestAuth, authHeaders } from './helpers/testAuth.js';
+import { isServerReachable } from './helpers/server.js';
 
 const BASE_URL = process.env['TEST_BASE_URL'] ?? 'http://localhost:8080';
 const skipLLM = process.env['SKIP_LLM_TESTS'] === '1';
+
+const serverUp = await isServerReachable(BASE_URL);
 
 let AUTH_TOKEN = '';
 
@@ -34,6 +37,7 @@ async function api(
 }
 
 beforeAll(async () => {
+  if (!serverUp) return;
   const health = await fetch(`${BASE_URL}/health`).catch(() => null);
   if (!health?.ok) throw new Error('Server not running. Start with: pnpm dev');
 
@@ -42,7 +46,7 @@ beforeAll(async () => {
 
 // ── 1A: Enhanced Search ──
 
-describe('1A: Enhanced Search', () => {
+describe.skipIf(!serverUp)('1A: Enhanced Search', () => {
   test('web_search tool definition includes new filter params', async () => {
     // The models list exposes the server is healthy; tool defs are not an HTTP endpoint.
     // Verify via a /v1/responses call with the new params — should not 400.
@@ -80,7 +84,7 @@ describe('1A: Enhanced Search', () => {
 
 // ── 1B: Deep Research Agent ──
 
-describe('1B: Deep Research Agent', () => {
+describe.skipIf(!serverUp)('1B: Deep Research Agent', () => {
   test('deep_research is a valid agent type in schemas', async () => {
     // Verify the workflow API accepts deep_research as a task type
     // by creating a workflow that requests it (will fail planning if not valid).
@@ -115,7 +119,7 @@ describe('1B: Deep Research Agent', () => {
 
 // ── 1C: Persistent Memory ──
 
-describe('1C: Persistent Memory', () => {
+describe.skipIf(!serverUp)('1C: Persistent Memory', () => {
   let memoryId: string;
 
   test('POST /v1/memory saves a memory', async () => {
@@ -186,7 +190,7 @@ describe('1C: Persistent Memory', () => {
 
 // ── 1D: Scheduled Workflows ──
 
-describe('1D: Scheduled Workflows', () => {
+describe.skipIf(!serverUp)('1D: Scheduled Workflows', () => {
   let scheduleId: string;
 
   test('POST /v1/schedules creates a schedule with valid cron', async () => {

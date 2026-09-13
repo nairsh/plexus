@@ -24,7 +24,10 @@ beforeEach(() => {
   // Insert test credit transactions directly
   // Insert another user so FK constraints pass
   db.prepare(`INSERT INTO users (id, email, tier, credits_balance) VALUES (?, ?, ?, ?)`).run(
-    'other-user', 'other@test.local', 'pro', 10000
+    'other-user',
+    'other@test.local',
+    'pro',
+    10000
   );
 
   const insert = db.prepare(
@@ -32,11 +35,47 @@ beforeEach(() => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  insert.run('t1', USER_ID, -10, 9990, 'LLM request', 'workflow', JSON.stringify({ model: 'gpt-4o', total_tokens: 500 }), '2026-01-15 10:00:00');
-  insert.run('t2', USER_ID, -5,  9985, 'LLM request', 'workflow', JSON.stringify({ model: 'gpt-4o', total_tokens: 200 }), '2026-01-20 10:00:00');
-  insert.run('t3', USER_ID, -8,  9977, 'LLM request', 'workflow', JSON.stringify({ model: 'claude-3-5-sonnet', total_tokens: 400 }), '2026-01-25 10:00:00');
-  insert.run('t4', USER_ID, 100, 10077, 'Top-up',     'topup',   null, '2026-01-01 10:00:00');
-  insert.run('t5', 'other-user', -20, 9980, 'LLM request', 'workflow', JSON.stringify({ model: 'gpt-4o', total_tokens: 1000 }), '2026-01-15 10:00:00');
+  insert.run(
+    't1',
+    USER_ID,
+    -10,
+    9990,
+    'LLM request',
+    'workflow',
+    JSON.stringify({ model: 'gpt-4o', total_tokens: 500 }),
+    '2026-01-15 10:00:00'
+  );
+  insert.run(
+    't2',
+    USER_ID,
+    -5,
+    9985,
+    'LLM request',
+    'workflow',
+    JSON.stringify({ model: 'gpt-4o', total_tokens: 200 }),
+    '2026-01-20 10:00:00'
+  );
+  insert.run(
+    't3',
+    USER_ID,
+    -8,
+    9977,
+    'LLM request',
+    'workflow',
+    JSON.stringify({ model: 'claude-3-5-sonnet', total_tokens: 400 }),
+    '2026-01-25 10:00:00'
+  );
+  insert.run('t4', USER_ID, 100, 10077, 'Top-up', 'topup', null, '2026-01-01 10:00:00');
+  insert.run(
+    't5',
+    'other-user',
+    -20,
+    9980,
+    'LLM request',
+    'workflow',
+    JSON.stringify({ model: 'gpt-4o', total_tokens: 1000 }),
+    '2026-01-15 10:00:00'
+  );
 });
 
 afterEach(() => {
