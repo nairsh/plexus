@@ -25,7 +25,6 @@ import {
   formatWorkflowSummary,
   getToolResultStatus,
   isTodoTool,
-  summarizeToolStep,
 } from './chat-format.js';
 import { MarkdownMessage } from './markdown.js';
 import { SPECIAL_LOAD_WORKFLOW, SPECIAL_OPEN_CONTINUE, SPECIAL_SET_MODEL } from './chat-protocol.js';

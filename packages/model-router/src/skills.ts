@@ -202,7 +202,7 @@ export function applySkillToRequest(request: AgentRequest, skill: Skill, input?:
 
 function loadSkillsFromDisk(): Skill[] {
   const root = getSkillsRoot();
-  let entries: Array<{ name: string; path: string }> = [];
+  let entries: Array<{ name: string; path: string }>;
 
   try {
     const dirents = readdirSync(root, { withFileTypes: true });

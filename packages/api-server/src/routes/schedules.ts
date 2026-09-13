@@ -80,7 +80,7 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
         timezone: body.timezone,
         startAt: body.start_at,
       });
-    } catch (error) {
+    } catch {
       throw new InvalidRequestError('Invalid cron expression');
     }
 

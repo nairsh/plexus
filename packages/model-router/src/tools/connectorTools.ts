@@ -2,9 +2,9 @@
  * Connector tool executors — GitHub, Linear, and Notion API tools
  * that use stored OAuth credentials from the connectors system.
  */
-import { getDb, getErrorMessage, logger } from '@orchestrator/shared';
+import { getErrorMessage, logger } from '@orchestrator/shared';
 import type { ConnectorProvider } from '@orchestrator/shared';
-import { getConnectorCredentials, listConnectorsForUser, validateConnectorForUser } from '../connectors.js';
+import { getConnectorCredentials, listConnectorsForUser } from '../connectors.js';
 
 interface ConnectorCredentials {
   access_token: string;

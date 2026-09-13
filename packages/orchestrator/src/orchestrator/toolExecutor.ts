@@ -1,5 +1,5 @@
 import type { AgentType } from '@orchestrator/shared';
-import { getDb, logger } from '@orchestrator/shared';
+import { getDb } from '@orchestrator/shared';
 import {
   createWorkItem,
   getWorkItem,
@@ -10,10 +10,9 @@ import {
   updateWorkItem,
   type WorkItemStatus,
 } from '../workItems.js';
-import { validateWorkItemGraph, formatGraphErrors } from '../validateWorkItemGraph.js';
 import { emitWorkflowEvent } from '../workflow/emitter.js';
 import type { WorkflowState } from '../workflow/state.js';
-import { areDependenciesSatisfied, spawnSubagentRun, waitForRuns } from '../subagents/runner.js';
+import { spawnSubagentRun, waitForRuns } from '../subagents/runner.js';
 import type { ToolCall } from './tools.js';
 import { executeToolCall, getOpenTerminalSessionForChat, getSkillByIdForUser } from '@orchestrator/model-router';
 import { saveMemory } from '@orchestrator/memory';

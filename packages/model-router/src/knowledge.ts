@@ -84,6 +84,7 @@ export const inferKnowledgeExtractionMode = (
 
 const sanitizeExtractedText = (value: string): string =>
   value
+    // eslint-disable-next-line no-control-regex -- stripping NUL bytes is the intent
     .replace(/\u0000/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

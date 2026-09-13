@@ -11,7 +11,6 @@ import {
   printError,
   printWarning,
   printConfigItem,
-  printKeyValue,
   colors,
 } from '../ui/components.js';
 import { getConfigValue, setConfigValue, getModelConfig, ConfigKey } from '../lib/config-manager.js';
@@ -62,7 +61,7 @@ async function listConfig(): Promise<void> {
     { key: 'TAVILY_API_KEY', configKey: 'tavily.apiKey' as ConfigKey, sensitive: true },
   ];
 
-  for (const { key, configKey, sensitive } of envVars) {
+  for (const { key, sensitive } of envVars) {
     const value = process.env[key];
     printConfigItem(key, value, { sensitive });
   }

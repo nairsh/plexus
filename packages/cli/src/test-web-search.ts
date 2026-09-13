@@ -19,7 +19,6 @@ config({ path: envPath });
 
 import { program } from 'commander';
 import { searchWeb, TavilySearchResponse } from '@orchestrator/model-router';
-import { logger } from '@orchestrator/shared';
 import chalk from 'chalk';
 import ora from 'ora';
 

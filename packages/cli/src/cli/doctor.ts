@@ -2,21 +2,12 @@
  * Doctor command - health check and diagnostics.
  */
 
-import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { config } from 'dotenv';
-import {
-  printBanner,
-  printHeader,
-  printSubHeader,
-  printKeyValue,
-  printCategory,
-  printSummary,
-  icons,
-  colors,
-} from '../ui/components.js';
-import { envFileExists, getEnvVar, ENV_KEYS } from '../lib/env-manager.js';
+import { printBanner, printHeader, printCategory, printSummary, icons, colors } from '../ui/components.js';
+import { envFileExists } from '../lib/env-manager.js';
 import { testLiteLLMConnection, testTavilyConnection, testDatabaseConnection } from '../lib/connection-tester.js';
 import {
   getModelConfig,
@@ -25,7 +16,6 @@ import {
   tryNormalizeModelId,
   updateOrchestratorModels,
   setAgentModel,
-  getAllAgentModels,
 } from '../lib/config-manager.js';
 
 // ── Types ──
@@ -79,7 +69,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<void> {
 
 // ── Environment checks ──
 
-async function checkEnvironment(options: DoctorOptions): Promise<CheckResult[]> {
+async function checkEnvironment(_options: DoctorOptions): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   const envPath = '.env';
 
@@ -433,21 +423,5 @@ function printResults(results: CheckResult[], options: DoctorOptions): void {
         console.log(chalk.dim(`      Hint: ${item.hint}`));
       }
     }
-  }
-}
-
-// Helper for database write test (reusing testDatabaseConnection logic)
-function testDatabaseWritable(dbPath: string): { success: boolean; error?: string } {
-  try {
-    const testFile = join(dbPath, '.write-test');
-    writeFileSync(testFile, 'test');
-    unlinkSync(testFile);
-
-    return { success: true };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
   }
 }

@@ -115,7 +115,7 @@ program
   .option('--max-credits <credits>', 'Maximum credits to spend', '10')
   .option('-v, --verbose', 'Show verbose output')
   .option('--no-stream', 'Do not stream events')
-  .action(async (objective, options) => {
+  .action(async (_objective, _options) => {
     // This delegates to the existing orchestrate.ts
     console.log(chalk.yellow('Note: Use "pnpm orchestrate" for the full orchestrator CLI.'));
     console.log(chalk.dim('Or run: orchestrator <objective>'));

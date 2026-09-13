@@ -295,8 +295,6 @@ export type ConfigKey =
   | 'models.file';
 
 export function getConfigValue(key: ConfigKey): string | undefined {
-  const envPath = '.env';
-
   switch (key) {
     case 'litellm.baseUrl':
       return process.env.LITELLM_BASE_URL;

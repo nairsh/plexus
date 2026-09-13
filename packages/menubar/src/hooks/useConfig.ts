@@ -22,7 +22,7 @@ export function useConfig() {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
+    void (async () => {
       try {
         const store = await load(STORE_FILE, { autoSave: true, defaults: STORE_DEFAULTS });
         const baseUrl = await store.get<string>(KEY_BASE_URL);

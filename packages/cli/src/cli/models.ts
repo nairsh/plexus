@@ -16,7 +16,6 @@ import {
   printModelItem,
   printAgentBadge,
   colors,
-  icons,
   createSpinner,
 } from '../ui/components.js';
 import {

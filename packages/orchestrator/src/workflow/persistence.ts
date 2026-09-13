@@ -366,7 +366,7 @@ export const updateWorkflowObjectiveForContinuation = (workflowId: string, follo
   const existingRow = db.prepare('SELECT config FROM workflows WHERE id = ?').get(workflowId) as
     | { config: string | null }
     | undefined;
-  let updatedConfig: string | null = null;
+  let updatedConfig: string | null;
   if (existingRow?.config) {
     try {
       const parsed = JSON.parse(existingRow.config) as WorkflowConfig;
@@ -446,7 +446,7 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
   }>;
 
   const tasks: TaskSummary[] = taskRows.map((row) => {
-    let dependsOn: string[] = [];
+    let dependsOn: string[];
     try {
       dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[];
     } catch (error) {

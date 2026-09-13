@@ -202,7 +202,7 @@ export async function executeGlob(session: WorkspaceSession, pattern: string, pa
       throw new SandboxError('Path must be relative and cannot contain ".."', 'invalid_path');
     }
 
-    if (!/^[a-zA-Z0-9_*.?/\[\]-]+$/.test(pattern)) {
+    if (!/^[a-zA-Z0-9_*.?/[\]-]+$/.test(pattern)) {
       throw new SandboxError(
         'Invalid glob pattern. Only alphanumeric, *, ?, ., /, _, [], and - allowed.',
         'invalid_pattern'

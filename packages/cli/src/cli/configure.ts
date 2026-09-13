@@ -23,7 +23,6 @@ import {
   printError,
   printWarning,
   printInfo,
-  colors,
   createSpinner,
 } from '../ui/components.js';
 import { setEnvVar, ENV_KEYS } from '../lib/env-manager.js';
@@ -31,7 +30,6 @@ import { testLiteLLMConnection, testTavilyConnection } from '../lib/connection-t
 import { discoverAvailableModels, replaceModelRegistry } from '@orchestrator/model-router';
 import {
   getModelConfig,
-  saveModelConfig,
   getDefaultModelConfig,
   updateOrchestratorModels,
   setAgentModel,

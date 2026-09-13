@@ -1,4 +1,4 @@
-import { WorkflowError, getDb } from '@orchestrator/shared';
+import { WorkflowError, getDb, logger } from '@orchestrator/shared';
 import type { OrchestratorTask, WorkflowConfig, WorkflowEvent } from '@orchestrator/shared';
 import { getWorkflowTrace } from './orchestrator/tracing.js';
 import { runWorkflow } from './orchestrator/loop.js';
@@ -292,9 +292,7 @@ export function abortAllWorkflows(): number {
     if (state.status === 'executing' || state.status === 'paused') {
       state.abortController.abort();
       aborted++;
-      import('@orchestrator/shared').then(({ logger }) =>
-        logger.info({ workflowId: id }, 'Workflow aborted during shutdown')
-      );
+      logger.info({ workflowId: id }, 'Workflow aborted during shutdown');
     }
   }
   return aborted;

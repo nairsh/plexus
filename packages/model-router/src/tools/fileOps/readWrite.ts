@@ -1,12 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import {
-  getErrorMessage,
-  logger,
-  openTerminalFetchJson,
-  registerFileInIndex,
-  SandboxError,
-} from '@orchestrator/shared';
+import { getErrorMessage, logger, openTerminalFetchJson, SandboxError } from '@orchestrator/shared';
 import { checkFileLint, formatLintResultsForAgent } from '../linting.js';
 import { isLocalWorkspace, resolveWorkspacePath } from './paths.js';
 import type { FileEditResult, FileReadResult, FileWriteResult, WorkspaceSession } from './types.js';

@@ -10,9 +10,9 @@
     "seed": "tsx scripts/seed.ts",
     "test": "vitest run",
     "lint": "pnpm -s typecheck",
-    "lint:eslint": "eslint packages/*/src/**/*.ts",
-    "format": "prettier --write packages/*/src/**/*.ts",
-    "format:check": "prettier --check packages/*/src/**/*.ts",
+    "lint:eslint": "eslint \"packages/*/src/**/*.ts\"",
+    "format": "prettier --write \"packages/*/src/**/*.ts\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
     "orchestrate": "LOG_LEVEL=warn tsx packages/cli/src/orchestrate.ts",
     "test-web-search": "tsx packages/cli/src/test-web-search.ts"
   },

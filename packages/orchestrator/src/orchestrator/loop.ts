@@ -598,6 +598,7 @@ export const runWorkflow = async (
         try {
           const content = Buffer.from(f.content_base64, 'base64').toString('utf-8');
           // Only inject text-like files; skip binary content
+          // eslint-disable-next-line no-control-regex -- control chars are the binary-content signal
           if (/[\x00-\x08\x0e-\x1f]/.test(content.substring(0, 100))) return [];
           const truncated = content.length > 8000 ? content.substring(0, 8000) + '\n...[truncated]' : content;
           return [`\n### File: ${f.filename}\n\`\`\`\n${truncated}\n\`\`\``];

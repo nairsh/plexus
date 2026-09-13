@@ -13,11 +13,9 @@ import {
   printWarning,
   printError,
   printInfo,
-  colors,
-  icons,
   createSpinner,
 } from '../ui/components.js';
-import { setEnvVar, setEnvVars, envFileExists, ENV_KEYS } from '../lib/env-manager.js';
+import { setEnvVars, envFileExists, ENV_KEYS } from '../lib/env-manager.js';
 import { testLiteLLMConnection, testTavilyConnection } from '../lib/connection-tester.js';
 import {
   isOnboardingComplete,
@@ -26,23 +24,18 @@ import {
   getModelConfig,
   saveModelConfig,
   getDefaultModelConfig,
-  updateOrchestratorModels,
-  updateAgentModels,
   normalizeModelId,
   validateAndNormalizeModels,
 } from '../lib/config-manager.js';
 import { discoverAvailableModels, replaceModelRegistry } from '@orchestrator/model-router';
 import {
-  promptText,
   promptUrl,
   promptApiKey,
   promptConfirm,
-  promptSelect,
   promptModels,
   promptModel,
   promptRetry,
   promptReconfigure,
-  promptAgentModel,
 } from '../lib/prompts.js';
 
 // ── Types ──
@@ -283,7 +276,7 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
     }
 
     availableModels = valid;
-  } catch (error) {
+  } catch {
     spinner.fail(chalk.yellow('Could not fetch configured models'));
     printWarning('Using default model configuration.');
     return;
@@ -329,7 +322,7 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
 
   const existingAgentModels = existingConfig?.agent_models ?? {};
 
-  for (const [agentType, description] of Object.entries(agentDescriptions)) {
+  for (const [agentType, _description] of Object.entries(agentDescriptions)) {
     const typedAgentType = agentType as keyof typeof existingAgentModels;
     const currentModel = existingAgentModels[typedAgentType] ?? state.defaultModel;
 
@@ -350,7 +343,7 @@ async function configureModels(state: OnboardingState, options: OnboardingOption
 
 // ── Save Configuration ──
 
-async function saveConfiguration(state: OnboardingState, options: OnboardingOptions): Promise<void> {
+async function saveConfiguration(state: OnboardingState, _options: OnboardingOptions): Promise<void> {
   printSubHeader('Step 4: Saving Configuration');
 
   const envPath = '.env';

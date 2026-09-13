@@ -36,14 +36,14 @@ export function detectLanguage(filePath: string): string | null {
 
 const TS_ERROR_RE = /^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s+(.+)$/;
 
-function parseTscOutput(output: string, requestedPath: string): LintError[] {
+function parseTscOutput(output: string, _requestedPath: string): LintError[] {
   const errors: LintError[] = [];
 
   for (const line of output.split('\n')) {
     const m = TS_ERROR_RE.exec(line.trim());
     if (!m) continue;
 
-    const [, filePath, lineStr, colStr, severity, rule, message] = m;
+    const [, _filePath, lineStr, colStr, severity, rule, message] = m;
 
     errors.push({
       line: parseInt(lineStr ?? '1', 10),

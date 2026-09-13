@@ -98,11 +98,6 @@ const upsertWorkspace = (record: WorkspaceRecord) => {
 };
 
 export const ensureWorkspace = (userId: string, chatId: string, language: 'python' | 'javascript' | 'sql') => {
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT 1 FROM sandbox_workspaces WHERE user_id = ? AND chat_id = ?')
-    .get(userId, chatId) as { 1: number } | undefined;
-
   const paths = getWorkspacePaths(userId, chatId);
   ensureDir(paths.filesPath);
 

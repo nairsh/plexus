@@ -25,7 +25,7 @@ export function loadPrompt(filename: string, variables: PromptVariables = {}): s
   try {
     content = readFileSync(filepath, 'utf-8');
   } catch (error) {
-    throw new Error(`Failed to load prompt file: ${filepath}. ${getErrorMessage(error)}`);
+    throw new Error(`Failed to load prompt file: ${filepath}. ${getErrorMessage(error)}`, { cause: error });
   }
 
   return interpolateVariables(content, variables);

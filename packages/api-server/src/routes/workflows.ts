@@ -98,7 +98,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     const { workflowId, tasks } = await planWorkflow(userId, config);
 
     // Always start execution in background — events will be emitted via SSE
-    (async () => {
+    void (async () => {
       try {
         await executeWorkflowToCompletion(workflowId);
       } catch (err) {

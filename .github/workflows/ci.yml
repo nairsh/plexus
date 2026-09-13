@@ -31,7 +31,4 @@ jobs:
 
       - run: pnpm test
 
-      # Non-blocking: there is a backlog of pre-existing unused-import errors.
-      # Tracked rather than hidden; remove continue-on-error once it's clear.
       - run: pnpm run lint:eslint
-        continue-on-error: true

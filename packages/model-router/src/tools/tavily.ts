@@ -15,13 +15,6 @@ const waitForRateLimit = async () => {
 
 const getTavilyApiKey = () => getEnv().TAVILY_API_KEY;
 
-const hasBrave = () => {
-  const key = getEnv().BRAVE_SEARCH_API_KEY;
-  return Boolean(key && key !== '...');
-};
-
-const getBraveSearchApiKey = () => getEnv().BRAVE_SEARCH_API_KEY;
-
 const ensureConfigured = () => {
   const key = getTavilyApiKey();
   if (!key || key === '...') {
@@ -92,49 +85,6 @@ export interface TavilyFetchResponse {
   raw_content?: string;
   images?: string[];
 }
-
-const searchWebWithBrave = async (query: string): Promise<TavilySearchResponse> => {
-  if (!hasBrave()) {
-    throw new ModelError('No web search provider is configured', 'search_not_configured');
-  }
-
-  const response = await fetch(
-    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`,
-    {
-      headers: {
-        Accept: 'application/json',
-        'X-Subscription-Token': getBraveSearchApiKey()!,
-      },
-      signal: AbortSignal.timeout(20_000),
-    }
-  );
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    logger.error({ status: response.status, errorBody }, 'Brave search request failed');
-    throw new ModelError(`Brave search failed with ${response.status}: ${response.statusText}`, 'brave_search_failed');
-  }
-
-  const data = (await response.json()) as {
-    web?: {
-      results?: Array<{
-        title?: string;
-        url?: string;
-        description?: string;
-      }>;
-    };
-  };
-
-  return {
-    provider: 'brave',
-    query,
-    results: (data.web?.results ?? []).map((result) => ({
-      title: result.title ?? '',
-      url: result.url ?? '',
-      snippet: result.description ?? '',
-    })),
-  };
-};
 
 const fetchUrlDirect = async (url: string): Promise<TavilyFetchResponse> => {
   const response = await fetch(url, {

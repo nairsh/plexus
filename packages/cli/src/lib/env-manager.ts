@@ -3,7 +3,7 @@
  * Provides safe read/write operations with validation.
  */
 
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { logger } from '@orchestrator/shared';
 

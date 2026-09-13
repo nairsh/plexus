@@ -32,7 +32,7 @@ export function connectWorkflowStream(
 
   const url = `${config.baseUrl.replace(/\/$/, '')}/v1/workflows/${workflowId}/stream`;
 
-  (async () => {
+  void (async () => {
     try {
       const token = await resolveAuthToken(config);
       const headers: Record<string, string> = {
