@@ -11,7 +11,7 @@ export default tseslint.config(
       // Catch empty catch blocks (enforce logging)
       'no-empty': ['warn', { allowEmptyCatch: false }],
       // Disallow unused vars except those prefixed with _
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       // Disallow floating promises
       '@typescript-eslint/no-floating-promises': 'error',
       // Allow explicit any in limited cases

@@ -1,291 +1,193 @@
-# Orchestrator Platform
+# plexus
 
-Multi-Model AI Agent Orchestration Platform — an open-source API layer that orchestrates multiple frontier AI models (OpenAI, Anthropic, Google) with web search, isolated code execution, and DAG-based workflow automation.
+A self-hosted API server that turns a single objective into a DAG of LLM
+sub-agent tasks, runs the independent ones in parallel across different model
+providers, and records a step-level trace of everything that happened.
+
+It exists because most agent frameworks either hide the execution graph behind a
+chat loop, or make you build the graph by hand. Plexus does the middle thing: an
+orchestrator model proposes the task graph, the graph is validated before
+anything runs, and the runtime persists every step so a workflow can be
+replayed, audited, or resumed after a crash.
+
+Status: **experimental**, single-author, pre-1.0. The packages described below
+work and are tested. Several route groups exist but are unfinished — see
+[Scope](#scope).
+
+## What's actually interesting here
+
+**The plan is data, and it's validated before execution.** The orchestrator
+model emits a set of work items with declared dependencies. Before any model
+call is billed, `validateWorkItemGraph.ts` rejects cycles, dangling
+dependencies, and items that can never become runnable. A malformed plan fails
+cheaply instead of half-executing.
+
+**Model selection is per-role, not global.** The orchestrator, the sub-agents,
+and tool calls resolve independently through `model-router`, so you can plan
+with an expensive reasoning model and fan out to cheap ones. Roles are
+configured in `packages/model-router/src/model_config.json` and overridable
+per-workflow via `model_overrides`.
+
+**Workflow state is persisted, not just held in memory.** `workflow/state.ts`
+holds the live state; `workflow/persistence.ts` snapshots it to SQLite on every
+transition. Streaming consumers attach to an emitter backed by the persisted
+trace, so a client reconnecting mid-workflow doesn't lose steps.
+
+**Sub-agent output is checked before it's accepted.** `outputVerifier.ts` runs a
+verification pass against the work item's acceptance criteria and can send the
+item back rather than propagating a bad result to its dependents.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   API Server (Fastify)               │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────────┐  │
-│  │ Agent API │  │ Sandbox  │  │   Orchestrator    │  │
-│  │   /v1/    │  │  API     │  │     /v1/          │  │
-│  │ responses │  │  /v1/    │  │   workflows       │  │
-│  └─────┬─────┘  └────┬─────┘  └────────┬──────────┘  │
-│        │             │                  │             │
-│  ┌─────┴─────┐  ┌────┴─────┐  ┌────────┴──────────┐  │
-│  │  Model    │  │ Sandbox  │  │   Orchestrator    │  │
-│  │  Router   │  │ Manager  │  │   Engine (DAG)    │  │
-│  └─────┬─────┘  └────┬─────┘  └───────────────────┘  │
-│        │             │                                │
-│  ┌─────┴─────────────┴─────┐                          │
-│  │    Shared (DB, Auth,    │                          │
-│  │   Types, Schemas, Log)  │                          │
-│  └─────────────────────────┘                          │
-└─────────────────────────────────────────────────────┘
+                    POST /v1/workflows
+                           |
+                           v
+                 +-------------------+
+                 |   orchestrator    |
+                 |                   |
+   objective --> |  plan -> validate |--> reject malformed plans
+                 |         |         |
+                 |         v         |
+                 |   ready-set loop  |--> trace --+
+                 +----+---------+----+            |
+                      |         |                 |
+              parallel dispatch of                |
+              dependency-free items               |
+                      |         |                 |
+         +------------v--+   +--v-------------+   |
+         | model-router  |   |    sandbox     |   |
+         | openai | anth |   | spawn + path   |   |
+         | google | ...  |   | guards, per-   |   |
+         +---------------+   | chat workspace |   |
+                             +----------------+   |
+                                                  v
+                                           SQLite (shared)
+                                     workflows, steps, snapshots
 ```
 
-**Three core systems:**
-1. **Agent API** — Unified multi-provider LLM gateway with web search, URL fetch, and tool calling
-2. **Sandbox API** — Isolated code execution (Python, JavaScript, SQL) via `child_process.spawn`
-3. **Orchestrator API** — Decomposes objectives into DAGs, dispatches sub-agents in parallel, and persists full workflow traces in SQLite
+The loop is a ready-set scheduler, not a topological pre-pass: after each item
+completes it recomputes which items have satisfied dependencies and dispatches
+that whole set concurrently. A slow item only blocks its own dependents.
 
-Additional runtime layers:
-- **Workflow Trace Store** — SQLite workflow and step-level logs for replay, audit, and debugging
-- **Workspace Store** — persisted per-chat filesystem snapshots under `workspace/<chat_id>/files`
-- **Model Config** — runtime orchestrator/sub-agent/tool separation via `packages/model-router/src/model_config.json`
+Packages (`packages/`):
 
-## Quick Start
+| Package        | Lines | What it does                                                  |
+| -------------- | ----- | ------------------------------------------------------------- |
+| `model-router` | ~6.4k | Provider adapters, model registry, tool and web-search plumbing |
+| `cli`          | ~5.9k | Terminal client for running and watching workflows              |
+| `orchestrator` | ~5.3k | Planning, graph validation, scheduler, tracing, verification    |
+| `api-server`   | ~3.4k | Fastify HTTP surface, SSE streaming                             |
+| `shared`       | ~2.7k | SQLite access, migrations, shared types and schemas             |
+| `sandbox`      | ~1.5k | Command execution, per-chat workspaces, git operations          |
 
-```bash
-# Clone and install
-git clone <repo-url> orchestrator-platform
-cd orchestrator-platform
+## Requirements
+
+- Node.js >= 20
+- pnpm 9
+- An API key for at least one provider
+
+`better-sqlite3` is a native dependency. Linux and macOS on Node 20 use a
+prebuilt binary. On Windows, or on Node versions without a prebuild, it compiles
+from source and needs Python 3 and a C++ toolchain.
+
+## Setup
+
+```sh
 pnpm install
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your provider keys + Clerk settings
-
-# Start the server (runs migrations, seeds models automatically)
-pnpm dev
-
-# Seed model registry + dev user record
-pnpm seed
+export OPENAI_API_KEY=sk-...        # and/or ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY
+export TAVILY_API_KEY=tvly-...      # optional, enables the web_search tool
+pnpm run seed                       # creates the SQLite db and a dev user
+pnpm run dev                        # serves on :3000
 ```
 
-The API is Clerk-only for auth. Send a Clerk JWT as `Authorization: Bearer <clerk_jwt>`.
+Other recognised variables: `DATABASE_PATH` (default `./data/app.db`),
+`LOG_LEVEL`, `DRY_RUN=1` to plan without issuing model calls, and
+`LITELLM_BASE_URL` / `LITELLM_API_KEY` to route everything through a LiteLLM
+proxy instead of calling providers directly.
 
-## Environment Variables
+## Running a workflow
 
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_PATH` | No | SQLite database path (default: `./data/orchestrator.db`) |
-| `CLERK_SECRET_KEY` | Yes** | Clerk secret key for token verification |
-| `CLERK_JWT_KEY` | Optional | Clerk JWT public key for offline verification |
-| `CLERK_AUDIENCE` | Optional | Comma-separated accepted JWT audiences |
-| `CLERK_AUTHORIZED_PARTIES` | Optional | Comma-separated accepted authorized parties |
-| `CLERK_CLOCK_SKEW_MS` | No | Clock skew allowance for JWT verification (default: `5000`) |
-| `OPENAI_API_KEY` | Yes* | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key |
-| `GOOGLE_AI_API_KEY` | Yes* | Google AI API key |
-| `TAVILY_API_KEY` | No | Tavily API key for `search_web` and `fetch_url` |
-| `TAVILY_BASE_URL` | No | Tavily API base URL (default: `https://api.tavily.com`) |
-| `TAVILY_RATE_LIMIT_MS` | No | Minimum delay between Tavily calls in ms |
-| `PORT` | No | Server port (default: `8080`) |
-| `LOG_LEVEL` | No | Log level (default: `info`) |
-| `SANDBOX_DEFAULT_TIMEOUT` | No | Default sandbox timeout in seconds (default: `300`) |
-| `SANDBOX_MAX_TIMEOUT` | No | Max sandbox timeout in seconds (default: `3600`) |
-| `SANDBOX_WORKSPACE_ROOT` | No | Root directory for persisted chat workspaces |
-| `OPEN_TERMINAL_IMAGE` | No | Open Terminal Docker image for chat sandboxes |
-| `OPEN_TERMINAL_HOST` | No | Host used for Open Terminal port publishing |
-
-\* At least one LLM provider key is required.
-
-\** Either `CLERK_SECRET_KEY` or `CLERK_JWT_KEY` must be set.
-
-## API Endpoints
-
-### System
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/v1/models` | List available models |
-| `GET` | `/v1/presets` | List available presets |
-
-### Agent API
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v1/responses` | Create an agent response (LLM call with optional tools) |
-
-### Billing
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/v1/billing/balance` | Get credit balance |
-| `GET` | `/v1/billing/usage` | Get usage details |
-| `POST` | `/v1/billing/top-up` | Add credits |
-| `GET` | `/v1/billing/transactions` | List credit transactions |
-
-### Sandbox
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v1/sandbox/sessions` | Create a sandbox session |
-| `GET` | `/v1/sandbox/sessions/:id` | Get session info |
-| `POST` | `/v1/sandbox/sessions/:id/execute` | Execute code |
-| `GET` | `/v1/sandbox/sessions/:id/files` | List workspace files |
-| `GET` | `/v1/sandbox/sessions/:id/file/*path` | Read a file |
-| `PUT` | `/v1/sandbox/sessions/:id/file/*path` | Write a file |
-| `GET` | `/v1/sandbox/workspaces/:chatId` | Inspect persisted chat workspace |
-| `DELETE` | `/v1/sandbox/sessions/:id` | Terminate session |
-
-### Workflows
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v1/workflows` | Create and start a workflow |
-| `GET` | `/v1/workflows` | List workflows |
-| `GET` | `/v1/workflows/:id` | Get workflow details |
-| `GET` | `/v1/workflows/:id/trace` | Get full chronological workflow trace |
-| `GET` | `/v1/workflows/:id/stream` | SSE stream of workflow events |
-| `POST` | `/v1/workflows/:id/approve` | Approve/reject a pending task |
-| `DELETE` | `/v1/workflows/:id` | Cancel a workflow |
-
-## Example Usage
-
-### Agent API — Simple completion
-
-```bash
-curl -X POST http://localhost:8080/v1/responses \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
+```sh
+curl -X POST localhost:3000/v1/workflows \
+  -H 'content-type: application/json' \
   -d '{
-    "model": "openai/gpt-4o",
-    "input": "Explain quantum computing in 3 sentences."
+    "objective": "Compare error handling in the three most-starred Rust HTTP clients and write up the tradeoffs.",
+    "orchestrator_model": "gpt-5",
+    "model_overrides": { "subagent": "claude-sonnet-4-5" }
   }'
 ```
 
-### Agent API — With web search
+The response carries a `workflow_id`. Stream progress with:
 
-```bash
-curl -X POST http://localhost:8080/v1/responses \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openai/gpt-4o",
-    "input": "What are the latest developments in AI regulation?",
-    "tools": [{"type": "web_search"}]
-  }'
+```sh
+curl -N localhost:3000/v1/workflows/<id>/stream
 ```
 
-### Agent API — Using a preset
+```
+event: plan
+data: {"tasks":[
+  {"id":"t1","title":"Identify the three most-starred Rust HTTP clients","deps":[]},
+  {"id":"t2","title":"Read reqwest error handling","deps":["t1"]},
+  {"id":"t3","title":"Read hyper error handling","deps":["t1"]},
+  {"id":"t4","title":"Read ureq error handling","deps":["t1"]},
+  {"id":"t5","title":"Write comparison","deps":["t2","t3","t4"]}]}
 
-```bash
-curl -X POST http://localhost:8080/v1/responses \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "preset": "pro-search",
-    "input": "Compare the market caps of NVIDIA and Apple"
-  }'
+event: task_started    data: {"id":"t1"}
+event: task_completed  data: {"id":"t1","tokens":2841}
+event: task_started    data: {"id":"t2"}    <- t2, t3, t4 dispatched together
+event: task_started    data: {"id":"t3"}
+event: task_started    data: {"id":"t4"}
+...
+event: workflow_completed  data: {"steps":11,"usd":0.42}
 ```
 
-### Agent API — Streaming
+Or from the CLI:
 
-```bash
-curl -N -X POST http://localhost:8080/v1/responses \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openai/gpt-4o-mini",
-    "input": "Write a haiku about programming",
-    "stream": true
-  }'
+```sh
+pnpm run orchestrate -- "Compare error handling in the top three Rust HTTP clients"
 ```
 
-### Sandbox — Execute Python code
+The full trace for a finished workflow is in the `workflow_steps` table, keyed
+by workflow id.
 
-```bash
-# Create session
-SESSION_ID=$(curl -s -X POST http://localhost:8080/v1/sandbox/sessions \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"language": "python"}' | jq -r '.id')
+## Scope
 
-# Execute code
-curl -X POST "http://localhost:8080/v1/sandbox/sessions/$SESSION_ID/execute" \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "code": "import json\nresult = sum(range(100))\nprint(json.dumps({\"sum\": result}))"
-  }'
+The packages above are the project. The HTTP surface also exposes `/v1/teams`,
+`/v1/billing`, `/v1/connectors`, `/v1/knowledge` and `/v1/schedules`, which came
+from an earlier attempt to make this a multi-tenant product. They are partially
+implemented, thinly tested, and not something to build on. I've left them in
+rather than doing a disruptive removal, but treat them as scaffolding.
 
-# Terminate when done
-curl -X DELETE "http://localhost:8080/v1/sandbox/sessions/$SESSION_ID" \
-  -H "Authorization: Bearer <clerk_jwt>"
+## Limitations
+
+- **The sandbox is not a security boundary.** `/v1/sandbox/.../execute` runs
+  commands via `child_process.spawn` on the host, with path-traversal guards
+  (`session/pathSafety.ts`) and workspace scoping. That stops accidents, not a
+  motivated adversary. Don't point it at untrusted input. Real isolation would
+  mean a container or VM per session; `openTerminal.ts` shells out to Docker and
+  is the nearest starting point.
+- Single-node only. Live workflow state lives in an in-process `Map`, so you
+  can't run two API servers against one database.
+- SQLite with a single writer. Fine for one user, not for concurrent load.
+- `MAX_TURNS` caps orchestration depth; deeply recursive objectives get
+  truncated rather than failing loudly.
+- No auth on the HTTP surface beyond a seeded dev user. Bind it to localhost.
+- CI runs Linux only. Windows needs a C++ toolchain for `better-sqlite3`.
+
+## Development
+
+```sh
+pnpm run typecheck     # tsc over the whole workspace
+pnpm test              # vitest
+pnpm run lint:eslint
+pnpm run format
 ```
 
-### Workflow — Orchestrate a complex task
-
-```bash
-# Start workflow
-curl -X POST http://localhost:8080/v1/workflows \
-  -H "Authorization: Bearer <clerk_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "objective": "Research the top 5 programming languages by popularity in 2025, calculate their year-over-year growth rates, and format the results as a markdown table"
-  }'
-
-# Stream progress (SSE)
-curl -N "http://localhost:8080/v1/workflows/WORKFLOW_ID/stream" \
-  -H "Authorization: Bearer <clerk_jwt>"
-
-# Check status
-curl "http://localhost:8080/v1/workflows/WORKFLOW_ID" \
-  -H "Authorization: Bearer <clerk_jwt>"
-```
-
-## Available Models
-
-| Model ID | Provider | Best For |
-|---|---|---|
-| `openai/gpt-4o` | OpenAI | Long context, general purpose |
-| `openai/gpt-4o-mini` | OpenAI | Fast, cost-effective |
-| `anthropic/claude-sonnet-4-20250514` | Anthropic | Code, structured output |
-| `google/gemini-2.5-pro` | Google | Research, writing, vision |
-| `google/gemini-2.5-flash` | Google | Fast, cost-effective |
-
-## Presets
-
-| Preset | Model | Tools | Use Case |
-|---|---|---|---|
-| `pro-search` | gpt-4o | web_search, fetch_url | Research with citations |
-| `code-assist` | claude-sonnet-4 | code_execution | Code generation and execution |
-| `quick-answer` | gpt-4o-mini | web_search | Fast, concise answers |
-
-## Project Structure
-
-```
-orchestrator-platform/
-├── packages/
-│   ├── shared/          # Types, schemas, DB, errors, logger
-│   ├── model-router/    # Model registry, provider adapters, tools
-│   ├── billing/         # Credit ledger, usage tracking
-│   ├── sandbox/         # Isolated code execution
-│   ├── orchestrator/    # DAG planner and executor
-│   └── api-server/      # Fastify routes, middleware
-├── tests/               # Integration tests
-├── scripts/             # Seed script
-├── openapi.yaml         # OpenAPI 3.1 specification
-└── docs/                # Documentation
-```
-
-## Testing
-
-```bash
-# Start the server
-pnpm dev &
-
-# Seed test data
-pnpm seed
-
-# Run integration tests (sandbox and billing tests work without LLM keys)
-SKIP_LLM_TESTS=1 pnpm test
-
-# Run all tests including LLM calls (requires API keys)
-pnpm test
-```
-
-## Tech Stack
-
-- **Runtime**: Node.js 20+
-- **Language**: TypeScript (strict mode)
-- **Framework**: Fastify
-- **Database**: SQLite (better-sqlite3)
-- **Validation**: Zod
-- **Logging**: Pino
-- **LLM SDKs**: openai, @anthropic-ai/sdk, @google/generative-ai
-- **Testing**: Vitest
-
-No Docker, Redis, or external infrastructure required. Everything runs as a single Node.js process.
+`docs/orchestration-runtime-v2.md` describes the runtime redesign the current
+scheduler came out of. Prompts live in `packages/orchestrator/src/prompts` and
+are loaded at runtime by `promptLoader.ts`, so they can be edited without a
+rebuild.
 
 ## License
 

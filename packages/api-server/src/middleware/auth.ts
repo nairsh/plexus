@@ -133,9 +133,9 @@ function getOrCreateDevUser(): AuthUser {
   db.prepare(
     "INSERT OR IGNORE INTO users (id, email, tier, credits_balance, created_at) VALUES (?, 'dev@localhost', 'pro', 1000, datetime('now'))"
   ).run(devUserId);
-  const row = db
-    .prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?')
-    .get(devUserId) as { id: string; email: string | null; tier: AuthUser['tier']; credits_balance: number } | undefined;
+  const row = db.prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?').get(devUserId) as
+    | { id: string; email: string | null; tier: AuthUser['tier']; credits_balance: number }
+    | undefined;
   if (!row) throw new Error('Failed to create dev user');
   return { id: row.id, email: row.email, tier: row.tier, credits_balance: row.credits_balance };
 }
@@ -155,9 +155,7 @@ function upsertClerkUser(clerkUserId: string, email: string | null): AuthUser {
     }
   }
 
-  const row = db
-    .prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?')
-    .get(clerkUserId) as
+  const row = db.prepare('SELECT id, email, tier, credits_balance FROM users WHERE id = ?').get(clerkUserId) as
     | { id: string; email: string | null; tier: AuthUser['tier']; credits_balance: number }
     | undefined;
 

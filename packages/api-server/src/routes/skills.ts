@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { InvalidRequestError, getErrorMessage, logger } from '@orchestrator/shared';
-import { deleteSkillForUser, getAllSkillsForUser, getSkillByIdForUser, upsertSkillForUser } from '@orchestrator/model-router';
+import {
+  deleteSkillForUser,
+  getAllSkillsForUser,
+  getSkillByIdForUser,
+  upsertSkillForUser,
+} from '@orchestrator/model-router';
 import type { Skill, Tool } from '@orchestrator/shared';
 
 const ToolTypeSchema = z.enum([
@@ -129,36 +134,33 @@ export async function skillsRoutes(fastify: FastifyInstance): Promise<void> {
     return { skill: toApiSkill(skill) };
   });
 
-  fastify.put(
-    '/v1/skills/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const parseResult = UpsertSkillSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        const firstError = parseResult.error.errors[0];
-        throw new InvalidRequestError(
-          `Validation error: ${firstError?.message ?? 'Invalid request'}`,
-          firstError?.path?.join('.') ?? undefined
-        );
-      }
-
-      const existing = getSkillByIdForUser(request.user!.id, request.params.id);
-      const body = parseResult.data;
-
-      try {
-        const skill = upsertSkillForUser(request.user!.id, request.params.id, {
-          name: body.name,
-          description: body.description,
-          prompt_addendum: body.prompt_addendum,
-          tools: body.tools?.map((type) => ({ type })),
-        });
-        reply.status(existing ? 200 : 201);
-        return { skill: toApiSkill(skill) };
-      } catch (error) {
-        logger.warn({ skillId: request.params.id, error: getErrorMessage(error) }, 'Failed to upsert skill');
-        throw new InvalidRequestError(getErrorMessage(error));
-      }
+  fastify.put('/v1/skills/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const parseResult = UpsertSkillSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.errors[0];
+      throw new InvalidRequestError(
+        `Validation error: ${firstError?.message ?? 'Invalid request'}`,
+        firstError?.path?.join('.') ?? undefined
+      );
     }
-  );
+
+    const existing = getSkillByIdForUser(request.user!.id, request.params.id);
+    const body = parseResult.data;
+
+    try {
+      const skill = upsertSkillForUser(request.user!.id, request.params.id, {
+        name: body.name,
+        description: body.description,
+        prompt_addendum: body.prompt_addendum,
+        tools: body.tools?.map((type) => ({ type })),
+      });
+      reply.status(existing ? 200 : 201);
+      return { skill: toApiSkill(skill) };
+    } catch (error) {
+      logger.warn({ skillId: request.params.id, error: getErrorMessage(error) }, 'Failed to upsert skill');
+      throw new InvalidRequestError(getErrorMessage(error));
+    }
+  });
 
   fastify.post('/v1/skills/import', async (request: FastifyRequest) => {
     const parsed = SkillImportSchema.safeParse(request.body);
@@ -178,27 +180,24 @@ export async function skillsRoutes(fastify: FastifyInstance): Promise<void> {
     return { skill: toApiSkill(skill) };
   });
 
-  fastify.delete(
-    '/v1/skills/:id',
-      async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      try {
-        const deleted = deleteSkillForUser(request.user!.id, request.params.id);
-        if (!deleted) {
-          reply.status(404);
-          return {
-            deleted: false,
-            error: {
-              type: 'invalid_request',
-              message: `Skill not found: ${request.params.id}`,
-              code: 'skill_not_found',
-            },
-          };
-        }
-        return { deleted: true, id: request.params.id };
-      } catch (error) {
-        logger.warn({ skillId: request.params.id, error: getErrorMessage(error) }, 'Failed to delete skill');
-        throw new InvalidRequestError(getErrorMessage(error));
+  fastify.delete('/v1/skills/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      const deleted = deleteSkillForUser(request.user!.id, request.params.id);
+      if (!deleted) {
+        reply.status(404);
+        return {
+          deleted: false,
+          error: {
+            type: 'invalid_request',
+            message: `Skill not found: ${request.params.id}`,
+            code: 'skill_not_found',
+          },
+        };
       }
+      return { deleted: true, id: request.params.id };
+    } catch (error) {
+      logger.warn({ skillId: request.params.id, error: getErrorMessage(error) }, 'Failed to delete skill');
+      throw new InvalidRequestError(getErrorMessage(error));
     }
-  );
+  });
 }

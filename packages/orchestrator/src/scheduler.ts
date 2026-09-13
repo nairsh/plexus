@@ -55,7 +55,8 @@ const getNextIntervalRun = ({
   intervalUnit,
   startAt,
   from,
-}: Required<Pick<GetNextRunOptions, 'intervalValue' | 'intervalUnit'>> & Pick<GetNextRunOptions, 'startAt' | 'from'>): Date => {
+}: Required<Pick<GetNextRunOptions, 'intervalValue' | 'intervalUnit'>> &
+  Pick<GetNextRunOptions, 'startAt' | 'from'>): Date => {
   const now = from ?? new Date();
   const anchor = startAt ? new Date(startAt) : now;
   if (Number.isNaN(anchor.getTime())) {
@@ -120,11 +121,15 @@ async function runDueSchedules(): Promise<void> {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const dueSchedules = db.prepare(`
+  const dueSchedules = db
+    .prepare(
+      `
     SELECT * FROM scheduled_workflows
     WHERE status = 'active' AND (next_run_at IS NULL OR next_run_at <= ?)
     LIMIT 10
-  `).all(now) as Array<{
+  `
+    )
+    .all(now) as Array<{
     id: string;
     user_id: string;
     cron_expression: string | null;
@@ -145,16 +150,19 @@ async function runDueSchedules(): Promise<void> {
       if (getEnv().BILLING_MODE === 'enforced') {
         const balance = await getBalance(schedule.user_id);
         if (balance < 0.01) {
-          db
-            .prepare(`UPDATE scheduled_workflows SET last_error = ?, updated_at = datetime('now') WHERE id = ?`)
-            .run('Insufficient credits', schedule.id);
+          db.prepare(`UPDATE scheduled_workflows SET last_error = ?, updated_at = datetime('now') WHERE id = ?`).run(
+            'Insufficient credits',
+            schedule.id
+          );
           continue;
         }
       }
 
       const config = JSON.parse(schedule.workflow_config) as WorkflowConfig;
       if (schedule.end_at && new Date(schedule.end_at).getTime() <= Date.now()) {
-        db.prepare(`UPDATE scheduled_workflows SET status = 'paused', updated_at = datetime('now') WHERE id = ?`).run(schedule.id);
+        db.prepare(`UPDATE scheduled_workflows SET status = 'paused', updated_at = datetime('now') WHERE id = ?`).run(
+          schedule.id
+        );
         continue;
       }
 
@@ -173,34 +181,41 @@ async function runDueSchedules(): Promise<void> {
 
       // Atomic check-and-claim to prevent duplicate execution in multi-instance deployments
       const executionId = `scheduled:${schedule.id}:${schedule.run_count + 1}`;
-      const claimed = db.prepare(`
+      const claimed = db
+        .prepare(
+          `
         UPDATE scheduled_workflows
         SET last_run_at = datetime('now'), next_run_at = ?, run_count = run_count + 1, last_error = NULL, active_workflow_id = ?, last_run_status = 'running', updated_at = datetime('now')
         WHERE id = ? AND (active_workflow_id IS NULL OR ? != 'skip')
-      `).run(nextRun.toISOString(), executionId, schedule.id, schedule.overlap_policy);
+      `
+        )
+        .run(nextRun.toISOString(), executionId, schedule.id, schedule.overlap_policy);
       if (claimed.changes === 0) continue;
 
       // Execute in background (don't await)
       void (async () => {
         try {
           const workflow = await planWorkflow(schedule.user_id, config);
-          db.prepare(`UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`).run(
-            workflow.workflowId,
-            schedule.id
-          );
+          db.prepare(
+            `UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`
+          ).run(workflow.workflowId, schedule.id);
           await executeWorkflowToCompletion(workflow.workflowId);
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE scheduled_workflows
             SET active_workflow_id = NULL, last_run_status = 'completed', updated_at = datetime('now')
             WHERE id = ? AND active_workflow_id IN (?, ?)
-          `).run(schedule.id, workflow.workflowId, executionId);
+          `
+          ).run(schedule.id, workflow.workflowId, executionId);
         } catch (err) {
           logger.error({ scheduleId: schedule.id, error: getErrorMessage(err) }, 'Scheduled workflow execution failed');
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE scheduled_workflows
             SET active_workflow_id = NULL, last_run_status = 'failed', last_error = ?, updated_at = datetime('now')
             WHERE id = ?
-          `).run(getErrorMessage(err), schedule.id);
+          `
+          ).run(getErrorMessage(err), schedule.id);
         }
       })();
     } catch (err) {
@@ -215,13 +230,17 @@ export function startScheduler(): void {
   // Clear stale active_workflow_id references from crashed/restarted server
   try {
     const db = getDb();
-    const staleCount = db.prepare(`
+    const staleCount = db
+      .prepare(
+        `
       UPDATE scheduled_workflows
       SET active_workflow_id = NULL, last_run_status = 'failed', last_error = 'Server restarted while workflow was running',
           updated_at = datetime('now')
       WHERE active_workflow_id IS NOT NULL
         AND active_workflow_id NOT IN (SELECT id FROM workflows WHERE status IN ('executing', 'paused'))
-    `).run().changes;
+    `
+      )
+      .run().changes;
     if (staleCount > 0) {
       logger.info({ clearedCount: staleCount }, 'Cleared stale active_workflow_id on scheduler startup');
     }

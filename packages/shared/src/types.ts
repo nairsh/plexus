@@ -47,11 +47,7 @@ export interface ToolApprovalRequestEvent extends ToolTraceEvent {
   command_key?: string;
 }
 
-export type ToolApprovalDecision =
-  | 'approve'
-  | 'approve_command_session'
-  | 'approve_all_session'
-  | 'deny';
+export type ToolApprovalDecision = 'approve' | 'approve_command_session' | 'approve_all_session' | 'deny';
 
 export interface AgentResponse {
   id: string;
@@ -167,7 +163,15 @@ export interface ModelAdapter {
 }
 
 export interface StreamChunk {
-  type: 'text_delta' | 'reasoning_delta' | 'usage' | 'tool_use' | 'search_results' | 'done' | 'error' | 'model_fallback';
+  type:
+    | 'text_delta'
+    | 'reasoning_delta'
+    | 'usage'
+    | 'tool_use'
+    | 'search_results'
+    | 'done'
+    | 'error'
+    | 'model_fallback';
   text?: string;
   data?: unknown;
 }

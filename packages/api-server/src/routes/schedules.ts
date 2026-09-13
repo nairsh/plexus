@@ -53,9 +53,9 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/v1/schedules', async (request: FastifyRequest) => {
     const user = request.user!;
     const db = getDb();
-    const schedules = db.prepare(
-      `SELECT * FROM scheduled_workflows WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC`
-    ).all(user.id);
+    const schedules = db
+      .prepare(`SELECT * FROM scheduled_workflows WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC`)
+      .all(user.id);
     return { schedules };
   });
 
@@ -98,12 +98,14 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     const id = crypto.randomUUID();
     const db = getDb();
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO scheduled_workflows (
         id, user_id, cron_expression, schedule_type, interval_value, interval_unit,
         timezone, overlap_policy, start_at, end_at, workflow_config, next_run_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `
+    ).run(
       id,
       user.id,
       cron_expression ?? null,
@@ -136,9 +138,7 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const db = getDb();
-    const schedule = db.prepare(
-      `SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ?`
-    ).get(id, user.id);
+    const schedule = db.prepare(`SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ?`).get(id, user.id);
     if (!schedule) throw new InvalidRequestError('Schedule not found');
     return schedule;
   });
@@ -155,9 +155,7 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     const body = parsed.data;
     const db = getDb();
 
-    const schedule = db.prepare(
-      `SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ?`
-    ).get(id, user.id);
+    const schedule = db.prepare(`SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ?`).get(id, user.id);
     if (!schedule) throw new InvalidRequestError('Schedule not found');
 
     const updates: string[] = ["updated_at = datetime('now')"];
@@ -182,9 +180,15 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     const nextIntervalValue = body.interval_value ?? current.interval_value;
     const nextIntervalUnit = body.interval_unit ?? current.interval_unit;
     const nextTimezone = body.timezone ?? current.timezone;
-    const nextStartAt = body.start_at === null ? null : body.start_at ?? current.start_at;
+    const nextStartAt = body.start_at === null ? null : (body.start_at ?? current.start_at);
 
-    if (body.cron_expression !== undefined || body.interval_value !== undefined || body.interval_unit !== undefined || body.timezone !== undefined || body.start_at !== undefined) {
+    if (
+      body.cron_expression !== undefined ||
+      body.interval_value !== undefined ||
+      body.interval_unit !== undefined ||
+      body.timezone !== undefined ||
+      body.start_at !== undefined
+    ) {
       const nextRun = getNextRun({
         scheduleType: nextScheduleType,
         cronExpression: nextCron ?? undefined,
@@ -193,8 +197,22 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
         timezone: nextTimezone,
         startAt: nextStartAt ?? undefined,
       });
-      updates.push('cron_expression = ?', 'interval_value = ?', 'interval_unit = ?', 'timezone = ?', 'start_at = ?', 'next_run_at = ?');
-      values.push(nextCron ?? null, nextIntervalValue ?? null, nextIntervalUnit ?? null, nextTimezone, nextStartAt ?? null, nextRun.toISOString());
+      updates.push(
+        'cron_expression = ?',
+        'interval_value = ?',
+        'interval_unit = ?',
+        'timezone = ?',
+        'start_at = ?',
+        'next_run_at = ?'
+      );
+      values.push(
+        nextCron ?? null,
+        nextIntervalValue ?? null,
+        nextIntervalUnit ?? null,
+        nextTimezone,
+        nextStartAt ?? null,
+        nextRun.toISOString()
+      );
     }
 
     if (body.overlap_policy) {
@@ -218,16 +236,18 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const db = getDb();
 
-    const schedule = db.prepare(
-      `SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ? AND status != 'deleted'`
-    ).get(id, user.id) as {
-      id: string;
-      user_id: string;
-      workflow_config: string;
-      overlap_policy: 'skip' | 'queue';
-      active_workflow_id: string | null;
-      run_count: number;
-    } | undefined;
+    const schedule = db
+      .prepare(`SELECT * FROM scheduled_workflows WHERE id = ? AND user_id = ? AND status != 'deleted'`)
+      .get(id, user.id) as
+      | {
+          id: string;
+          user_id: string;
+          workflow_config: string;
+          overlap_policy: 'skip' | 'queue';
+          active_workflow_id: string | null;
+          run_count: number;
+        }
+      | undefined;
 
     if (!schedule) {
       throw new InvalidRequestError('Schedule not found');
@@ -248,7 +268,9 @@ export async function schedulesRoutes(fastify: FastifyInstance): Promise<void> {
     void (async () => {
       try {
         const workflow = await planWorkflow(schedule.user_id, config);
-        db.prepare(`UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`).run(workflow.workflowId, id);
+        db.prepare(
+          `UPDATE scheduled_workflows SET active_workflow_id = ?, updated_at = datetime('now') WHERE id = ?`
+        ).run(workflow.workflowId, id);
         await executeWorkflowToCompletion(workflow.workflowId);
         db.prepare(
           `UPDATE scheduled_workflows SET active_workflow_id = NULL, last_run_status = 'completed', updated_at = datetime('now') WHERE id = ? AND active_workflow_id IN (?, ?)`

@@ -50,7 +50,9 @@ program
   .option('--models', 'List available orchestrator models and exit')
   .option('--json', 'Output results as JSON (non-interactive only)')
   .option('--output <file>', 'Save output to file (non-interactive only)')
-  .addHelpText('after', `
+  .addHelpText(
+    'after',
+    `
 Examples:
   $ orchestrate                              Start interactive chat mode
   $ orchestrate "Research latest AI news"    Run a single objective
@@ -64,7 +66,8 @@ Interactive Chat Commands:
   /model    Open model selector
   /continue Open workflow history
   /exit     Exit chat mode
-`);
+`
+  );
 
 program.parse();
 
@@ -94,7 +97,7 @@ const ensureUserExists = async (userId: string): Promise<void> => {
   const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
   if (!userExists) {
     db.prepare(
-      "INSERT INTO users (id, email, tier, credits_balance, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      "INSERT INTO users (id, email, tier, credits_balance, created_at) VALUES (?, ?, ?, ?, datetime('now'))"
     ).run(userId, `${userId}@localhost`, 'pro', 10000);
   }
 };
@@ -106,7 +109,9 @@ const printModels = (): never => {
 
   for (const model of models) {
     const isDefault = model === defaultModel;
-    console.log(`  ${isDefault ? chalk.green('✓') : ' '} ${chalk.white(model)}${isDefault ? chalk.green(' (default)') : ''}`);
+    console.log(
+      `  ${isDefault ? chalk.green('✓') : ' '} ${chalk.white(model)}${isDefault ? chalk.green(' (default)') : ''}`
+    );
   }
   console.log('');
   console.log(chalk.dim('Usage: orchestrate "Your query" --model <model-name>'));
@@ -140,15 +145,11 @@ const run = async (): Promise<void> => {
 
   if (isInteractive) {
     let activeWorkflowId: string | null = null;
-    const chatScreen = new ChatScreen(
-      prettifyModelLabel(options.model),
-      resolvePath(process.cwd()),
-      () => {
-        if (activeWorkflowId) {
-          cancelWorkflow(activeWorkflowId);
-        }
-      },
-    );
+    const chatScreen = new ChatScreen(prettifyModelLabel(options.model), resolvePath(process.cwd()), () => {
+      if (activeWorkflowId) {
+        cancelWorkflow(activeWorkflowId);
+      }
+    });
     chatScreen.start();
     try {
       await runInteractiveChat(chatScreen, {

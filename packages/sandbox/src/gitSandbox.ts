@@ -32,11 +32,11 @@ export class GitOperationError extends SandboxError {
   constructor(
     public readonly gitArgs: string[],
     public readonly stderr: string,
-    public readonly exitCode?: number,
+    public readonly exitCode?: number
   ) {
     super(
       `git ${gitArgs.join(' ')} failed (exit ${exitCode ?? '?'}): ${stderr.trim() || '(no output)'}`,
-      'git_operation_failed',
+      'git_operation_failed'
     );
   }
 }
@@ -97,11 +97,7 @@ async function gitStrict(cwd: string, ...args: string[]): Promise<{ stdout: stri
     return await execFileAsync('git', args, { cwd, timeout: 30_000 });
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string; message?: string; code?: number };
-    throw new GitOperationError(
-      args,
-      e.stderr ?? e.message ?? '',
-      typeof e.code === 'number' ? e.code : undefined,
-    );
+    throw new GitOperationError(args, e.stderr ?? e.message ?? '', typeof e.code === 'number' ? e.code : undefined);
   }
 }
 
@@ -126,9 +122,7 @@ async function getCurrentBranch(path: string): Promise<string> {
 /** Load a git snapshot row from the DB and map it to the public interface. */
 function loadSnapshot(sandboxId: string): GitSandboxSession | undefined {
   const db = getDb();
-  const raw = db
-    .prepare('SELECT * FROM git_snapshots WHERE id = ?')
-    .get(sandboxId) as GitSnapshotRow | undefined;
+  const raw = db.prepare('SELECT * FROM git_snapshots WHERE id = ?').get(sandboxId) as GitSnapshotRow | undefined;
   return raw ? rowToSession(raw) : undefined;
 }
 
@@ -161,10 +155,12 @@ export async function createGitSandbox(
 
     // Persist to DB (including baseBranch for safe rollback)
     const db = getDb();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO git_snapshots (id, workflow_id, task_id, workspace_path, branch_name, base_commit, base_branch, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-    `).run(sandboxId, workflowId, taskId ?? null, workspacePath, branchName, baseCommit, baseBranch);
+    `
+    ).run(sandboxId, workflowId, taskId ?? null, workspacePath, branchName, baseCommit, baseBranch);
 
     return {
       id: sandboxId,
@@ -207,20 +203,15 @@ export async function commitGitSandbox(
     await gitStrict(row.workspacePath, 'add', '-A');
 
     // Get list of changed files before committing
-    const { stdout: diffOutput } = await gitStrict(
-      row.workspacePath,
-      'diff',
-      '--cached',
-      '--name-only'
-    );
+    const { stdout: diffOutput } = await gitStrict(row.workspacePath, 'diff', '--cached', '--name-only');
     const filesChanged = diffOutput.split('\n').filter(Boolean);
 
     if (filesChanged.length === 0) {
       logger.info({ sandboxId }, 'No changes to commit in git sandbox');
       const db = getDb();
-      db.prepare(
-        "UPDATE git_snapshots SET status = 'committed', updated_at = datetime('now') WHERE id = ?"
-      ).run(sandboxId);
+      db.prepare("UPDATE git_snapshots SET status = 'committed', updated_at = datetime('now') WHERE id = ?").run(
+        sandboxId
+      );
       return { success: true, filesChanged: [] };
     }
 
@@ -264,9 +255,7 @@ export async function commitGitSandbox(
  *   never guesses main/master.
  * - Only resets the sandbox branch; never hard-resets the user's branch.
  */
-export async function rollbackGitSandbox(
-  sandboxId: string
-): Promise<{ success: boolean; error?: string }> {
+export async function rollbackGitSandbox(sandboxId: string): Promise<{ success: boolean; error?: string }> {
   const row = loadSnapshot(sandboxId);
 
   if (!row) {
@@ -298,10 +287,7 @@ export async function rollbackGitSandbox(
       } else {
         // Legacy fallback: detach HEAD at baseCommit so we leave the user on
         // a known-good commit without touching any named branch.
-        logger.warn(
-          { sandboxId },
-          'No base_branch recorded (legacy sandbox); detaching HEAD at baseCommit',
-        );
+        logger.warn({ sandboxId }, 'No base_branch recorded (legacy sandbox); detaching HEAD at baseCommit');
         await gitStrict(row.workspacePath, 'checkout', '--detach', row.baseCommit);
       }
     }
@@ -311,13 +297,13 @@ export async function rollbackGitSandbox(
 
     // Update DB
     const db = getDb();
-    db.prepare(
-      "UPDATE git_snapshots SET status = 'rolled_back', updated_at = datetime('now') WHERE id = ?"
-    ).run(sandboxId);
+    db.prepare("UPDATE git_snapshots SET status = 'rolled_back', updated_at = datetime('now') WHERE id = ?").run(
+      sandboxId
+    );
 
     logger.info(
       { sandboxId, baseCommit: row.baseCommit, restoredBranch: targetBranch ?? '(detached)' },
-      'Git sandbox rolled back',
+      'Git sandbox rolled back'
     );
     return { success: true };
   } catch (err) {
@@ -338,20 +324,9 @@ export async function getGitSandboxDiff(
   if (!row) return { diff: '', filesChanged: [], lineCount: 0 };
 
   try {
-    const { stdout: diff } = await git(
-      row.workspacePath,
-      'diff',
-      row.baseCommit,
-      'HEAD'
-    );
+    const { stdout: diff } = await git(row.workspacePath, 'diff', row.baseCommit, 'HEAD');
 
-    const { stdout: nameOnly } = await git(
-      row.workspacePath,
-      'diff',
-      '--name-only',
-      row.baseCommit,
-      'HEAD'
-    );
+    const { stdout: nameOnly } = await git(row.workspacePath, 'diff', '--name-only', row.baseCommit, 'HEAD');
 
     const filesChanged = nameOnly.split('\n').filter(Boolean);
     const lineCount = diff.split('\n').filter((l) => l.startsWith('+') || l.startsWith('-')).length;

@@ -9,11 +9,7 @@ import { recordStep } from '../orchestrator/tracing.js';
 const MAX_WEBHOOK_RETRIES = 3;
 const WEBHOOK_BACKOFF_BASE_MS = 1000;
 
-async function fireWebhook(
-  workflowId: string,
-  callbackUrl: string,
-  payload: Record<string, unknown>
-): Promise<void> {
+async function fireWebhook(workflowId: string, callbackUrl: string, payload: Record<string, unknown>): Promise<void> {
   for (let attempt = 0; attempt <= MAX_WEBHOOK_RETRIES; attempt++) {
     try {
       const res = await fetch(callbackUrl, {
@@ -29,7 +25,10 @@ async function fireWebhook(
       // Server error or rate limit — retry with backoff
       if (attempt < MAX_WEBHOOK_RETRIES) {
         const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt);
-        logger.warn({ workflowId, callbackUrl, status: res.status, attempt, retryInMs: delay }, 'Webhook server error, retrying');
+        logger.warn(
+          { workflowId, callbackUrl, status: res.status, attempt, retryInMs: delay },
+          'Webhook server error, retrying'
+        );
         await new Promise((r) => setTimeout(r, delay));
       } else {
         logger.warn({ workflowId, callbackUrl, status: res.status }, 'Webhook delivery failed after retries');
@@ -37,10 +36,16 @@ async function fireWebhook(
     } catch (err) {
       if (attempt < MAX_WEBHOOK_RETRIES) {
         const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt);
-        logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err), attempt, retryInMs: delay }, 'Webhook callback error, retrying');
+        logger.warn(
+          { workflowId, callbackUrl, error: getErrorMessage(err), attempt, retryInMs: delay },
+          'Webhook callback error, retrying'
+        );
         await new Promise((r) => setTimeout(r, delay));
       } else {
-        logger.warn({ workflowId, callbackUrl, error: getErrorMessage(err) }, 'Webhook callback failed after retries (non-critical)');
+        logger.warn(
+          { workflowId, callbackUrl, error: getErrorMessage(err) },
+          'Webhook callback failed after retries (non-critical)'
+        );
       }
     }
   }
@@ -54,7 +59,10 @@ const scheduleStateCleanup = (workflowId: string, state: WorkflowState): void =>
     // AND the workflow is in a terminal state. A resumed/continued workflow
     // replaces the reference, so the old timer must not evict the new active state.
     const current = workflows.get(workflowId);
-    if (current === state && (state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled')) {
+    if (
+      current === state &&
+      (state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled')
+    ) {
       workflows.delete(workflowId);
       logger.debug({ workflowId }, 'Cleaned up in-memory workflow state after TTL');
     }

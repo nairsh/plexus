@@ -37,9 +37,9 @@ const ensureSessionOwned = (sessionId: string, userId: string): void => {
 };
 
 const ensureWorkspaceOwned = (chatId: string, userId: string): void => {
-  const row = getDb().prepare('SELECT 1 FROM sandbox_workspaces WHERE chat_id = ? AND user_id = ?').get(chatId, userId) as
-    | { 1: number }
-    | undefined;
+  const row = getDb()
+    .prepare('SELECT 1 FROM sandbox_workspaces WHERE chat_id = ? AND user_id = ?')
+    .get(chatId, userId) as { 1: number } | undefined;
 
   if (!row) {
     throw new SandboxError(`Workspace not found: ${chatId}`, 'workspace_not_found');
@@ -66,7 +66,12 @@ export async function sandboxRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       getDb()
         .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
-        .run(crypto.randomUUID(), userId, 'sandbox_create', JSON.stringify({ session_id: session.id, language: session.language }));
+        .run(
+          crypto.randomUUID(),
+          userId,
+          'sandbox_create',
+          JSON.stringify({ session_id: session.id, language: session.language })
+        );
     } catch (err) {
       logger.warn({ error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }

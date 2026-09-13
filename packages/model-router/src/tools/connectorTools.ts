@@ -16,7 +16,10 @@ interface ConnectorCredentials {
 /**
  * Find the first connected connector of a given provider for a user.
  */
-const findConnectedConnector = (userId: string, provider: ConnectorProvider): { id: string; credentials: ConnectorCredentials } | null => {
+const findConnectedConnector = (
+  userId: string,
+  provider: ConnectorProvider
+): { id: string; credentials: ConnectorCredentials } | null => {
   const connectors = listConnectorsForUser(userId);
   const connector = connectors.find((c) => c.provider === provider && c.status === 'connected');
   if (!connector) return null;
@@ -30,10 +33,7 @@ const findConnectedConnector = (userId: string, provider: ConnectorProvider): { 
 /**
  * Execute a GitHub REST API call using stored credentials.
  */
-export const executeGitHubApi = async (
-  userId: string,
-  args: Record<string, unknown>
-): Promise<string> => {
+export const executeGitHubApi = async (userId: string, args: Record<string, unknown>): Promise<string> => {
   const method = (args.method as string) ?? 'GET';
   const endpoint = args.endpoint as string;
   const body = args.body as Record<string, unknown> | undefined;
@@ -50,7 +50,9 @@ export const executeGitHubApi = async (
     });
   }
 
-  const url = endpoint.startsWith('https://') ? endpoint : `https://api.github.com${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  const url = endpoint.startsWith('https://')
+    ? endpoint
+    : `https://api.github.com${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
   try {
     const response = await fetch(url, {
@@ -92,10 +94,7 @@ export const executeGitHubApi = async (
 /**
  * Execute a Linear GraphQL API call using stored credentials.
  */
-export const executeLinearApi = async (
-  userId: string,
-  args: Record<string, unknown>
-): Promise<string> => {
+export const executeLinearApi = async (userId: string, args: Record<string, unknown>): Promise<string> => {
   const query = args.query as string;
   const variables = args.variables as Record<string, unknown> | undefined;
 
@@ -121,7 +120,7 @@ export const executeLinearApi = async (
       body: JSON.stringify({ query, variables }),
     });
 
-    const responseData = await response.json() as unknown;
+    const responseData = (await response.json()) as unknown;
 
     if (!response.ok) {
       return JSON.stringify({
@@ -142,10 +141,7 @@ export const executeLinearApi = async (
 /**
  * Execute a Notion API call using stored credentials.
  */
-export const executeNotionApi = async (
-  userId: string,
-  args: Record<string, unknown>
-): Promise<string> => {
+export const executeNotionApi = async (userId: string, args: Record<string, unknown>): Promise<string> => {
   const method = (args.method as string) ?? 'GET';
   const endpoint = args.endpoint as string;
   const body = args.body as Record<string, unknown> | undefined;
@@ -162,7 +158,9 @@ export const executeNotionApi = async (
     });
   }
 
-  const url = endpoint.startsWith('https://') ? endpoint : `https://api.notion.com${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  const url = endpoint.startsWith('https://')
+    ? endpoint
+    : `https://api.notion.com${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
   try {
     const response = await fetch(url, {
@@ -175,7 +173,7 @@ export const executeNotionApi = async (
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
-    const responseData = await response.json() as unknown;
+    const responseData = (await response.json()) as unknown;
 
     if (!response.ok) {
       return JSON.stringify({

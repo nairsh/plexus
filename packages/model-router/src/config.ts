@@ -117,7 +117,7 @@ const mergeModelConfig = (base: RuntimeModelConfig, userId?: string): RuntimeMod
     orchestrator_models: [...orchestratorModels],
     default_orchestrator_model: orchestratorModels.includes(defaultModel)
       ? defaultModel
-      : orchestratorModels[0] ?? base.default_orchestrator_model,
+      : (orchestratorModels[0] ?? base.default_orchestrator_model),
     agent_models: {
       ...(base.agent_models ?? {}),
       ...(overrides.agent_models ?? {}),
@@ -131,9 +131,12 @@ const mergeModelConfig = (base: RuntimeModelConfig, userId?: string): RuntimeMod
 
 export const getRuntimeModelConfig = (userId?: string): RuntimeModelConfig => mergeModelConfig(modelConfig, userId);
 
-export const getDefaultOrchestratorModel = (userId?: string): string => getRuntimeModelConfig(userId).default_orchestrator_model;
+export const getDefaultOrchestratorModel = (userId?: string): string =>
+  getRuntimeModelConfig(userId).default_orchestrator_model;
 
-export const getAllowedOrchestratorModels = (userId?: string): string[] => [...getRuntimeModelConfig(userId).orchestrator_models];
+export const getAllowedOrchestratorModels = (userId?: string): string[] => [
+  ...getRuntimeModelConfig(userId).orchestrator_models,
+];
 
 export const resolveOrchestratorModel = (requestedModel?: string, userId?: string): string => {
   const runtime = getRuntimeModelConfig(userId);

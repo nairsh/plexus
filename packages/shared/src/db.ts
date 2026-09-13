@@ -23,8 +23,7 @@ export function getDb(): Database.Database {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const isCorrupt =
-      message.includes('malformed database schema') ||
-      message.includes('database disk image is malformed');
+      message.includes('malformed database schema') || message.includes('database disk image is malformed');
 
     if (!isCorrupt || process.env['NODE_ENV'] === 'production') {
       throw error;
@@ -351,13 +350,15 @@ export function runMigrations(): void {
   // Update task_type CHECK constraint to include new agent types
   // Note: SQLite doesn't support ALTER TABLE for CHECK constraints
   // We recreate the tasks table with the updated constraint
-  const hasResearchType = database.prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%research%' AND name='tasks'").get();
+  const hasResearchType = database
+    .prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%research%' AND name='tasks'")
+    .get();
   if (!hasResearchType) {
     logger.info('Updating tasks table to support new agent types...');
-    
+
     // Temporarily disable foreign keys to allow table recreation
     database.exec('PRAGMA foreign_keys = OFF');
-    
+
     try {
       database.exec(`
         -- Drop temporary table if exists from previous failed migration
@@ -403,7 +404,9 @@ export function runMigrations(): void {
   }
 
   // Update task_type CHECK constraint to include 'deep_research'
-  const hasDeepResearchType = database.prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%deep_research%' AND name='tasks'").get();
+  const hasDeepResearchType = database
+    .prepare("SELECT 1 FROM sqlite_master WHERE sql LIKE '%deep_research%' AND name='tasks'")
+    .get();
   if (!hasDeepResearchType) {
     logger.info('Updating tasks table to support deep_research agent type...');
 
@@ -790,25 +793,26 @@ export interface FileIndexDayGroup {
   files: (FileIndexEntry & { workflow_objective?: string })[];
 }
 
-export function registerFileInIndex(
-  userId: string,
-  workflowId: string,
-  filePath: string,
-  sizeBytes: number = 0,
-): void {
+export function registerFileInIndex(userId: string, workflowId: string, filePath: string, sizeBytes: number = 0): void {
   const parts = filePath.split('/');
   const fileName = parts[parts.length - 1] || filePath;
   const dotIdx = fileName.lastIndexOf('.');
   const extension = dotIdx > 0 ? fileName.slice(dotIdx + 1).toLowerCase() : null;
 
-  getDb().prepare(`
+  getDb()
+    .prepare(
+      `
     INSERT OR REPLACE INTO file_index (user_id, workflow_id, file_path, file_name, extension, size_bytes, created_at)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-  `).run(userId, workflowId, filePath, fileName, extension, sizeBytes);
+  `
+    )
+    .run(userId, workflowId, filePath, fileName, extension, sizeBytes);
 }
 
 export function listFilesByDay(userId: string, limit: number = 200): FileIndexDayGroup[] {
-  const rows = getDb().prepare(`
+  const rows = getDb()
+    .prepare(
+      `
     SELECT f.id, f.user_id, f.workflow_id, f.file_path, f.file_name, f.extension, f.size_bytes, f.created_at,
            w.objective as workflow_objective
     FROM file_index f
@@ -816,7 +820,9 @@ export function listFilesByDay(userId: string, limit: number = 200): FileIndexDa
     WHERE f.user_id = ?
     ORDER BY f.created_at DESC
     LIMIT ?
-  `).all(userId, limit) as (FileIndexEntry & { workflow_objective?: string })[];
+  `
+    )
+    .all(userId, limit) as (FileIndexEntry & { workflow_objective?: string })[];
 
   const groups = new Map<string, (FileIndexEntry & { workflow_objective?: string })[]>();
   for (const row of rows) {

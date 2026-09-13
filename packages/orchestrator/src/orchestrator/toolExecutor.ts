@@ -83,7 +83,9 @@ const buildToolDisplayInput = (
       return {
         team_name: args.team_name,
         purpose: args.purpose,
-        roles: Array.isArray(args.roles) ? (args.roles as Array<{name: string}>).map(r => r.name).join(', ') : args.roles,
+        roles: Array.isArray(args.roles)
+          ? (args.roles as Array<{ name: string }>).map((r) => r.name).join(', ')
+          : args.roles,
       };
     case 'message_teammate':
       return {
@@ -185,7 +187,9 @@ const ensureWorkflowWorkspaceSession = async (state: WorkflowState): Promise<voi
   const chatId = state.config.chat_id ?? state.id;
   const workingDirectory = normalizeWorkingDirectory(state.config.working_directory);
   const existing = await getOpenTerminalSessionForChat(state.userId, chatId);
-  const matchesRequestedWorkingDirectory = workingDirectory ? existing?.workingDirectory === workingDirectory : Boolean(existing);
+  const matchesRequestedWorkingDirectory = workingDirectory
+    ? existing?.workingDirectory === workingDirectory
+    : Boolean(existing);
   if (matchesRequestedWorkingDirectory) return;
 
   const session = await createSession(state.userId, {
@@ -359,11 +363,18 @@ export const executeOrchestratorToolCall = async (
         return finish({ status: 'error', error: 'todo_not_found', todo_id: args.todo_id });
       }
 
-      const VALID_STATUSES = new Set<WorkItemStatus>(['pending', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'skipped']);
+      const VALID_STATUSES = new Set<WorkItemStatus>([
+        'pending',
+        'running',
+        'completed',
+        'failed',
+        'blocked',
+        'cancelled',
+        'skipped',
+      ]);
       const rawStatus = args.status as string | undefined;
-      const newStatus = rawStatus && VALID_STATUSES.has(rawStatus as WorkItemStatus)
-        ? rawStatus as WorkItemStatus
-        : undefined;
+      const newStatus =
+        rawStatus && VALID_STATUSES.has(rawStatus as WorkItemStatus) ? (rawStatus as WorkItemStatus) : undefined;
       const output =
         args.output ??
         (newStatus === 'failed'
@@ -539,36 +550,36 @@ export const executeOrchestratorToolCall = async (
       if (!question?.trim()) {
         return finish({ status: 'error', error: 'question is required' });
       }
-      
+
       // Validate options
       const options = Array.isArray(args.options)
         ? (args.options as Array<{ label: string; description?: string }>)
         : undefined;
-        
+
       if (!options || options.length < 2) {
-        return finish({ 
-          status: 'error', 
-          error: 'At least 2 options are required. Provide 2-3 predefined options for the user to choose from.' 
+        return finish({
+          status: 'error',
+          error: 'At least 2 options are required. Provide 2-3 predefined options for the user to choose from.',
         });
       }
-      
+
       if (options.length > 3) {
-        return finish({ 
-          status: 'error', 
-          error: 'Maximum 3 options allowed. Please limit to 2-3 predefined options.' 
+        return finish({
+          status: 'error',
+          error: 'Maximum 3 options allowed. Please limit to 2-3 predefined options.',
         });
       }
-      
+
       // Validate each option has a label
       for (const opt of options) {
         if (!opt.label || typeof opt.label !== 'string' || !opt.label.trim()) {
-          return finish({ 
-            status: 'error', 
-            error: 'All options must have a non-empty label.' 
+          return finish({
+            status: 'error',
+            error: 'All options must have a non-empty label.',
           });
         }
       }
-      
+
       const allowCustom = args.allow_custom !== false;
 
       emitWorkflowEvent(state, {
@@ -619,20 +630,21 @@ export const executeOrchestratorToolCall = async (
       const settings = { purpose, workflow_id: state.id };
 
       db.prepare(`INSERT INTO teams (id, name, owner_id, settings) VALUES (?, ?, ?, ?)`).run(
-        teamId, teamName.trim(), state.userId, JSON.stringify(settings)
+        teamId,
+        teamName.trim(),
+        state.userId,
+        JSON.stringify(settings)
       );
 
       // Add the orchestrator as owner member
-      db.prepare(`INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'owner')`).run(
-        teamId, state.userId
-      );
+      db.prepare(`INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'owner')`).run(teamId, state.userId);
 
       // Register each role as a shared context so teammates know their assignments
       for (const role of roles) {
         const contextId = randomUUID();
-        db.prepare(`INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'shared_instructions', ?)`).run(
-          contextId, teamId, `role:${role.name}`, role.description, state.userId
-        );
+        db.prepare(
+          `INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'shared_instructions', ?)`
+        ).run(contextId, teamId, `role:${role.name}`, role.description, state.userId);
       }
 
       emitWorkflowEvent(state, {
@@ -642,7 +654,7 @@ export const executeOrchestratorToolCall = async (
           team_id: teamId,
           team_name: teamName,
           purpose,
-          roles: roles.map(r => r.name),
+          roles: roles.map((r) => r.name),
         },
       });
 
@@ -651,7 +663,7 @@ export const executeOrchestratorToolCall = async (
         team_id: teamId,
         team_name: teamName,
         purpose,
-        roles: roles.map(r => ({ name: r.name, description: r.description })),
+        roles: roles.map((r) => ({ name: r.name, description: r.description })),
         member_count: 1,
       });
     }
@@ -667,7 +679,9 @@ export const executeOrchestratorToolCall = async (
       }
 
       const db = getDb();
-      const team = db.prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string } | undefined;
+      const team = db
+        .prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`)
+        .get(teamName, state.userId) as { id: string; name: string } | undefined;
       if (!team) {
         return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
       }
@@ -683,9 +697,9 @@ export const executeOrchestratorToolCall = async (
         workflow_id: state.id,
       });
 
-      db.prepare(`INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'message', ?)`).run(
-        msgId, team.id, `msg:${to}:${Date.now()}`, msgContent, state.userId
-      );
+      db.prepare(
+        `INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by) VALUES (?, ?, ?, ?, 'message', ?)`
+      ).run(msgId, team.id, `msg:${to}:${Date.now()}`, msgContent, state.userId);
 
       emitWorkflowEvent(state, {
         type: 'team_message_sent',
@@ -703,16 +717,25 @@ export const executeOrchestratorToolCall = async (
       }
 
       const db = getDb();
-      const team = db.prepare(`SELECT id, name, settings FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string; settings: string } | undefined;
+      const team = db
+        .prepare(`SELECT id, name, settings FROM teams WHERE name = ? AND owner_id = ?`)
+        .get(teamName, state.userId) as { id: string; name: string; settings: string } | undefined;
       if (!team) {
         return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
       }
 
-      const members = db.prepare(`SELECT user_id, role FROM team_members WHERE team_id = ?`).all(team.id) as Array<{ user_id: string; role: string }>;
-      const contexts = db.prepare(`SELECT name, content_type, created_at FROM team_shared_contexts WHERE team_id = ? ORDER BY created_at DESC LIMIT 20`).all(team.id) as Array<{ name: string; content_type: string; created_at: string }>;
+      const members = db.prepare(`SELECT user_id, role FROM team_members WHERE team_id = ?`).all(team.id) as Array<{
+        user_id: string;
+        role: string;
+      }>;
+      const contexts = db
+        .prepare(
+          `SELECT name, content_type, created_at FROM team_shared_contexts WHERE team_id = ? ORDER BY created_at DESC LIMIT 20`
+        )
+        .all(team.id) as Array<{ name: string; content_type: string; created_at: string }>;
 
-      const roles = contexts.filter(c => c.name.startsWith('role:')).map(c => c.name.replace('role:', ''));
-      const messages = contexts.filter(c => c.content_type === 'message');
+      const roles = contexts.filter((c) => c.name.startsWith('role:')).map((c) => c.name.replace('role:', ''));
+      const messages = contexts.filter((c) => c.content_type === 'message');
       const settings = JSON.parse(team.settings || '{}');
 
       return finish({
@@ -723,7 +746,7 @@ export const executeOrchestratorToolCall = async (
         member_count: members.length,
         roles,
         pending_messages: messages.length,
-        recent_activity: contexts.slice(0, 5).map(c => ({
+        recent_activity: contexts.slice(0, 5).map((c) => ({
           type: c.content_type,
           name: c.name,
           at: c.created_at,
@@ -740,14 +763,18 @@ export const executeOrchestratorToolCall = async (
       }
 
       const db = getDb();
-      const team = db.prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`).get(teamName, state.userId) as { id: string; name: string } | undefined;
+      const team = db
+        .prepare(`SELECT id, name FROM teams WHERE name = ? AND owner_id = ?`)
+        .get(teamName, state.userId) as { id: string; name: string } | undefined;
       if (!team) {
         return finish({ status: 'error', error: 'team_not_found', team_name: teamName });
       }
 
       // Collect final outputs before dissolution
-      const contexts = db.prepare(`SELECT name, content, content_type FROM team_shared_contexts WHERE team_id = ?`).all(team.id) as Array<{ name: string; content: string; content_type: string }>;
-      const roles = contexts.filter(c => c.name.startsWith('role:')).map(c => c.name.replace('role:', ''));
+      const contexts = db
+        .prepare(`SELECT name, content, content_type FROM team_shared_contexts WHERE team_id = ?`)
+        .all(team.id) as Array<{ name: string; content: string; content_type: string }>;
+      const roles = contexts.filter((c) => c.name.startsWith('role:')).map((c) => c.name.replace('role:', ''));
 
       // Clean up: delete contexts, members, then team
       db.prepare(`DELETE FROM team_shared_contexts WHERE team_id = ?`).run(team.id);

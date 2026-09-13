@@ -92,10 +92,6 @@ export async function getBalance(userId: string): Promise<number> {
 /**
  * Get recent transactions for a user.
  */
-export async function getTransactions(
-  userId: string,
-  limit = 50,
-  offset = 0
-): Promise<CreditTransaction[]> {
+export async function getTransactions(userId: string, limit = 50, offset = 0): Promise<CreditTransaction[]> {
   return getStorage().getTransactions(userId, limit, offset) as Promise<CreditTransaction[]>;
 }

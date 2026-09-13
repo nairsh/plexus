@@ -130,7 +130,13 @@ export const ensureWorkspace = (userId: string, chatId: string, language: 'pytho
   return paths;
 };
 
-export const activateWorkspace = (userId: string, chatId: string, sessionId: string, language: 'python' | 'javascript' | 'sql', targetDir: string) => {
+export const activateWorkspace = (
+  userId: string,
+  chatId: string,
+  sessionId: string,
+  language: 'python' | 'javascript' | 'sql',
+  targetDir: string
+) => {
   const paths = ensureWorkspace(userId, chatId, language);
   ensureDir(targetDir);
 
@@ -168,9 +174,9 @@ export const activateWorkspace = (userId: string, chatId: string, sessionId: str
 
 export const deactivateWorkspace = (sessionId: string, sessionDir: string, persistFromSession = true) => {
   const db = getDb();
-  const row = db.prepare(
-    `SELECT chat_id, language, user_id FROM sandbox_sessions WHERE id = ?`
-  ).get(sessionId) as { chat_id?: string; language: 'python' | 'javascript' | 'sql'; user_id: string } | undefined;
+  const row = db.prepare(`SELECT chat_id, language, user_id FROM sandbox_sessions WHERE id = ?`).get(sessionId) as
+    | { chat_id?: string; language: 'python' | 'javascript' | 'sql'; user_id: string }
+    | undefined;
 
   if (!row?.chat_id) {
     return;
@@ -223,9 +229,9 @@ export const deactivateWorkspace = (sessionId: string, sessionDir: string, persi
 
 export const getWorkspaceInfo = (userId: string, chatId: string) => {
   const db = getDb();
-  const row = db.prepare(
-    `SELECT * FROM sandbox_workspaces WHERE user_id = ? AND chat_id = ?`
-  ).get(userId, chatId) as Record<string, unknown> | undefined;
+  const row = db.prepare(`SELECT * FROM sandbox_workspaces WHERE user_id = ? AND chat_id = ?`).get(userId, chatId) as
+    | Record<string, unknown>
+    | undefined;
 
   if (!row) {
     return null;

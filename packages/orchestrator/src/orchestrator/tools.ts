@@ -174,7 +174,7 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
     function: {
       name: 'write_memory',
       description:
-        'Save a piece of information to the user\'s persistent memory so it can be recalled in future sessions. Use this when the user explicitly asks you to remember something, or when you learn a stable preference or fact worth preserving.',
+        "Save a piece of information to the user's persistent memory so it can be recalled in future sessions. Use this when the user explicitly asks you to remember something, or when you learn a stable preference or fact worth preserving.",
       parameters: {
         type: 'object',
         properties: {
@@ -197,7 +197,10 @@ export const ORCHESTRATOR_TOOLS: Tool[] = [
       parameters: {
         type: 'object',
         properties: {
-          team_name: { type: 'string', description: 'Short name for this team (e.g. "research-squad", "content-pipeline")' },
+          team_name: {
+            type: 'string',
+            description: 'Short name for this team (e.g. "research-squad", "content-pipeline")',
+          },
           purpose: { type: 'string', description: 'What this team is assembled to accomplish' },
           roles: {
             type: 'array',

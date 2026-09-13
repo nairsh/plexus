@@ -116,7 +116,10 @@ const getDeviceConfig = (): {
 };
 
 const discoverOidc = async (issuer: string): Promise<OidcMetadata> => {
-  const metadataUrls = [`${issuer}/.well-known/oauth-authorization-server`, `${issuer}/.well-known/openid-configuration`];
+  const metadataUrls = [
+    `${issuer}/.well-known/oauth-authorization-server`,
+    `${issuer}/.well-known/openid-configuration`,
+  ];
 
   for (const metadataUrl of metadataUrls) {
     const response = await fetch(metadataUrl).catch(() => null);

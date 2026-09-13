@@ -98,11 +98,15 @@ export const runInteractiveChat = async (
         // get the user's response, continue the workflow, and stream again.
         let keepStreaming = true;
         while (keepStreaming && currentWorkflowId) {
-          const streamResult = await streamWorkflow(currentWorkflowId, chatScreen, async (request: ApprovalRequestState) => {
-            const selection = await chatScreen.readMenuSelection(request);
-            const decision = (selection ?? 'deny') as ToolApprovalDecision;
-            resolveWorkflowApproval(currentWorkflowId!, request.id, decision);
-          });
+          const streamResult = await streamWorkflow(
+            currentWorkflowId,
+            chatScreen,
+            async (request: ApprovalRequestState) => {
+              const selection = await chatScreen.readMenuSelection(request);
+              const decision = (selection ?? 'deny') as ToolApprovalDecision;
+              resolveWorkflowApproval(currentWorkflowId!, request.id, decision);
+            }
+          );
 
           if (streamResult.clarification) {
             const response = await chatScreen.readClarification(streamResult.clarification);

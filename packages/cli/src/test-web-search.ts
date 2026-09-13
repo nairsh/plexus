@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Web Search Tool Test CLI
- * 
+ *
  * Usage:
  *   pnpm test-web-search "What is the latest news on AI?"
  *   pnpm test-web-search "test query" --model litellm/gemini-3.1-flash-lite-preview
@@ -52,7 +52,7 @@ async function main() {
   const spinner = ora({
     text: 'Executing web search...',
     spinner: 'dots',
-    color: 'cyan'
+    color: 'cyan',
   }).start();
 
   try {
@@ -69,15 +69,16 @@ async function main() {
     console.log(chalk.bold('─'.repeat(60)));
     console.log('');
 
-    console.log(chalk.dim('Provider:'), result.provider === 'tavily' 
-      ? chalk.green('Tavily API') 
-      : chalk.yellow('Public Fallback (DuckDuckGo)'));
+    console.log(
+      chalk.dim('Provider:'),
+      result.provider === 'tavily' ? chalk.green('Tavily API') : chalk.yellow('Public Fallback (DuckDuckGo)')
+    );
     console.log(chalk.dim('Query:'), chalk.white(result.query));
-    
+
     if (result.answer) {
       console.log(chalk.dim('Answer:'), chalk.white(result.answer));
     }
-    
+
     console.log(chalk.dim('Results:'), chalk.white(result.results.length));
     console.log('');
 
@@ -85,7 +86,10 @@ async function main() {
     result.results.forEach((r: TavilySearchResponse['results'][number], i: number) => {
       console.log(chalk.bold(`${i + 1}. ${r.title}`));
       console.log(chalk.dim('   URL:'), chalk.blue.underline(r.url));
-      console.log(chalk.dim('   Snippet:'), chalk.gray(r.snippet.substring(0, 150) + (r.snippet.length > 150 ? '...' : '')));
+      console.log(
+        chalk.dim('   Snippet:'),
+        chalk.gray(r.snippet.substring(0, 150) + (r.snippet.length > 150 ? '...' : ''))
+      );
       if (r.score !== undefined) {
         console.log(chalk.dim('   Score:'), chalk.yellow(r.score.toFixed(3)));
       }
@@ -101,16 +105,15 @@ async function main() {
     console.log(chalk.dim('Results count:'), result.results.length);
     console.log(chalk.dim('Duration:'), `${duration}ms`);
     console.log('');
-
   } catch (error) {
     spinner.stop();
     console.error(chalk.red('\n❌ Web search failed:'), error instanceof Error ? error.message : String(error));
-    
+
     if (options.verbose && error instanceof Error) {
       console.error(chalk.gray('\nStack trace:'));
       console.error(chalk.gray(error.stack));
     }
-    
+
     process.exit(1);
   }
 }

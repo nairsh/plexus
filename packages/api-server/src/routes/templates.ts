@@ -61,9 +61,7 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
 
     query += ' ORDER BY usage_count DESC, created_at DESC LIMIT 100';
 
-    const rows = db.prepare(query).all(...params) as Array<
-      WorkflowTemplate & { config: string; tags: string }
-    >;
+    const rows = db.prepare(query).all(...params) as Array<WorkflowTemplate & { config: string; tags: string }>;
 
     return { templates: rows.map(parseTemplate) };
   });
@@ -77,10 +75,12 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
     const db = getDb();
     const id = crypto.randomUUID();
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO workflow_templates (id, name, description, config, created_by, is_public, tags)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `
+    ).run(
       id,
       body.data.name,
       body.data.description,
@@ -90,9 +90,10 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
       JSON.stringify(body.data.tags)
     );
 
-    const created = db
-      .prepare('SELECT * FROM workflow_templates WHERE id = ?')
-      .get(id) as WorkflowTemplate & { config: string; tags: string };
+    const created = db.prepare('SELECT * FROM workflow_templates WHERE id = ?').get(id) as WorkflowTemplate & {
+      config: string;
+      tags: string;
+    };
 
     logger.info({ templateId: id, userId: user.id }, 'Workflow template created');
     return reply.status(201).send(parseTemplate(created));
@@ -126,7 +127,9 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
     if (!row) throw new InvalidRequestError('Template not found', 'not_found');
 
     // Increment usage count
-    db.prepare("UPDATE workflow_templates SET usage_count = usage_count + 1, updated_at = datetime('now') WHERE id = ?").run(id);
+    db.prepare(
+      "UPDATE workflow_templates SET usage_count = usage_count + 1, updated_at = datetime('now') WHERE id = ?"
+    ).run(id);
 
     const template = parseTemplate(row);
     return {
@@ -144,9 +147,7 @@ export async function registerTemplatesRoutes(app: FastifyInstance): Promise<voi
     const user = req.user!;
     const db = getDb();
 
-    const row = db
-      .prepare('SELECT * FROM workflow_templates WHERE id = ? AND created_by = ?')
-      .get(id, user.id);
+    const row = db.prepare('SELECT * FROM workflow_templates WHERE id = ? AND created_by = ?').get(id, user.id);
 
     if (!row) throw new InvalidRequestError('Template not found or not authorized', 'not_found');
 

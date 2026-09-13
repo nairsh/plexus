@@ -66,35 +66,33 @@ export const persistWorkflowSnapshot = (state: WorkflowState): void => {
   const nextVersion = (lastRow?.max_v ?? 0) + 1;
 
   // Serialise approval metadata (strip the Promise-based `resolve` callback)
-  const approvalMetadata: ApprovalMetadata[] = Array.from(
-    state.approvalState.pending.entries(),
-  ).map(([approvalId, entry]) => ({
-    approvalId,
-    commandKey: entry.commandKey,
-    command: entry.command,
-    toolName: entry.toolName,
-    subagentId: entry.subagentId,
-    requestedAt: entry.requestedAt,
-  }));
+  const approvalMetadata: ApprovalMetadata[] = Array.from(state.approvalState.pending.entries()).map(
+    ([approvalId, entry]) => ({
+      approvalId,
+      commandKey: entry.commandKey,
+      command: entry.command,
+      toolName: entry.toolName,
+      subagentId: entry.subagentId,
+      requestedAt: entry.requestedAt,
+    })
+  );
 
   // Serialise subagent runs (strip the live Promise)
-  const subagentSummaries: SubagentRunSummary[] = Array.from(state.subagentRuns.values()).map(
-    (run) => ({
-      runId: run.runId,
-      workItemId: run.workItemId,
-      status: run.status,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-      output: run.output,
-      error: run.error,
-    }),
-  );
+  const subagentSummaries: SubagentRunSummary[] = Array.from(state.subagentRuns.values()).map((run) => ({
+    runId: run.runId,
+    workItemId: run.workItemId,
+    status: run.status,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    output: run.output,
+    error: run.error,
+  }));
 
   db.prepare(
     `INSERT INTO workflow_state_snapshots
        (workflow_id, version, messages, conversation_history, config,
         pending_approval_metadata, subagent_summaries, credits_consumed, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     state.id,
     nextVersion,
@@ -104,7 +102,7 @@ export const persistWorkflowSnapshot = (state: WorkflowState): void => {
     JSON.stringify(approvalMetadata),
     JSON.stringify(subagentSummaries),
     state.creditsConsumed,
-    state.status,
+    state.status
   );
 };
 
@@ -120,7 +118,7 @@ export const loadLatestSnapshot = (workflowId: string): WorkflowStateSnapshot | 
        FROM workflow_state_snapshots
        WHERE workflow_id = ?
        ORDER BY version DESC
-       LIMIT 1`,
+       LIMIT 1`
     )
     .get(workflowId) as
     | {
@@ -152,9 +150,7 @@ export const loadLatestSnapshot = (workflowId: string): WorkflowStateSnapshot | 
     pendingApprovalMetadata: row.pending_approval_metadata
       ? (JSON.parse(row.pending_approval_metadata) as ApprovalMetadata[])
       : [],
-    subagentSummaries: row.subagent_summaries
-      ? (JSON.parse(row.subagent_summaries) as SubagentRunSummary[])
-      : [],
+    subagentSummaries: row.subagent_summaries ? (JSON.parse(row.subagent_summaries) as SubagentRunSummary[]) : [],
     creditsConsumed: row.credits_consumed,
     status: row.status as WorkflowStatus,
     createdAt: row.created_at,
@@ -325,9 +321,16 @@ export const persistWorkflowCancellation = (workflowId: string): void => {
 export const persistWorkflowStatus = (workflowId: string, status: WorkflowStatus, pauseReason?: string): void => {
   const db = getDb();
   if (pauseReason !== undefined) {
-    db.prepare(`UPDATE workflows SET status = ?, pause_reason = ?, updated_at = datetime('now') WHERE id = ?`).run(status, pauseReason, workflowId);
+    db.prepare(`UPDATE workflows SET status = ?, pause_reason = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      status,
+      pauseReason,
+      workflowId
+    );
   } else {
-    db.prepare(`UPDATE workflows SET status = ?, pause_reason = NULL, updated_at = datetime('now') WHERE id = ?`).run(status, workflowId);
+    db.prepare(`UPDATE workflows SET status = ?, pause_reason = NULL, updated_at = datetime('now') WHERE id = ?`).run(
+      status,
+      workflowId
+    );
   }
 };
 
@@ -360,9 +363,9 @@ export const updateWorkflowObjectiveForContinuation = (workflowId: string, follo
   const db = getDb();
   // Update objective and also patch the config JSON so the persisted config
   // stays consistent with the in-memory state after continuation.
-  const existingRow = db
-    .prepare('SELECT config FROM workflows WHERE id = ?')
-    .get(workflowId) as { config: string | null } | undefined;
+  const existingRow = db.prepare('SELECT config FROM workflows WHERE id = ?').get(workflowId) as
+    | { config: string | null }
+    | undefined;
   let updatedConfig: string | null = null;
   if (existingRow?.config) {
     try {
@@ -376,7 +379,7 @@ export const updateWorkflowObjectiveForContinuation = (workflowId: string, follo
     updatedConfig = JSON.stringify({ objective: followUpQuery });
   }
   db.prepare(
-    `UPDATE workflows SET status = 'executing', objective = ?, config = ?, updated_at = datetime('now') WHERE id = ?`,
+    `UPDATE workflows SET status = 'executing', objective = ?, config = ?, updated_at = datetime('now') WHERE id = ?`
   ).run(followUpQuery, updatedConfig, workflowId);
 };
 
@@ -471,7 +474,7 @@ export const getWorkflowDetails = (workflowId: string): { workflow: WorkflowSumm
 
 export const listWorkflows = (
   userId: string,
-  options?: { status?: string; limit?: number; offset?: number },
+  options?: { status?: string; limit?: number; offset?: number }
 ): WorkflowSummary[] => {
   const db = getDb();
   const conditions = ['user_id = ?'];
@@ -504,9 +507,14 @@ export const listWorkflows = (
 export const countWorkflows = (userId: string, status?: string): number => {
   const db = getDb();
   if (status) {
-    return (db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ? AND status = ?').get(userId, status) as { count: number }).count;
+    return (
+      db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ? AND status = ?').get(userId, status) as {
+        count: number;
+      }
+    ).count;
   }
-  return (db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ?').get(userId) as { count: number }).count;
+  return (db.prepare('SELECT COUNT(*) as count FROM workflows WHERE user_id = ?').get(userId) as { count: number })
+    .count;
 };
 
 export const getWorkflowSummaryById = (

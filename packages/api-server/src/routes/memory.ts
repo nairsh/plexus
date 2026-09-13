@@ -15,7 +15,9 @@ export async function memoryRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get(
     '/v1/memory',
-    async (request: FastifyRequest<{ Querystring: { query?: string; category?: string; limit?: string; offset?: string } }>) => {
+    async (
+      request: FastifyRequest<{ Querystring: { query?: string; category?: string; limit?: string; offset?: string } }>
+    ) => {
       const user = request.user!;
       const { category, limit: limitStr, offset: offsetStr } = request.query;
       const limit = Math.min(Math.max(parseInt(limitStr ?? '100', 10) || 100, 1), 500);
@@ -45,16 +47,13 @@ export async function memoryRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * DELETE /v1/memory/:id
    */
-  fastify.delete(
-    '/v1/memory/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const user = request.user!;
-      const deleted = deleteMemory(user.id, request.params.id);
-      if (!deleted) {
-        reply.status(404);
-        return { error: 'Memory not found' };
-      }
-      return { deleted: true };
+  fastify.delete('/v1/memory/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const user = request.user!;
+    const deleted = deleteMemory(user.id, request.params.id);
+    if (!deleted) {
+      reply.status(404);
+      return { error: 'Memory not found' };
     }
-  );
+    return { deleted: true };
+  });
 }

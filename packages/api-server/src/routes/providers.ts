@@ -5,12 +5,12 @@ import crypto from 'node:crypto';
 
 // ── Provider Presets ──────────────────────────────────────────────────────
 export const PROVIDER_PRESETS: Record<string, { displayName: string; apiUrl: string; urlEditable: boolean }> = {
-  openai:     { displayName: 'OpenAI',     apiUrl: 'https://api.openai.com/v1',                          urlEditable: false },
-  deepseek:   { displayName: 'Deepseek',   apiUrl: 'https://api.deepseek.com/v1',                       urlEditable: false },
-  google:     { displayName: 'Google AI',   apiUrl: 'https://generativelanguage.googleapis.com/v1beta',  urlEditable: false },
-  openrouter: { displayName: 'OpenRouter',  apiUrl: 'https://openrouter.ai/api/v1',                     urlEditable: false },
-  litellm:    { displayName: 'LiteLLM',     apiUrl: '',                                                  urlEditable: true  },
-  custom:     { displayName: 'Custom',      apiUrl: '',                                                  urlEditable: true  },
+  openai: { displayName: 'OpenAI', apiUrl: 'https://api.openai.com/v1', urlEditable: false },
+  deepseek: { displayName: 'Deepseek', apiUrl: 'https://api.deepseek.com/v1', urlEditable: false },
+  google: { displayName: 'Google AI', apiUrl: 'https://generativelanguage.googleapis.com/v1beta', urlEditable: false },
+  openrouter: { displayName: 'OpenRouter', apiUrl: 'https://openrouter.ai/api/v1', urlEditable: false },
+  litellm: { displayName: 'LiteLLM', apiUrl: '', urlEditable: true },
+  custom: { displayName: 'Custom', apiUrl: '', urlEditable: true },
 };
 
 const ProviderTypeEnum = z.enum(['openai', 'deepseek', 'google', 'openrouter', 'litellm', 'custom']);
@@ -104,81 +104,92 @@ export async function providersRoutes(fastify: FastifyInstance): Promise<void> {
 
     // If setting as default embedding, clear other defaults first
     if (is_default_embedding) {
-      getDb()
-        .prepare('UPDATE user_api_providers SET is_default_embedding = 0 WHERE user_id = ?')
-        .run(userId);
+      getDb().prepare('UPDATE user_api_providers SET is_default_embedding = 0 WHERE user_id = ?').run(userId);
     }
 
     getDb()
-      .prepare(`INSERT INTO user_api_providers
+      .prepare(
+        `INSERT INTO user_api_providers
         (id, user_id, provider_type, display_name, api_url, api_key_encrypted, embedding_model, is_default_embedding)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, userId, provider_type, display_name, api_url, obfuscateKey(api_key), embedding_model ?? null, is_default_embedding ? 1 : 0);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        userId,
+        provider_type,
+        display_name,
+        api_url,
+        obfuscateKey(api_key),
+        embedding_model ?? null,
+        is_default_embedding ? 1 : 0
+      );
 
-    const row = getDb()
-      .prepare('SELECT * FROM user_api_providers WHERE id = ?')
-      .get(id) as ProviderRow;
+    const row = getDb().prepare('SELECT * FROM user_api_providers WHERE id = ?').get(id) as ProviderRow;
     return rowToResponse(row);
   });
 
   // ── Update provider ───────────────────────────────────────────────────
-  fastify.put(
-    '/v1/providers/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const parsed = UpdateProviderSchema.safeParse(request.body);
-      if (!parsed.success) {
-        const e = parsed.error.errors[0];
-        throw new InvalidRequestError(e?.message ?? 'Invalid request', e?.path?.join('.'));
-      }
-      const userId = request.user!.id;
-      const providerId = (request.params as { id: string }).id;
-
-      const existing = getDb()
-        .prepare('SELECT * FROM user_api_providers WHERE id = ? AND user_id = ?')
-        .get(providerId, userId) as ProviderRow | undefined;
-      if (!existing) throw new InvalidRequestError('Provider not found');
-
-      const updates = parsed.data;
-      if (updates.display_name !== undefined) {
-        getDb().prepare('UPDATE user_api_providers SET display_name = ?, updated_at = datetime(\'now\') WHERE id = ?').run(updates.display_name, providerId);
-      }
-      if (updates.api_url !== undefined) {
-        getDb().prepare('UPDATE user_api_providers SET api_url = ?, updated_at = datetime(\'now\') WHERE id = ?').run(updates.api_url, providerId);
-      }
-      if (updates.api_key !== undefined) {
-        getDb().prepare('UPDATE user_api_providers SET api_key_encrypted = ?, updated_at = datetime(\'now\') WHERE id = ?').run(obfuscateKey(updates.api_key), providerId);
-      }
-      if (updates.embedding_model !== undefined) {
-        getDb().prepare('UPDATE user_api_providers SET embedding_model = ?, updated_at = datetime(\'now\') WHERE id = ?').run(updates.embedding_model, providerId);
-      }
-      if (updates.is_default_embedding !== undefined) {
-        if (updates.is_default_embedding) {
-          getDb().prepare('UPDATE user_api_providers SET is_default_embedding = 0 WHERE user_id = ?').run(userId);
-        }
-        getDb().prepare('UPDATE user_api_providers SET is_default_embedding = ?, updated_at = datetime(\'now\') WHERE id = ?').run(updates.is_default_embedding ? 1 : 0, providerId);
-      }
-      if (updates.is_active !== undefined) {
-        getDb().prepare('UPDATE user_api_providers SET is_active = ?, updated_at = datetime(\'now\') WHERE id = ?').run(updates.is_active ? 1 : 0, providerId);
-      }
-
-      const row = getDb()
-        .prepare('SELECT * FROM user_api_providers WHERE id = ?')
-        .get(providerId) as ProviderRow;
-      return rowToResponse(row);
+  fastify.put('/v1/providers/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const parsed = UpdateProviderSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const e = parsed.error.errors[0];
+      throw new InvalidRequestError(e?.message ?? 'Invalid request', e?.path?.join('.'));
     }
-  );
+    const userId = request.user!.id;
+    const providerId = (request.params as { id: string }).id;
+
+    const existing = getDb()
+      .prepare('SELECT * FROM user_api_providers WHERE id = ? AND user_id = ?')
+      .get(providerId, userId) as ProviderRow | undefined;
+    if (!existing) throw new InvalidRequestError('Provider not found');
+
+    const updates = parsed.data;
+    if (updates.display_name !== undefined) {
+      getDb()
+        .prepare("UPDATE user_api_providers SET display_name = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(updates.display_name, providerId);
+    }
+    if (updates.api_url !== undefined) {
+      getDb()
+        .prepare("UPDATE user_api_providers SET api_url = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(updates.api_url, providerId);
+    }
+    if (updates.api_key !== undefined) {
+      getDb()
+        .prepare("UPDATE user_api_providers SET api_key_encrypted = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(obfuscateKey(updates.api_key), providerId);
+    }
+    if (updates.embedding_model !== undefined) {
+      getDb()
+        .prepare("UPDATE user_api_providers SET embedding_model = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(updates.embedding_model, providerId);
+    }
+    if (updates.is_default_embedding !== undefined) {
+      if (updates.is_default_embedding) {
+        getDb().prepare('UPDATE user_api_providers SET is_default_embedding = 0 WHERE user_id = ?').run(userId);
+      }
+      getDb()
+        .prepare("UPDATE user_api_providers SET is_default_embedding = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(updates.is_default_embedding ? 1 : 0, providerId);
+    }
+    if (updates.is_active !== undefined) {
+      getDb()
+        .prepare("UPDATE user_api_providers SET is_active = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(updates.is_active ? 1 : 0, providerId);
+    }
+
+    const row = getDb().prepare('SELECT * FROM user_api_providers WHERE id = ?').get(providerId) as ProviderRow;
+    return rowToResponse(row);
+  });
 
   // ── Delete provider ───────────────────────────────────────────────────
-  fastify.delete(
-    '/v1/providers/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const userId = request.user!.id;
-      const providerId = (request.params as { id: string }).id;
-      const result = getDb()
-        .prepare('DELETE FROM user_api_providers WHERE id = ? AND user_id = ?')
-        .run(providerId, userId);
-      if (result.changes === 0) throw new InvalidRequestError('Provider not found');
-      return { deleted: true };
-    }
-  );
+  fastify.delete('/v1/providers/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const userId = request.user!.id;
+    const providerId = (request.params as { id: string }).id;
+    const result = getDb()
+      .prepare('DELETE FROM user_api_providers WHERE id = ? AND user_id = ?')
+      .run(providerId, userId);
+    if (result.changes === 0) throw new InvalidRequestError('Provider not found');
+    return { deleted: true };
+  });
 }

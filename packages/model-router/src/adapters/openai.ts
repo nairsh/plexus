@@ -32,7 +32,7 @@ export class OpenAIAdapter extends BaseAdapter {
     let toolCallsCost = 0;
 
     // Tool use loop
-    let currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
+    const currentMessages: OpenAI.ChatCompletionMessageParam[] = messages as OpenAI.ChatCompletionMessageParam[];
     let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {

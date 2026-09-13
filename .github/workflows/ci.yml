@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # better-sqlite3 has a linux/x64 prebuild for Node 20, so the native
+      # module needs no toolchain here. Platforms without a prebuild fall back
+      # to node-gyp and need Python 3 plus a C++ compiler.
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run typecheck
+
+      - run: pnpm run format:check
+
+      - run: pnpm test
+
+      # Non-blocking: there is a backlog of pre-existing unused-import errors.
+      # Tracked rather than hidden; remove continue-on-error once it's clear.
+      - run: pnpm run lint:eslint
+        continue-on-error: true

@@ -34,7 +34,13 @@ export function startCreditMeter(): NodeJS.Timeout {
 
     for (const [, session] of sessions) {
       if (session.status === 'terminated') continue;
-      debitCredits(session.userId, 1.0, `Sandbox session ${session.id} (${session.language})`, 'sandbox', session.id).catch((err: unknown) => {
+      debitCredits(
+        session.userId,
+        1.0,
+        `Sandbox session ${session.id} (${session.language})`,
+        'sandbox',
+        session.id
+      ).catch((err: unknown) => {
         logger.warn(
           { sessionId: session.id, error: getErrorMessage(err) },
           'Failed to meter sandbox credits, terminating session'

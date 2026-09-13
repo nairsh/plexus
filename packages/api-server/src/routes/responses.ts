@@ -45,7 +45,12 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
           }
           // Capture usage for billing
           if (chunk.type === 'usage' && chunk.data && typeof chunk.data === 'object') {
-            const u = chunk.data as { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number };
+            const u = chunk.data as {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              input_tokens?: number;
+              output_tokens?: number;
+            };
             streamInputTokens = u.prompt_tokens ?? u.input_tokens ?? streamInputTokens;
             streamOutputTokens = u.completion_tokens ?? u.output_tokens ?? streamOutputTokens;
           }
@@ -61,18 +66,29 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      try { reply.raw.end(); } catch { /* already closed */ }
+      try {
+        reply.raw.end();
+      } catch {
+        /* already closed */
+      }
 
       // Debit credits for streaming usage (non-blocking)
       if (streamInputTokens > 0 || streamOutputTokens > 0) {
         try {
           const costInfo = computeCost(streamedModelId, streamInputTokens, streamOutputTokens);
           if (costInfo.total_cost > 0) {
-            debitCredits(userId, costInfo.total_cost, `Streaming response: ${streamedModelId}`, 'response', crypto.randomUUID(), {
-              model: streamedModelId,
-              input_tokens: streamInputTokens,
-              output_tokens: streamOutputTokens,
-            }).catch((err: unknown) => {
+            debitCredits(
+              userId,
+              costInfo.total_cost,
+              `Streaming response: ${streamedModelId}`,
+              'response',
+              crypto.randomUUID(),
+              {
+                model: streamedModelId,
+                input_tokens: streamInputTokens,
+                output_tokens: streamOutputTokens,
+              }
+            ).catch((err: unknown) => {
               logger.error({ userId, error: getErrorMessage(err) }, 'Failed to debit streaming credits');
             });
           }
@@ -89,19 +105,12 @@ export async function responsesRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Debit credits
     if (response.usage.cost.total_cost > 0) {
-      debitCredits(
-        userId,
-        response.usage.cost.total_cost,
-        `API response: ${response.model}`,
-        'response',
-        response.id,
-        {
-          model: response.model,
-          input_tokens: response.usage.input_tokens,
-          output_tokens: response.usage.output_tokens,
-          total_tokens: response.usage.total_tokens,
-        }
-      ).catch((err: unknown) => {
+      debitCredits(userId, response.usage.cost.total_cost, `API response: ${response.model}`, 'response', response.id, {
+        model: response.model,
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+        total_tokens: response.usage.total_tokens,
+      }).catch((err: unknown) => {
         // Log but don't fail the request if billing fails
         logger.error({ userId, error: getErrorMessage(err) }, 'Failed to debit credits');
       });

@@ -1,4 +1,12 @@
-import { getDb, getErrorMessage, InvalidRequestError, logger, parseRow, parseRowOrNull, TaskRowSchema } from '@orchestrator/shared';
+import {
+  getDb,
+  getErrorMessage,
+  InvalidRequestError,
+  logger,
+  parseRow,
+  parseRowOrNull,
+  TaskRowSchema,
+} from '@orchestrator/shared';
 import type { AgentType, TaskMetadata, TaskRow } from '@orchestrator/shared';
 import { validateWorkItemGraph, formatGraphErrors } from './validateWorkItemGraph.js';
 
@@ -125,10 +133,7 @@ export function createWorkItem(input: {
 
   // Hard invariant: a task must never depend on itself.
   if (dependsOn.includes(id)) {
-    throw new InvalidRequestError(
-      `Task '${input.itemId}' cannot depend on itself`,
-      'depends_on',
-    );
+    throw new InvalidRequestError(`Task '${input.itemId}' cannot depend on itself`, 'depends_on');
   }
 
   const metadata = {
@@ -248,13 +253,10 @@ export function getReadyWorkItems(workItems: WorkItem[]): WorkItem[] {
   const validation = validateWorkItemGraph(workItems);
   if (!validation.valid) {
     const blocking = validation.errors.filter(
-      (e) => e.type === 'dependency_cycle' || e.type === 'self_dependency' || e.type === 'duplicate_id',
+      (e) => e.type === 'dependency_cycle' || e.type === 'self_dependency' || e.type === 'duplicate_id'
     );
     if (blocking.length > 0) {
-      throw new InvalidRequestError(
-        `Invalid work item graph: ${formatGraphErrors(blocking)}`,
-        'depends_on',
-      );
+      throw new InvalidRequestError(`Invalid work item graph: ${formatGraphErrors(blocking)}`, 'depends_on');
     }
     // Dangling deps are non-blocking here — more items may be added later.
   }

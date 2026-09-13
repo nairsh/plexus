@@ -209,24 +209,38 @@ export async function startServer() {
   // Clean up workflows that were executing when the server last shut down / crashed
   try {
     const db = getDb();
-    const stale = db.prepare(`
+    const stale = db
+      .prepare(
+        `
       UPDATE workflows
       SET status = 'failed', error = 'Server restarted while workflow was executing', updated_at = datetime('now')
       WHERE status = 'executing'
-    `).run().changes;
+    `
+      )
+      .run().changes;
     if (stale > 0) {
-      logger.info({ clearedCount: stale }, 'Marked stale executing workflows as failed on startup (use /retry to re-run)');
+      logger.info(
+        { clearedCount: stale },
+        'Marked stale executing workflows as failed on startup (use /retry to re-run)'
+      );
     }
 
     // Clean up expired OAuth states
-    const expiredOAuth = db.prepare(`
+    const expiredOAuth = db
+      .prepare(
+        `
       DELETE FROM connector_oauth_states WHERE expires_at < datetime('now')
-    `).run().changes;
+    `
+      )
+      .run().changes;
     if (expiredOAuth > 0) {
       logger.info({ clearedCount: expiredOAuth }, 'Cleaned up expired OAuth states on startup');
     }
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to clean stale data on startup (non-critical)');
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'Failed to clean stale data on startup (non-critical)'
+    );
   }
 
   // Seed model registry
@@ -243,16 +257,21 @@ export async function startServer() {
   const meterInterval = startCreditMeter();
 
   // Periodic OAuth state cleanup (every 30 minutes)
-  const oauthCleanerInterval = setInterval(() => {
-    try {
-      const cleaned = getDb().prepare(`DELETE FROM connector_oauth_states WHERE expires_at < datetime('now')`).run().changes;
-      if (cleaned > 0) {
-        logger.debug({ clearedCount: cleaned }, 'Cleaned expired OAuth states');
+  const oauthCleanerInterval = setInterval(
+    () => {
+      try {
+        const cleaned = getDb()
+          .prepare(`DELETE FROM connector_oauth_states WHERE expires_at < datetime('now')`)
+          .run().changes;
+        if (cleaned > 0) {
+          logger.debug({ clearedCount: cleaned }, 'Cleaned expired OAuth states');
+        }
+      } catch (err) {
+        logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'OAuth cleanup failed');
       }
-    } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'OAuth cleanup failed');
-    }
-  }, 30 * 60 * 1000);
+    },
+    30 * 60 * 1000
+  );
 
   startScheduler();
   logger.info('Background services started (rate limit cleaner, session reaper, credit meter, workflow scheduler)');

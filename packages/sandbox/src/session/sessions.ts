@@ -1,7 +1,14 @@
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DEFAULT_CREDIT_BALANCE, encryptJson, getDb, getErrorMessage, logger, SandboxError } from '@orchestrator/shared';
+import {
+  DEFAULT_CREDIT_BALANCE,
+  encryptJson,
+  getDb,
+  getErrorMessage,
+  logger,
+  SandboxError,
+} from '@orchestrator/shared';
 import type { SandboxConfig, SandboxSession } from '@orchestrator/shared';
 import { activateWorkspace, deactivateWorkspace, ensureWorkspace, getWorkspacePaths } from '../workspaces.js';
 import { startOpenTerminal, stopOpenTerminal, writeOpenTerminalFile } from '../openTerminal.js';
@@ -13,7 +20,9 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
   const sessionId = crypto.randomUUID();
   const baseDir = join(tmpdir(), `sandbox-${sessionId}`);
   const requestedWorkingDirectory = config.working_directory?.trim();
-  const workspaceDir = requestedWorkingDirectory ? realpathSync(resolve(requestedWorkingDirectory)) : join(baseDir, 'workspace');
+  const workspaceDir = requestedWorkingDirectory
+    ? realpathSync(resolve(requestedWorkingDirectory))
+    : join(baseDir, 'workspace');
   const chatId = config.chat_id ?? null;
   const ephemeral = !requestedWorkingDirectory;
 
@@ -132,7 +141,11 @@ export async function createSession(userId: string, config: SandboxConfig): Prom
       language: config.language,
       chat_id: chatId ?? undefined,
       environment_status: state.environmentStatus,
-      workspace_path: requestedWorkingDirectory ? workspaceDir : chatId ? getWorkspacePaths(userId, chatId).filesPath : workspaceDir,
+      workspace_path: requestedWorkingDirectory
+        ? workspaceDir
+        : chatId
+          ? getWorkspacePaths(userId, chatId).filesPath
+          : workspaceDir,
       working_directory: requestedWorkingDirectory ? workspaceDir : undefined,
       created_at: new Date(state.createdAt).toISOString(),
     };
@@ -157,11 +170,11 @@ export function terminateSession(sessionId: string): void {
     session.runningProcess = null;
   }
 
-    if (session.openTerminal) {
-      deactivateWorkspace(sessionId, session.workingDir, false);
-      stopOpenTerminal(session.openTerminal);
-      session.openTerminal = null;
-    }
+  if (session.openTerminal) {
+    deactivateWorkspace(sessionId, session.workingDir, false);
+    stopOpenTerminal(session.openTerminal);
+    session.openTerminal = null;
+  }
 
   try {
     if (session.chatId && !usedOpenTerminal && session.ephemeral) {

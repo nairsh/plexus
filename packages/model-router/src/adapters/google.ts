@@ -23,7 +23,7 @@ export class GoogleAdapter extends BaseAdapter {
     let toolCallsCost = 0;
 
     const contents = this.buildGoogleContents(request);
-    let currentContents = [...contents];
+    const currentContents = [...contents];
     let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {

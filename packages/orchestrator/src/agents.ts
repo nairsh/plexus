@@ -39,7 +39,8 @@ function recordHealth(agentType: AgentType, model: string, success: boolean, lat
   try {
     const db = getDb();
     if (success && latencyMs !== undefined) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
         VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
         ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -48,9 +49,11 @@ function recordHealth(agentType: AgentType, model: string, success: boolean, lat
           success_count_1h = success_count_1h + 1,
           total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
           updated_at = datetime('now')
-      `).run(crypto.randomUUID(), agentType, model, latencyMs);
+      `
+      ).run(crypto.randomUUID(), agentType, model, latencyMs);
     } else if (!success) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
         VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
         ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -62,7 +65,8 @@ function recordHealth(agentType: AgentType, model: string, success: boolean, lat
             ELSE 'healthy'
           END,
           updated_at = datetime('now')
-      `).run(crypto.randomUUID(), agentType, model);
+      `
+      ).run(crypto.randomUUID(), agentType, model);
     }
   } catch {
     // Health recording is non-critical; never let it break agent dispatch
@@ -235,7 +239,13 @@ export async function dispatchToAgent(
   }
 
   logger.info(
-    { workflowId: ctx.workflowId, taskId: task.task_id, agentType: task.agent_type, model, promptLength: prompt.length },
+    {
+      workflowId: ctx.workflowId,
+      taskId: task.task_id,
+      agentType: task.agent_type,
+      model,
+      promptLength: prompt.length,
+    },
     'Dispatching to sub-agent'
   );
 
@@ -276,7 +286,15 @@ export async function dispatchToAgent(
       'workflow',
       ctx.workflowId
     ).catch((err: unknown) => {
-      logger.error({ workflowId: ctx.workflowId, taskId: task.task_id, cost: response.usage.cost.total_cost, error: getErrorMessage(err) }, 'Failed to debit credits for agent task — balance may be inaccurate');
+      logger.error(
+        {
+          workflowId: ctx.workflowId,
+          taskId: task.task_id,
+          cost: response.usage.cost.total_cost,
+          error: getErrorMessage(err),
+        },
+        'Failed to debit credits for agent task — balance may be inaccurate'
+      );
     });
   }
 
@@ -289,11 +307,7 @@ export async function dispatchToAgent(
 
 // ── Workspace session helper ──
 
-async function ensureWorkspaceSession(
-  ctx: AgentExecutionContext,
-  chatId: string,
-  taskId?: string
-): Promise<void> {
+async function ensureWorkspaceSession(ctx: AgentExecutionContext, chatId: string, taskId?: string): Promise<void> {
   const workingDirectory = normalizeWorkingDirectory(ctx.config.working_directory);
   const hasReusableWorkflowSession = (): boolean =>
     ctx.sandboxSessionIds.some((sessionId) => {
@@ -349,10 +363,7 @@ async function ensureWorkspaceSession(
   }
 }
 
-export async function ensureEnvironmentSession(
-  ctx: AgentExecutionContext,
-  taskId?: string
-): Promise<void> {
+export async function ensureEnvironmentSession(ctx: AgentExecutionContext, taskId?: string): Promise<void> {
   const chatId = ctx.config.chat_id ?? ctx.workflowId;
   await ensureWorkspaceSession(ctx, chatId, taskId);
 }

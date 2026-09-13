@@ -26,10 +26,7 @@ const forceRemoveContainer = (containerName: string): void => {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {
-    logger.warn(
-      { containerName, error: (error as Error).message },
-      'Failed to force-remove orphaned container'
-    );
+    logger.warn({ containerName, error: (error as Error).message }, 'Failed to force-remove orphaned container');
   }
 };
 

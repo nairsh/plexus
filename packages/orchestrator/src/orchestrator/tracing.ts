@@ -96,9 +96,10 @@ export const buildToolTraceHooks = (state: WorkflowState, subagentId: string, mo
       state.approvalState.pending.set(approvalId, {
         resolve,
         commandKey: event.command_key,
-        command: typeof (event.input as { command?: unknown } | undefined)?.command === 'string'
-          ? (event.input as { command: string }).command
-          : undefined,
+        command:
+          typeof (event.input as { command?: unknown } | undefined)?.command === 'string'
+            ? (event.input as { command: string }).command
+            : undefined,
         toolName: event.name,
         subagentId: event.subagent_id ?? subagentId,
         requestedAt: new Date().toISOString(),

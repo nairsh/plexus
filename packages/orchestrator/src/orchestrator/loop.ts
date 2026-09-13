@@ -33,7 +33,13 @@ import {
   type WorkflowStatus,
   workflows,
 } from '../workflow/state.js';
-import { hydrateWorkflowState, incrementWorkflowCredits, insertWorkflow, persistWorkflowSnapshot, persistWorkflowStatus } from '../workflow/persistence.js';
+import {
+  hydrateWorkflowState,
+  incrementWorkflowCredits,
+  insertWorkflow,
+  persistWorkflowSnapshot,
+  persistWorkflowStatus,
+} from '../workflow/persistence.js';
 import { ensureEnvironmentSession } from '../agents.js';
 
 const ensureWorkflowEnvironmentReady = async (state: WorkflowState): Promise<void> => {
@@ -238,7 +244,8 @@ function truncateToolResult(result: Record<string, unknown>): Record<string, unk
         if (typeof r['output'] === 'string' && r['output'].length > MAX_SUBAGENT_OUTPUT_SNIPPET) {
           return {
             ...r,
-            output: r['output'].slice(0, MAX_SUBAGENT_OUTPUT_SNIPPET) + `…[truncated, ${r['output'].length} chars total]`,
+            output:
+              r['output'].slice(0, MAX_SUBAGENT_OUTPUT_SNIPPET) + `…[truncated, ${r['output'].length} chars total]`,
           };
         }
       }
@@ -300,9 +307,9 @@ export const callOrchestrator = async (
           "SELECT content FROM team_shared_contexts WHERE team_id = ? AND content_type IN ('instructions', 'knowledge') ORDER BY created_at"
         )
         .all(state.config.team_id) as Array<{ content: string }>;
-      const teamRow = db
-        .prepare('SELECT settings FROM teams WHERE id = ?')
-        .get(state.config.team_id) as { settings: string } | undefined;
+      const teamRow = db.prepare('SELECT settings FROM teams WHERE id = ?').get(state.config.team_id) as
+        | { settings: string }
+        | undefined;
 
       const teamInstructions: string[] = [];
       if (teamRow) {
@@ -317,7 +324,10 @@ export const callOrchestrator = async (
         finalInstructions = `${instructions}\n\n## Team Context\n\n${teamInstructions.join('\n\n---\n\n')}`;
       }
     } catch (err) {
-      logger.warn({ workflowId: state.id, teamId: state.config.team_id, error: getErrorMessage(err) }, 'Failed to load team instructions');
+      logger.warn(
+        { workflowId: state.id, teamId: state.config.team_id, error: getErrorMessage(err) },
+        'Failed to load team instructions'
+      );
     }
   }
 
@@ -422,7 +432,7 @@ export const callOrchestrator = async (
 
   if (reasoningText) {
     rawOutput.push({ type: 'reasoning', content: reasoningText });
-    
+
     // Record streaming reasoning to database for persistence
     recordStep(state, {
       step_type: 'orchestrator_thinking',
@@ -446,7 +456,7 @@ export const callOrchestrator = async (
         mode: 'response',
       },
     });
-    
+
     // Record thinking to database for persistence
     recordStep(state, {
       step_type: 'orchestrator_thinking',
@@ -505,7 +515,9 @@ export const runWorkflow = async (
   if (config.team_id && !isContinuing) {
     try {
       const db = getDb();
-      const teamRow = db.prepare('SELECT settings FROM teams WHERE id = ?').get(config.team_id) as { settings: string } | undefined;
+      const teamRow = db.prepare('SELECT settings FROM teams WHERE id = ?').get(config.team_id) as
+        | { settings: string }
+        | undefined;
       if (teamRow) {
         const teamSettings = JSON.parse(teamRow.settings) as Record<string, unknown>;
         const teamModelOverrides = (teamSettings.shared_model_overrides ?? {}) as Record<string, string>;
@@ -516,17 +528,24 @@ export const runWorkflow = async (
             ...(config.model_overrides ?? {}), // workflow config takes precedence
           },
           human_approval: teamSettings.require_approval_for_bash === true ? true : config.human_approval,
-          max_credits: teamSettings.max_credits_per_workflow != null
-            ? Math.min(teamSettings.max_credits_per_workflow as number, config.max_credits ?? Infinity)
-            : config.max_credits,
+          max_credits:
+            teamSettings.max_credits_per_workflow != null
+              ? Math.min(teamSettings.max_credits_per_workflow as number, config.max_credits ?? Infinity)
+              : config.max_credits,
         };
       }
     } catch (err) {
-      logger.warn({ workflowId: id, teamId: config.team_id, error: getErrorMessage(err) }, 'Failed to apply team settings');
+      logger.warn(
+        { workflowId: id, teamId: config.team_id, error: getErrorMessage(err) },
+        'Failed to apply team settings'
+      );
     }
   }
 
-  const orchestratorModel = resolveOrchestratorModel(effectiveConfig.orchestrator_model ?? effectiveConfig.model_overrides?.orchestrator, userId);
+  const orchestratorModel = resolveOrchestratorModel(
+    effectiveConfig.orchestrator_model ?? effectiveConfig.model_overrides?.orchestrator,
+    userId
+  );
 
   let state: WorkflowState;
 
@@ -583,7 +602,10 @@ export const runWorkflow = async (
           const truncated = content.length > 8000 ? content.substring(0, 8000) + '\n...[truncated]' : content;
           return [`\n### File: ${f.filename}\n\`\`\`\n${truncated}\n\`\`\``];
         } catch (err) {
-          logger.debug({ filename: f.filename, error: getErrorMessage(err as Error) }, 'Skipping undecodable context file');
+          logger.debug(
+            { filename: f.filename, error: getErrorMessage(err as Error) },
+            'Skipping undecodable context file'
+          );
           return [];
         }
       });
@@ -626,7 +648,10 @@ export const runWorkflow = async (
 
       // Enforce max_credits budget if specified
       if (state.config.max_credits && state.creditsConsumed >= state.config.max_credits) {
-        await failWorkflow(state, `Workflow budget exceeded: consumed $${state.creditsConsumed.toFixed(4)} of $${state.config.max_credits.toFixed(4)} limit`);
+        await failWorkflow(
+          state,
+          `Workflow budget exceeded: consumed $${state.creditsConsumed.toFixed(4)} of $${state.config.max_credits.toFixed(4)} limit`
+        );
         return { workflowId: id, output: 'Workflow stopped: credit budget exceeded', status: 'failed' };
       }
 
@@ -652,7 +677,10 @@ export const runWorkflow = async (
       // Detect empty responses that make no progress
       if (!responseText.trim() && toolCalls.length === 0) {
         consecutiveEmptyResponses++;
-        logger.warn({ workflowId: id, iteration, consecutive: consecutiveEmptyResponses }, 'Empty response from orchestrator model');
+        logger.warn(
+          { workflowId: id, iteration, consecutive: consecutiveEmptyResponses },
+          'Empty response from orchestrator model'
+        );
         if (consecutiveEmptyResponses >= MAX_EMPTY_RESPONSES) {
           await failWorkflow(state, `Model returned ${MAX_EMPTY_RESPONSES} consecutive empty responses`);
           return { workflowId: id, output: 'Workflow failed: model not generating responses', status: 'failed' };
@@ -677,12 +705,22 @@ export const runWorkflow = async (
           // Only trigger for short responses that look like questions (not long outputs containing a question)
           const isShortEnough = wordCount < 200;
           const hasClarificationSignal =
-            isShortEnough && questionCount > 0 &&
-            (lower.includes('clarif') || lower.includes('please specify') || lower.includes('could you') ||
-             lower.includes('what would you') || lower.includes('what type') || lower.includes('which file') ||
-             lower.includes('more context') || lower.includes('more information') || lower.includes('unclear') ||
-             lower.includes('can you provide') || lower.includes('do you want') || lower.includes('would you like') ||
-             lower.includes('before i proceed') || lower.includes('before i begin'));
+            isShortEnough &&
+            questionCount > 0 &&
+            (lower.includes('clarif') ||
+              lower.includes('please specify') ||
+              lower.includes('could you') ||
+              lower.includes('what would you') ||
+              lower.includes('what type') ||
+              lower.includes('which file') ||
+              lower.includes('more context') ||
+              lower.includes('more information') ||
+              lower.includes('unclear') ||
+              lower.includes('can you provide') ||
+              lower.includes('do you want') ||
+              lower.includes('would you like') ||
+              lower.includes('before i proceed') ||
+              lower.includes('before i begin'));
           if (hasClarificationSignal) {
             emitWorkflowEvent(state, {
               type: 'clarification_requested',
@@ -745,7 +783,7 @@ export const runWorkflow = async (
           // Log for observability but do not fail the workflow.
           logger.warn(
             { workflowId: state.id, errorCount: graphResult.errors.length },
-            'Plan graph has structural warnings',
+            'Plan graph has structural warnings'
           );
         }
       }
@@ -761,10 +799,10 @@ export const runWorkflow = async (
         emitWorkflowEvent(state, {
           type: 'clarification_requested',
           workflow_id: state.id,
-          data: { 
-            question: clarificationQuestion, 
-            options: clarificationOptions, 
-            allow_custom: clarificationAllowCustom 
+          data: {
+            question: clarificationQuestion,
+            options: clarificationOptions,
+            allow_custom: clarificationAllowCustom,
           },
         });
         return { workflowId: id, output: clarificationQuestion, status: 'paused' };

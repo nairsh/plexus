@@ -36,16 +36,23 @@ import { listWorkItems } from './workItems.js';
 const startWorkflowExecution = (state: WorkflowState): void => {
   if (state.executionPromise) return;
   state.executionPromise = runWorkflow(state.userId, state.config, state.id)
-    .then((r) => { state.lastOutput = r.output; })
-    .finally(() => { state.executionPromise = undefined; });
+    .then((r) => {
+      state.lastOutput = r.output;
+    })
+    .finally(() => {
+      state.executionPromise = undefined;
+    });
 };
 
 export async function planWorkflow(
   userId: string,
-  config: WorkflowConfig,
+  config: WorkflowConfig
 ): Promise<{ workflowId: string; tasks: OrchestratorTask[] }> {
   const workflowId = crypto.randomUUID();
-  const orchestratorModel = resolveOrchestratorModel(config.orchestrator_model ?? config.model_overrides?.orchestrator, userId);
+  const orchestratorModel = resolveOrchestratorModel(
+    config.orchestrator_model ?? config.model_overrides?.orchestrator,
+    userId
+  );
 
   insertWorkflow(workflowId, userId, config, orchestratorModel);
 
@@ -247,10 +254,9 @@ export function deleteWorkflow(workflowId: string): void {
        )`
     ).run(workflowId, chatId);
 
-    db.prepare('DELETE FROM sandbox_sessions WHERE task_id IN (SELECT id FROM tasks WHERE workflow_id = ?) OR chat_id = ?').run(
-      workflowId,
-      chatId
-    );
+    db.prepare(
+      'DELETE FROM sandbox_sessions WHERE task_id IN (SELECT id FROM tasks WHERE workflow_id = ?) OR chat_id = ?'
+    ).run(workflowId, chatId);
 
     db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
   })();
@@ -259,7 +265,7 @@ export function deleteWorkflow(workflowId: string): void {
 export function resolveWorkflowApproval(
   workflowId: string,
   approvalId: string,
-  decision: import('@orchestrator/shared').ToolApprovalDecision,
+  decision: import('@orchestrator/shared').ToolApprovalDecision
 ): void {
   const state = hydrateWorkflowState(workflowId);
   if (!state) {
@@ -294,7 +300,14 @@ export function abortAllWorkflows(): number {
   return aborted;
 }
 
-export { getWorkflowEmitter, getWorkflowDetails, listWorkflows, countWorkflows, getWorkflowTrace, getWorkflowSummaryById };
+export {
+  getWorkflowEmitter,
+  getWorkflowDetails,
+  listWorkflows,
+  countWorkflows,
+  getWorkflowTrace,
+  getWorkflowSummaryById,
+};
 export type { WorkflowSummary, TaskSummary };
 
 export function getWorkflowProgress(workflowId: string): {
@@ -317,9 +330,12 @@ export function getWorkflowProgress(workflowId: string): {
   const pending = tasks.filter((t) => t.status === 'pending' || t.status === 'blocked').length;
   const total = tasks.length;
 
-  const estimatedPct = total > 0
-    ? Math.round(((completed + running * 0.5) / total) * 100)
-    : details.workflow.status === 'completed' ? 100 : 0;
+  const estimatedPct =
+    total > 0
+      ? Math.round(((completed + running * 0.5) / total) * 100)
+      : details.workflow.status === 'completed'
+        ? 100
+        : 0;
 
   return {
     workflow_id: workflowId,
@@ -352,7 +368,7 @@ export function getPendingApprovals(workflowId: string): Array<{
 
 export function continueWorkflow(
   workflowId: string,
-  followUpQuery: string,
+  followUpQuery: string
 ): { workflowId: string; status: WorkflowStatus } {
   const state = hydrateWorkflowState(workflowId);
   if (!state) {
@@ -420,11 +436,15 @@ export function retryWorkflow(workflowId: string): { workflowId: string; resetTa
   // cascade to tasks — a task can legitimately be 'running' when a
   // workflow enters 'failed' state.
   const db = getDb();
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     UPDATE tasks
     SET status = 'pending', output = NULL, completed_at = NULL, updated_at = datetime('now')
     WHERE workflow_id = ? AND status IN ('failed', 'cancelled', 'running')
-  `).run(workflowId);
+  `
+    )
+    .run(workflowId);
 
   const resetTasks = result.changes;
 
@@ -439,7 +459,7 @@ export function retryWorkflow(workflowId: string): { workflowId: string; resetTa
 
 export function resumeWorkflow(
   workflowId: string,
-  _approvals?: Array<{ task_id: string; approved: boolean; feedback?: string }>,
+  _approvals?: Array<{ task_id: string; approved: boolean; feedback?: string }>
 ): void {
   const state = hydrateWorkflowState(workflowId);
   if (!state) {

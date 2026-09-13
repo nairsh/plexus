@@ -62,13 +62,11 @@ interface OAuthProviderConfig {
     scopes: string[];
     codeChallenge?: string;
   }) => URLSearchParams;
-  exchangeCode: (args: {
-    code: string;
-    redirectUri: string;
-    codeVerifier?: string;
-  }) => Promise<ConnectorCredentials>;
+  exchangeCode: (args: { code: string; redirectUri: string; codeVerifier?: string }) => Promise<ConnectorCredentials>;
   refreshToken: (args: { refreshToken: string }) => Promise<ConnectorCredentials>;
-  fetchAccount: (accessToken: string) => Promise<{ displayName: string; externalId: string | null; metadata: Record<string, unknown> }>;
+  fetchAccount: (
+    accessToken: string
+  ) => Promise<{ displayName: string; externalId: string | null; metadata: Record<string, unknown> }>;
 }
 
 const jsonHeaders = {
@@ -170,7 +168,9 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
       });
       const body = (await response.json()) as Record<string, unknown>;
       if (!response.ok || typeof body['access_token'] !== 'string') {
-        throw new InvalidRequestError(String(body['error_description'] ?? body['error'] ?? 'GitHub token exchange failed'));
+        throw new InvalidRequestError(
+          String(body['error_description'] ?? body['error'] ?? 'GitHub token exchange failed')
+        );
       }
       const expiresIn = typeof body['expires_in'] === 'number' ? body['expires_in'] : undefined;
       return {
@@ -287,7 +287,9 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
       });
       const json = (await response.json()) as Record<string, unknown>;
       if (!response.ok || typeof json['access_token'] !== 'string') {
-        throw new InvalidRequestError(String(json['error_description'] ?? json['error'] ?? 'Linear token exchange failed'));
+        throw new InvalidRequestError(
+          String(json['error_description'] ?? json['error'] ?? 'Linear token exchange failed')
+        );
       }
       return {
         access_token: json['access_token'],
@@ -295,7 +297,9 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
         token_type: typeof json['token_type'] === 'string' ? json['token_type'] : 'Bearer',
         scope: typeof json['scope'] === 'string' ? json['scope'] : undefined,
         expires_at:
-          typeof json['expires_in'] === 'number' ? new Date(Date.now() + json['expires_in'] * 1000).toISOString() : undefined,
+          typeof json['expires_in'] === 'number'
+            ? new Date(Date.now() + json['expires_in'] * 1000).toISOString()
+            : undefined,
       };
     },
     refreshToken: async ({ refreshToken }) => {
@@ -318,7 +322,9 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
         token_type: typeof json['token_type'] === 'string' ? json['token_type'] : 'Bearer',
         scope: typeof json['scope'] === 'string' ? json['scope'] : undefined,
         expires_at:
-          typeof json['expires_in'] === 'number' ? new Date(Date.now() + json['expires_in'] * 1000).toISOString() : undefined,
+          typeof json['expires_in'] === 'number'
+            ? new Date(Date.now() + json['expires_in'] * 1000).toISOString()
+            : undefined,
       };
     },
     fetchAccount: async (accessToken) => {
@@ -384,7 +390,9 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
       });
       const json = (await response.json()) as Record<string, unknown>;
       if (!response.ok || typeof json['access_token'] !== 'string') {
-        throw new InvalidRequestError(String(json['error_description'] ?? json['error'] ?? 'Notion token exchange failed'));
+        throw new InvalidRequestError(
+          String(json['error_description'] ?? json['error'] ?? 'Notion token exchange failed')
+        );
       }
       return {
         access_token: json['access_token'],
@@ -442,7 +450,11 @@ const PROVIDERS: Record<ConnectorProvider, OAuthProviderConfig> = {
   },
 };
 
-export const listConnectorProviders = (): Array<{ provider: ConnectorProvider; scopes: string[]; configured: boolean }> => {
+export const listConnectorProviders = (): Array<{
+  provider: ConnectorProvider;
+  scopes: string[];
+  configured: boolean;
+}> => {
   return (Object.keys(PROVIDERS) as ConnectorProvider[]).map((provider) => {
     const config = PROVIDERS[provider];
     return {
@@ -461,9 +473,9 @@ export const listConnectorsForUser = (userId: string): ConnectorRecord[] => {
 };
 
 export const getConnectorForUser = (userId: string, connectorId: string): ConnectorRecord | null => {
-  const row = getDb()
-    .prepare('SELECT * FROM connectors WHERE user_id = ? AND id = ?')
-    .get(userId, connectorId) as StoredConnectorRow | undefined;
+  const row = getDb().prepare('SELECT * FROM connectors WHERE user_id = ? AND id = ?').get(userId, connectorId) as
+    | StoredConnectorRow
+    | undefined;
   return row ? toConnectorRecord(row) : null;
 };
 
@@ -531,7 +543,9 @@ export const beginConnectorOAuth = (args: {
 }): { state: string; authorize_url: string; expires_at: string; redirect_uri: string } => {
   const config = PROVIDERS[args.provider];
   const { clientId } = requireOAuthClient(args.provider);
-  const redirectUri = args.redirectUri?.trim() || `${getEnv().PUBLIC_BASE_URL.replace(/\/$/, '')}/v1/connectors/${args.provider}/callback`;
+  const redirectUri =
+    args.redirectUri?.trim() ||
+    `${getEnv().PUBLIC_BASE_URL.replace(/\/$/, '')}/v1/connectors/${args.provider}/callback`;
   const state = generateStateToken();
   const codeVerifier = config.supportsPkce ? generateCodeVerifier() : null;
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
@@ -625,7 +639,11 @@ export const validateConnectorForUser = async (userId: string, connectorId: stri
   }
 
   const provider = PROVIDERS[connector.provider];
-  if (credentials.expires_at && new Date(credentials.expires_at).getTime() < Date.now() + 60_000 && credentials.refresh_token) {
+  if (
+    credentials.expires_at &&
+    new Date(credentials.expires_at).getTime() < Date.now() + 60_000 &&
+    credentials.refresh_token
+  ) {
     credentials = await provider.refreshToken({ refreshToken: credentials.refresh_token });
   }
 

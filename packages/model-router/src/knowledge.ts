@@ -83,7 +83,11 @@ export const inferKnowledgeExtractionMode = (
 };
 
 const sanitizeExtractedText = (value: string): string =>
-  value.replace(/\u0000/g, '').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  value
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
 export const chunkKnowledgeText = (text: string): string[] => {
   const cleaned = sanitizeExtractedText(text);
@@ -147,8 +151,7 @@ const extractWithGemini = async (mediaType: string, contentBase64: string): Prom
   const model = client.getGenerativeModel({ model: getEnv().GOOGLE_OCR_MODEL });
   const result = await model.generateContent([
     {
-      text:
-        'Extract all readable text from this file. Preserve section breaks, bullet lists, and table-like structure with plain text only. Return only the extracted text.',
+      text: 'Extract all readable text from this file. Preserve section breaks, bullet lists, and table-like structure with plain text only. Return only the extracted text.',
     },
     {
       inlineData: {
@@ -180,9 +183,7 @@ const getUserEmbeddingConfig = (userId: string): UserEmbeddingConfig | null => {
 
   if (!row || !row.embedding_model) return null;
 
-  const apiKey = row.api_key_encrypted
-    ? Buffer.from(row.api_key_encrypted, 'base64').toString('utf-8')
-    : '';
+  const apiKey = row.api_key_encrypted ? Buffer.from(row.api_key_encrypted, 'base64').toString('utf-8') : '';
 
   return {
     api_url: row.api_url,
@@ -198,7 +199,7 @@ const embedChunkOpenAI = async (text: string, config: UserEmbeddingConfig): Prom
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.api_key}`,
+      Authorization: `Bearer ${config.api_key}`,
     },
     body: JSON.stringify({
       model: config.model,
@@ -338,7 +339,10 @@ export const ingestKnowledgeDocument = async (
     } else {
       // Graceful fallback for images without OCR: index by filename and metadata
       // so the document is at least searchable by name.
-      logger.info({ documentId, filename, mediaType }, 'No OCR provider available; indexing image by filename/metadata only');
+      logger.info(
+        { documentId, filename, mediaType },
+        'No OCR provider available; indexing image by filename/metadata only'
+      );
       extractedText = `Image file: ${filename}\nType: ${mediaType}\nSize: ${buffer.byteLength} bytes\n(Text content not available — set GOOGLE_AI_API_KEY for OCR)`;
     }
 
@@ -429,15 +433,13 @@ export const getKnowledgeDocumentForUser = (
 };
 
 export const deleteKnowledgeDocumentForUser = (userId: string, documentId: string): boolean => {
-  const result = getDb().prepare('DELETE FROM knowledge_documents WHERE id = ? AND user_id = ?').run(documentId, userId);
+  const result = getDb()
+    .prepare('DELETE FROM knowledge_documents WHERE id = ? AND user_id = ?')
+    .run(documentId, userId);
   return result.changes > 0;
 };
 
-const keywordSearchKnowledge = (
-  userId: string,
-  query: string,
-  limit: number
-): KnowledgeSearchMatch[] => {
+const keywordSearchKnowledge = (userId: string, query: string, limit: number): KnowledgeSearchMatch[] => {
   const words = query
     .toLowerCase()
     .split(/\s+/)

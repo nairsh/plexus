@@ -19,11 +19,7 @@ export interface GraphNode {
   readonly dependsOn: readonly string[];
 }
 
-export type GraphErrorType =
-  | 'duplicate_id'
-  | 'self_dependency'
-  | 'dangling_dependency'
-  | 'dependency_cycle';
+export type GraphErrorType = 'duplicate_id' | 'self_dependency' | 'dangling_dependency' | 'dependency_cycle';
 
 export interface GraphValidationError {
   readonly type: GraphErrorType;
@@ -53,9 +49,7 @@ export interface GraphValidationResult {
  *
  * Cycle detection uses Kahn's algorithm (BFS topological sort) — O(V + E).
  */
-export function validateWorkItemGraph(
-  nodes: readonly GraphNode[],
-): GraphValidationResult {
+export function validateWorkItemGraph(nodes: readonly GraphNode[]): GraphValidationResult {
   const errors: GraphValidationError[] = [];
 
   if (nodes.length === 0) {
@@ -148,9 +142,7 @@ export function validateWorkItemGraph(
     }
 
     if (processed < nodes.length) {
-      const cycleNodeIds = [...inDegree.entries()]
-        .filter(([, degree]) => degree > 0)
-        .map(([id]) => id);
+      const cycleNodeIds = [...inDegree.entries()].filter(([, degree]) => degree > 0).map(([id]) => id);
 
       errors.push({
         type: 'dependency_cycle',
@@ -171,9 +163,7 @@ export function validateWorkItemGraph(
  * Format validation errors into a single human-readable message.
  * Suitable for error constructors and log entries.
  */
-export function formatGraphErrors(
-  errors: readonly GraphValidationError[],
-): string {
+export function formatGraphErrors(errors: readonly GraphValidationError[]): string {
   if (errors.length === 0) return '';
   if (errors.length === 1) return errors[0].message;
   return errors.map((e, i) => `${i + 1}. ${e.message}`).join('; ');

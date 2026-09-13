@@ -103,8 +103,12 @@ export const executeToolCall = async (
       await traceToolCall(request, name, input);
       const results = await searchWeb(String(args['query'] ?? ''), {
         searchDepth: args['search_depth'] === 'advanced' ? 'advanced' : 'basic',
-        includeDomains: Array.isArray(args['include_domains']) ? args['include_domains'].filter((s): s is string => typeof s === 'string') : undefined,
-        excludeDomains: Array.isArray(args['exclude_domains']) ? args['exclude_domains'].filter((s): s is string => typeof s === 'string') : undefined,
+        includeDomains: Array.isArray(args['include_domains'])
+          ? args['include_domains'].filter((s): s is string => typeof s === 'string')
+          : undefined,
+        excludeDomains: Array.isArray(args['exclude_domains'])
+          ? args['exclude_domains'].filter((s): s is string => typeof s === 'string')
+          : undefined,
         daysRecency: typeof args['days_recency'] === 'number' ? args['days_recency'] : undefined,
         language: typeof args['language'] === 'string' ? args['language'] : undefined,
         contentBudget: typeof args['content_budget'] === 'number' ? args['content_budget'] : undefined,
@@ -205,16 +209,19 @@ export const executeToolCall = async (
           await traceToolResult(request, name, { filePath: args['filePath'] }, denied);
           return { output: JSON.stringify(denied), cost: 0 };
         }
-        const result = await executeWriteFile(
-          session,
-          String(args['filePath'] ?? ''),
-          String(args['content'] ?? '')
-        );
+        const result = await executeWriteFile(session, String(args['filePath'] ?? ''), String(args['content'] ?? ''));
         // Register in file index for day-grouped Files page
         if (request.user_id && request.trace?.workflow_id) {
           try {
-            registerFileInIndex(request.user_id, request.trace.workflow_id, String(args['filePath'] ?? ''), result.bytes_written);
-          } catch { /* non-critical */ }
+            registerFileInIndex(
+              request.user_id,
+              request.trace.workflow_id,
+              String(args['filePath'] ?? ''),
+              result.bytes_written
+            );
+          } catch {
+            /* non-critical */
+          }
         }
         outputBlocks.push({ type: 'file_write_result', result });
         await traceToolResult(request, name, { filePath: args['filePath'] }, result);
@@ -324,7 +331,10 @@ export const executeToolCall = async (
           embeddingModel = getEmbeddingModelId(userId);
         }
       } catch (err) {
-        logger.debug({ userId, error: getErrorMessage(err) }, 'Embedding generation failed for remember; saving without embedding');
+        logger.debug(
+          { userId, error: getErrorMessage(err) },
+          'Embedding generation failed for remember; saving without embedding'
+        );
       }
       const memory = saveMemory(userId, {
         key: String(args['key'] ?? ''),
@@ -346,9 +356,17 @@ export const executeToolCall = async (
           queryEmbedding = await embedChunk(query, userId);
         }
       } catch (err) {
-        logger.debug({ userId, error: getErrorMessage(err) }, 'Embedding generation failed for recall; falling back to keyword search');
+        logger.debug(
+          { userId, error: getErrorMessage(err) },
+          'Embedding generation failed for recall; falling back to keyword search'
+        );
       }
-      const memories = recallMemory(userId, query, typeof args['limit'] === 'number' ? args['limit'] : 5, queryEmbedding);
+      const memories = recallMemory(
+        userId,
+        query,
+        typeof args['limit'] === 'number' ? args['limit'] : 5,
+        queryEmbedding
+      );
       return { output: JSON.stringify({ memories }), cost: 0 };
     }
 

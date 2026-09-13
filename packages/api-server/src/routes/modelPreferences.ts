@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { InvalidRequestError } from '@orchestrator/shared';
-import { clearUserRuntimeModelConfig, getRuntimeModelConfig, saveUserRuntimeModelConfig } from '@orchestrator/model-router';
+import {
+  clearUserRuntimeModelConfig,
+  getRuntimeModelConfig,
+  saveUserRuntimeModelConfig,
+} from '@orchestrator/model-router';
 
 const ModelPreferencesSchema = z.object({
   default_orchestrator_model: z.string().trim().min(1).optional(),

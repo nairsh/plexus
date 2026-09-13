@@ -30,17 +30,16 @@ export interface StorageAdapter {
   getBalance(userId: string): Promise<number>;
   getTransactions(userId: string, limit: number, offset: number): Promise<CreditTransactionRow[]>;
   getCurrentPeriodUsage(userId: string, fromIso: string): Promise<{ credits_used: number; request_count: number }>;
-  getUsageSummary(input: {
-    userId: string;
-    startDate: string;
-    endDate: string;
-  }): Promise<{
+  getUsageSummary(input: { userId: string; startDate: string; endDate: string }): Promise<{
     total_cost: number;
     total_requests: number;
     by_reference_type: Array<{ reference_type: string | null; count: number; cost: number }>;
     by_model: Array<{ model: string; requests: number; cost: number; tokens: number }>;
   }>;
-  getSessionForChat(userId: string, chatId: string): Promise<{
+  getSessionForChat(
+    userId: string,
+    chatId: string
+  ): Promise<{
     id: string;
     open_terminal_url: string | null;
     open_terminal_api_key: string | null;
@@ -49,8 +48,20 @@ export interface StorageAdapter {
     environment_status: string;
     workspace_path: string | null;
   } | null>;
-  saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>>;
-  recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>>;
+  saveMemory(input: {
+    userId: string;
+    category: string;
+    key: string;
+    content: string;
+    embedding?: number[];
+    embeddingModel?: string;
+  }): Promise<Record<string, unknown>>;
+  recallMemory(input: {
+    userId: string;
+    words: string[];
+    limit: number;
+    queryEmbedding?: number[];
+  }): Promise<Array<Record<string, unknown>>>;
   bumpMemoryAccess(ids: string[]): Promise<void>;
   deleteMemory(userId: string, id: string): Promise<boolean>;
   listMemories(userId: string, category?: string): Promise<Array<Record<string, unknown>>>;
@@ -72,9 +83,9 @@ class SqliteStorageAdapter implements StorageAdapter {
   }): Promise<number> {
     const db = getDb();
     return db.transaction(() => {
-      const user = db
-        .prepare('SELECT credits_balance FROM users WHERE id = ?')
-        .get(input.userId) as { credits_balance: number } | undefined;
+      const user = db.prepare('SELECT credits_balance FROM users WHERE id = ?').get(input.userId) as
+        | { credits_balance: number }
+        | undefined;
 
       if (!user) {
         throw new Error('user_not_found');
@@ -104,9 +115,9 @@ class SqliteStorageAdapter implements StorageAdapter {
   }
 
   async getBalance(userId: string): Promise<number> {
-    const row = getDb()
-      .prepare('SELECT credits_balance FROM users WHERE id = ?')
-      .get(userId) as { credits_balance: number } | undefined;
+    const row = getDb().prepare('SELECT credits_balance FROM users WHERE id = ?').get(userId) as
+      | { credits_balance: number }
+      | undefined;
     return row?.credits_balance ?? 0;
   }
 
@@ -116,7 +127,10 @@ class SqliteStorageAdapter implements StorageAdapter {
       .all(userId, limit, offset) as CreditTransactionRow[];
   }
 
-  async getCurrentPeriodUsage(userId: string, fromIso: string): Promise<{ credits_used: number; request_count: number }> {
+  async getCurrentPeriodUsage(
+    userId: string,
+    fromIso: string
+  ): Promise<{ credits_used: number; request_count: number }> {
     return getDb()
       .prepare(
         `SELECT
@@ -128,11 +142,7 @@ class SqliteStorageAdapter implements StorageAdapter {
       .get(userId, fromIso) as { credits_used: number; request_count: number };
   }
 
-  async getUsageSummary(input: {
-    userId: string;
-    startDate: string;
-    endDate: string;
-  }): Promise<{
+  async getUsageSummary(input: { userId: string; startDate: string; endDate: string }): Promise<{
     total_cost: number;
     total_requests: number;
     by_reference_type: Array<{ reference_type: string | null; count: number; cost: number }>;
@@ -156,7 +166,11 @@ class SqliteStorageAdapter implements StorageAdapter {
         WHERE user_id = ? AND amount < 0 AND created_at >= ? AND created_at <= ?
         GROUP BY reference_type`
       )
-      .all(input.userId, input.startDate, input.endDate) as Array<{ reference_type: string | null; count: number; cost: number }>;
+      .all(input.userId, input.startDate, input.endDate) as Array<{
+      reference_type: string | null;
+      count: number;
+      cost: number;
+    }>;
 
     const byModel = db
       .prepare(
@@ -171,7 +185,12 @@ class SqliteStorageAdapter implements StorageAdapter {
           AND json_extract(metadata, '$.model') IS NOT NULL
         GROUP BY json_extract(metadata, '$.model')`
       )
-      .all(input.userId, input.startDate, input.endDate) as Array<{ model: string; requests: number; cost: number; tokens: number }>;
+      .all(input.userId, input.startDate, input.endDate) as Array<{
+      model: string;
+      requests: number;
+      cost: number;
+      tokens: number;
+    }>;
 
     return {
       ...totals,
@@ -180,7 +199,10 @@ class SqliteStorageAdapter implements StorageAdapter {
     };
   }
 
-  async getSessionForChat(userId: string, chatId: string): Promise<{
+  async getSessionForChat(
+    userId: string,
+    chatId: string
+  ): Promise<{
     id: string;
     open_terminal_url: string | null;
     open_terminal_api_key: string | null;
@@ -212,7 +234,14 @@ class SqliteStorageAdapter implements StorageAdapter {
     return row ?? null;
   }
 
-  async saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>> {
+  async saveMemory(input: {
+    userId: string;
+    category: string;
+    key: string;
+    content: string;
+    embedding?: number[];
+    embeddingModel?: string;
+  }): Promise<Record<string, unknown>> {
     const db = getDb();
     const embeddingJson = input.embedding && input.embedding.length > 0 ? JSON.stringify(input.embedding) : null;
     const embeddingModel = input.embeddingModel ?? null;
@@ -228,24 +257,23 @@ class SqliteStorageAdapter implements StorageAdapter {
     }
 
     const id = crypto.randomUUID();
-    db.prepare('INSERT INTO user_memories (id, user_id, category, key, content, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      id,
-      input.userId,
-      input.category,
-      input.key,
-      input.content,
-      embeddingJson,
-      embeddingModel
-    );
+    db.prepare(
+      'INSERT INTO user_memories (id, user_id, category, key, content, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, input.userId, input.category, input.key, input.content, embeddingJson, embeddingModel);
     return db.prepare('SELECT * FROM user_memories WHERE id = ?').get(id) as Record<string, unknown>;
   }
 
-  async recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>> {
+  async recallMemory(input: {
+    userId: string;
+    words: string[];
+    limit: number;
+    queryEmbedding?: number[];
+  }): Promise<Array<Record<string, unknown>>> {
     // Semantic path
     if (input.queryEmbedding && input.queryEmbedding.length > 0) {
-      const rows = getDb()
-        .prepare('SELECT * FROM user_memories WHERE user_id = ?')
-        .all(input.userId) as Array<Record<string, unknown>>;
+      const rows = getDb().prepare('SELECT * FROM user_memories WHERE user_id = ?').all(input.userId) as Array<
+        Record<string, unknown>
+      >;
 
       return rows
         .map((row) => {
@@ -254,7 +282,9 @@ class SqliteStorageAdapter implements StorageAdapter {
             try {
               const parsed: unknown = JSON.parse(row['embedding']);
               embedding = Array.isArray(parsed) ? parsed.filter((v): v is number => typeof v === 'number') : [];
-            } catch { /* ignore malformed */ }
+            } catch {
+              /* ignore malformed */
+            }
           }
           const score = embedding.length > 0 ? cosineSimilarity(input.queryEmbedding!, embedding) : -1;
           return { row, score };
@@ -281,7 +311,9 @@ class SqliteStorageAdapter implements StorageAdapter {
   async bumpMemoryAccess(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
-    getDb().prepare(`UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`).run(...ids);
+    getDb()
+      .prepare(`UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`)
+      .run(...ids);
   }
 
   async deleteMemory(userId: string, id: string): Promise<boolean> {
@@ -296,15 +328,21 @@ class SqliteStorageAdapter implements StorageAdapter {
         .all(userId, category) as Array<Record<string, unknown>>;
     }
 
-    return getDb().prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC').all(userId) as Array<
-      Record<string, unknown>
-    >;
+    return getDb()
+      .prepare('SELECT * FROM user_memories WHERE user_id = ? ORDER BY updated_at DESC')
+      .all(userId) as Array<Record<string, unknown>>;
   }
 
-  async recordAgentHealth(input: { agentType: string; model: string; success: boolean; latencyMs?: number }): Promise<void> {
+  async recordAgentHealth(input: {
+    agentType: string;
+    model: string;
+    success: boolean;
+    latencyMs?: number;
+  }): Promise<void> {
     const db = getDb();
     if (input.success && input.latencyMs !== undefined) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
         VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
         ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -313,12 +351,14 @@ class SqliteStorageAdapter implements StorageAdapter {
           success_count_1h = success_count_1h + 1,
           total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
           updated_at = datetime('now')
-      `).run(crypto.randomUUID(), input.agentType, input.model, input.latencyMs);
+      `
+      ).run(crypto.randomUUID(), input.agentType, input.model, input.latencyMs);
       return;
     }
 
     if (!input.success) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
         VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
         ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -330,7 +370,8 @@ class SqliteStorageAdapter implements StorageAdapter {
             ELSE 'healthy'
           END,
           updated_at = datetime('now')
-      `).run(crypto.randomUUID(), input.agentType, input.model);
+      `
+      ).run(crypto.randomUUID(), input.agentType, input.model);
     }
   }
 
@@ -399,15 +440,14 @@ class ConvexStorageAdapter implements StorageAdapter {
     return this.invoke<CreditTransactionRow[]>('/storage/getTransactions', { userId, limit, offset });
   }
 
-  async getCurrentPeriodUsage(userId: string, fromIso: string): Promise<{ credits_used: number; request_count: number }> {
+  async getCurrentPeriodUsage(
+    userId: string,
+    fromIso: string
+  ): Promise<{ credits_used: number; request_count: number }> {
     return this.invoke('/storage/getCurrentPeriodUsage', { userId, fromIso });
   }
 
-  async getUsageSummary(input: {
-    userId: string;
-    startDate: string;
-    endDate: string;
-  }): Promise<{
+  async getUsageSummary(input: { userId: string; startDate: string; endDate: string }): Promise<{
     total_cost: number;
     total_requests: number;
     by_reference_type: Array<{ reference_type: string | null; count: number; cost: number }>;
@@ -416,7 +456,10 @@ class ConvexStorageAdapter implements StorageAdapter {
     return this.invoke('/storage/getUsageSummary', input);
   }
 
-  async getSessionForChat(userId: string, chatId: string): Promise<{
+  async getSessionForChat(
+    userId: string,
+    chatId: string
+  ): Promise<{
     id: string;
     open_terminal_url: string | null;
     open_terminal_api_key: string | null;
@@ -428,11 +471,23 @@ class ConvexStorageAdapter implements StorageAdapter {
     return this.invoke('/storage/getSessionForChat', { userId, chatId });
   }
 
-  async saveMemory(input: { userId: string; category: string; key: string; content: string; embedding?: number[]; embeddingModel?: string }): Promise<Record<string, unknown>> {
+  async saveMemory(input: {
+    userId: string;
+    category: string;
+    key: string;
+    content: string;
+    embedding?: number[];
+    embeddingModel?: string;
+  }): Promise<Record<string, unknown>> {
     return this.invoke('/storage/saveMemory', input);
   }
 
-  async recallMemory(input: { userId: string; words: string[]; limit: number; queryEmbedding?: number[] }): Promise<Array<Record<string, unknown>>> {
+  async recallMemory(input: {
+    userId: string;
+    words: string[];
+    limit: number;
+    queryEmbedding?: number[];
+  }): Promise<Array<Record<string, unknown>>> {
     return this.invoke('/storage/recallMemory', input);
   }
 
@@ -449,7 +504,12 @@ class ConvexStorageAdapter implements StorageAdapter {
     return this.invoke('/storage/listMemories', { userId, category });
   }
 
-  async recordAgentHealth(input: { agentType: string; model: string; success: boolean; latencyMs?: number }): Promise<void> {
+  async recordAgentHealth(input: {
+    agentType: string;
+    model: string;
+    success: boolean;
+    latencyMs?: number;
+  }): Promise<void> {
     await this.invoke('/storage/recordAgentHealth', input);
   }
 

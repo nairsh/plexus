@@ -26,7 +26,7 @@ export class AnthropicAdapter extends BaseAdapter {
     let totalOutputTokens = 0;
     let toolCallsCost = 0;
 
-    let currentMessages = [...messages];
+    const currentMessages = [...messages];
     let maxIterations = MAX_TOOL_ITERATIONS;
 
     while (maxIterations > 0) {

@@ -40,9 +40,7 @@ const CreateTeamSchema = z.object({
       shared_instructions: z.string().max(10000).optional(),
       max_credits_per_workflow: z.number().positive().optional(),
       require_approval_for_bash: z.boolean().optional(),
-      allowed_agent_types: z
-        .array(AgentTypeSchema)
-        .optional(),
+      allowed_agent_types: z.array(AgentTypeSchema).optional(),
       feature_flags: z.record(z.boolean()).optional(),
     })
     .optional(),
@@ -65,9 +63,7 @@ const CreateSharedContextSchema = z.object({
 
 function getTeam(teamId: string): Team | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as
-    | (Team & { settings: string })
-    | undefined;
+  const row = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as (Team & { settings: string }) | undefined;
   if (!row) return null;
   return {
     ...row,
@@ -78,17 +74,13 @@ function getTeam(teamId: string): Team | null {
 function getMember(teamId: string, userId: string): TeamMember | null {
   const db = getDb();
   return (
-    (db
-      .prepare('SELECT * FROM team_members WHERE team_id = ? AND user_id = ?')
-      .get(teamId, userId) as TeamMember | undefined) ?? null
+    (db.prepare('SELECT * FROM team_members WHERE team_id = ? AND user_id = ?').get(teamId, userId) as
+      | TeamMember
+      | undefined) ?? null
   );
 }
 
-function assertMemberWithRole(
-  teamId: string,
-  userId: string,
-  minRole: 'member' | 'admin' | 'owner'
-): TeamMember {
+function assertMemberWithRole(teamId: string, userId: string, minRole: 'member' | 'admin' | 'owner'): TeamMember {
   const member = getMember(teamId, userId);
   if (!member) throw new InvalidRequestError('Not a member of this team', 'not_team_member');
   const ranks = { member: 0, admin: 1, owner: 2 };
@@ -125,16 +117,20 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
     const teamId = crypto.randomUUID();
     const settings = body.data.settings ?? {};
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO teams (id, name, owner_id, settings)
       VALUES (?, ?, ?, ?)
-    `).run(teamId, body.data.name, user.id, JSON.stringify(settings));
+    `
+    ).run(teamId, body.data.name, user.id, JSON.stringify(settings));
 
     // Auto-add creator as owner
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO team_members (team_id, user_id, role)
       VALUES (?, ?, 'owner')
-    `).run(teamId, user.id);
+    `
+    ).run(teamId, user.id);
 
     logger.info({ teamId, userId: user.id }, 'Team created');
 
@@ -147,13 +143,15 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb();
 
     const rows = db
-      .prepare(`
+      .prepare(
+        `
         SELECT t.*, tm.role as member_role
         FROM teams t
         JOIN team_members tm ON t.id = tm.team_id
         WHERE tm.user_id = ?
         ORDER BY t.created_at DESC
-      `)
+      `
+      )
       .all(user.id) as Array<Team & { settings: string; member_role: string }>;
 
     return {
@@ -199,10 +197,12 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
     const updatedSettings = { ...team.settings, ...(body.data.settings ?? {}) };
 
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE teams SET name = ?, settings = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(body.data.name ?? team.name, JSON.stringify(updatedSettings), id);
+    `
+    ).run(body.data.name ?? team.name, JSON.stringify(updatedSettings), id);
 
     return getTeam(id);
   });
@@ -239,23 +239,20 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
     ).count;
 
     if (memberCount >= MAX_TEAM_MEMBERS) {
-      throw new InvalidRequestError(
-        `Team has reached the maximum of ${MAX_TEAM_MEMBERS} members`,
-        'team_full'
-      );
+      throw new InvalidRequestError(`Team has reached the maximum of ${MAX_TEAM_MEMBERS} members`, 'team_full');
     }
 
     const existing = getMember(id, body.data.user_id);
     if (existing) throw new InvalidRequestError('User is already a member', 'already_member');
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO team_members (team_id, user_id, role)
       VALUES (?, ?, ?)
-    `).run(id, body.data.user_id, body.data.role);
+    `
+    ).run(id, body.data.user_id, body.data.role);
 
-    return db
-      .prepare('SELECT * FROM team_members WHERE team_id = ? AND user_id = ?')
-      .get(id, body.data.user_id);
+    return db.prepare('SELECT * FROM team_members WHERE team_id = ? AND user_id = ?').get(id, body.data.user_id);
   });
 
   // DELETE /v1/teams/:id/members/:userId — remove member
@@ -305,9 +302,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDb();
     const contextCount = (
-      db
-        .prepare('SELECT COUNT(*) as count FROM team_shared_contexts WHERE team_id = ?')
-        .get(id) as { count: number }
+      db.prepare('SELECT COUNT(*) as count FROM team_shared_contexts WHERE team_id = ?').get(id) as { count: number }
     ).count;
 
     if (contextCount >= MAX_TEAM_SHARED_CONTEXTS) {
@@ -318,14 +313,14 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const contextId = crypto.randomUUID();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO team_shared_contexts (id, team_id, name, content, content_type, created_by)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(contextId, id, body.data.name, body.data.content, body.data.content_type, user.id);
+    `
+    ).run(contextId, id, body.data.name, body.data.content, body.data.content_type, user.id);
 
-    const created = db
-      .prepare('SELECT * FROM team_shared_contexts WHERE id = ?')
-      .get(contextId) as TeamSharedContext;
+    const created = db.prepare('SELECT * FROM team_shared_contexts WHERE id = ?').get(contextId) as TeamSharedContext;
 
     return reply.status(201).send(created);
   });
@@ -338,9 +333,9 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
     assertMemberWithRole(id, user.id, 'member');
 
     const db = getDb();
-    const context = db
-      .prepare('SELECT * FROM team_shared_contexts WHERE id = ? AND team_id = ?')
-      .get(contextId, id) as TeamSharedContext | undefined;
+    const context = db.prepare('SELECT * FROM team_shared_contexts WHERE id = ? AND team_id = ?').get(contextId, id) as
+      | TeamSharedContext
+      | undefined;
 
     if (!context) throw new InvalidRequestError('Context not found', 'not_found');
 
@@ -371,10 +366,7 @@ export async function registerTeamsRoutes(app: FastifyInstance): Promise<void> {
       )
       .all(id) as TeamSharedContext[];
 
-    const combinedInstructions = [
-      team.settings.shared_instructions ?? '',
-      ...contexts.map((c) => c.content),
-    ]
+    const combinedInstructions = [team.settings.shared_instructions ?? '', ...contexts.map((c) => c.content)]
       .filter(Boolean)
       .join('\n\n---\n\n');
 
@@ -404,14 +396,10 @@ export function applyTeamSettingsToConfig(
       ...(teamSettings.shared_model_overrides ?? {}),
       ...((config.model_overrides as Record<string, string>) ?? {}), // workflow config takes precedence
     },
-    human_approval:
-      teamSettings.require_approval_for_bash === true ? true : config.human_approval,
+    human_approval: teamSettings.require_approval_for_bash === true ? true : config.human_approval,
     max_credits:
       teamSettings.max_credits_per_workflow != null
-        ? Math.min(
-            teamSettings.max_credits_per_workflow,
-            (config.max_credits as number) ?? Infinity
-          )
+        ? Math.min(teamSettings.max_credits_per_workflow, (config.max_credits as number) ?? Infinity)
         : config.max_credits,
   };
 }

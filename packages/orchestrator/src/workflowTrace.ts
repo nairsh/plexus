@@ -5,7 +5,8 @@ const MAX_STRINGIFY_LENGTH = 500_000; // 500KB per field
 
 const stringifyMaybe = (value: unknown): string | null => {
   if (value === undefined) return null;
-  if (typeof value === 'string') return value.length > MAX_STRINGIFY_LENGTH ? value.slice(0, MAX_STRINGIFY_LENGTH) : value;
+  if (typeof value === 'string')
+    return value.length > MAX_STRINGIFY_LENGTH ? value.slice(0, MAX_STRINGIFY_LENGTH) : value;
   try {
     const seen = new WeakSet();
     const json = JSON.stringify(value, (_key, val: unknown) => {
@@ -82,13 +83,15 @@ const parseMaybeJson = (value: unknown): unknown => {
 
 export const getWorkflowTrace = (workflowId: string): WorkflowTraceStep[] => {
   const db = getDb();
-  const rows = db.prepare(
-    `SELECT step_id, workflow_id, timestamp, step_type, model_name, message_content,
+  const rows = db
+    .prepare(
+      `SELECT step_id, workflow_id, timestamp, step_type, model_name, message_content,
             tool_name, tool_input, tool_output, subagent_id
      FROM workflow_steps
      WHERE workflow_id = ?
      ORDER BY timestamp ASC, created_at ASC`
-  ).all(workflowId) as Array<Record<string, unknown>>;
+    )
+    .all(workflowId) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     step_id: row['step_id'] as string,

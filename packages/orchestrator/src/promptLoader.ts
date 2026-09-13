@@ -21,13 +21,13 @@ export interface PromptRuntimeContext {
 export function loadPrompt(filename: string, variables: PromptVariables = {}): string {
   const filepath = resolve(__dirname, 'prompts', filename);
   let content: string;
-  
+
   try {
     content = readFileSync(filepath, 'utf-8');
   } catch (error) {
     throw new Error(`Failed to load prompt file: ${filepath}. ${getErrorMessage(error)}`);
   }
-  
+
   return interpolateVariables(content, variables);
 }
 
@@ -67,12 +67,12 @@ export function getPromptRuntimeContext(now: Date = new Date()): PromptRuntimeCo
 function interpolateVariables(content: string, variables: PromptVariables): string {
   return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
     const value = variables[varName];
-    
+
     if (value === undefined || value === null) {
       logger.warn({ varName }, `Prompt variable '${varName}' not provided`);
       return match; // Keep original placeholder
     }
-    
+
     // Format based on type
     if (typeof value === 'string') {
       return value;
@@ -82,7 +82,7 @@ function interpolateVariables(content: string, variables: PromptVariables): stri
       // Pretty print objects (arrays, objects)
       return JSON.stringify(value, null, 2);
     }
-    
+
     return String(value);
   });
 }
@@ -92,22 +92,30 @@ function interpolateVariables(content: string, variables: PromptVariables): stri
 // array; this snippet is a quick reference for state orientation only.
 const HISTORY_WINDOW = 20;
 
-export function formatConversationHistory(messages: Array<{ role: string; content: string; timestamp?: string }>): string {
+export function formatConversationHistory(
+  messages: Array<{ role: string; content: string; timestamp?: string }>
+): string {
   if (messages.length === 0) {
     return 'No previous conversation.';
   }
 
   const recent = messages.length > HISTORY_WINDOW ? messages.slice(-HISTORY_WINDOW) : messages;
   const omitted = messages.length - recent.length;
-  const prefix = omitted > 0 ? `[${omitted} earlier messages omitted for brevity — full history available in conversation context]\n\n` : '';
+  const prefix =
+    omitted > 0
+      ? `[${omitted} earlier messages omitted for brevity — full history available in conversation context]\n\n`
+      : '';
 
-  const formatted = recent.map(msg => {
-    const timestamp = msg.timestamp ? ` [${msg.timestamp}]` : '';
-    const body = typeof msg.content === 'string' && msg.content.length > 1000
-      ? msg.content.slice(0, 1000) + '…[truncated]'
-      : msg.content;
-    return `${msg.role.toUpperCase()}${timestamp}:\n${body}`;
-  }).join('\n\n---\n\n');
+  const formatted = recent
+    .map((msg) => {
+      const timestamp = msg.timestamp ? ` [${msg.timestamp}]` : '';
+      const body =
+        typeof msg.content === 'string' && msg.content.length > 1000
+          ? msg.content.slice(0, 1000) + '…[truncated]'
+          : msg.content;
+      return `${msg.role.toUpperCase()}${timestamp}:\n${body}`;
+    })
+    .join('\n\n---\n\n');
 
   return prefix + formatted;
 }

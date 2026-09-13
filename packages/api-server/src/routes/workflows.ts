@@ -11,11 +11,7 @@ import {
   getDb,
 } from '@orchestrator/shared';
 import type { WorkflowEvent, ToolApprovalDecision } from '@orchestrator/shared';
-import {
-  rollbackGitSandbox,
-  getGitSandboxDiff,
-  listGitSandboxes,
-} from '@orchestrator/sandbox';
+import { rollbackGitSandbox, getGitSandboxDiff, listGitSandboxes } from '@orchestrator/sandbox';
 import {
   planWorkflow,
   executeWorkflow,
@@ -89,7 +85,12 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       getDb()
         .prepare('INSERT INTO audit_log (id, user_id, action, details) VALUES (?, ?, ?, ?)')
-        .run(crypto.randomUUID(), userId, 'workflow_create', JSON.stringify({ objective: config.objective.substring(0, 200) }));
+        .run(
+          crypto.randomUUID(),
+          userId,
+          'workflow_create',
+          JSON.stringify({ objective: config.objective.substring(0, 200) })
+        );
     } catch (err) {
       logger.warn({ userId, error: getErrorMessage(err) }, 'Audit log write failed (non-critical)');
     }
@@ -227,23 +228,29 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         if (details) {
           const { workflow } = details;
           if (workflow.status === 'completed') {
-            reply.raw.write(`event: workflow_completed\ndata: ${JSON.stringify({
-              type: 'workflow_completed',
-              workflow_id: id,
-              data: { output: workflow.output ?? '', total_credits: workflow.credits_consumed }
-            })}\n\n`);
+            reply.raw.write(
+              `event: workflow_completed\ndata: ${JSON.stringify({
+                type: 'workflow_completed',
+                workflow_id: id,
+                data: { output: workflow.output ?? '', total_credits: workflow.credits_consumed },
+              })}\n\n`
+            );
           } else if (workflow.status === 'failed') {
-            reply.raw.write(`event: workflow_failed\ndata: ${JSON.stringify({
-              type: 'workflow_failed',
-              workflow_id: id,
-              data: { error: workflow.error ?? 'Workflow failed' }
-            })}\n\n`);
+            reply.raw.write(
+              `event: workflow_failed\ndata: ${JSON.stringify({
+                type: 'workflow_failed',
+                workflow_id: id,
+                data: { error: workflow.error ?? 'Workflow failed' },
+              })}\n\n`
+            );
           } else if (workflow.status === 'cancelled') {
-            reply.raw.write(`event: workflow_cancelled\ndata: ${JSON.stringify({
-              type: 'workflow_cancelled',
-              workflow_id: id,
-              data: { reason: workflow.error ?? 'Workflow cancelled' }
-            })}\n\n`);
+            reply.raw.write(
+              `event: workflow_cancelled\ndata: ${JSON.stringify({
+                type: 'workflow_cancelled',
+                workflow_id: id,
+                data: { reason: workflow.error ?? 'Workflow cancelled' },
+              })}\n\n`
+            );
           }
         }
         reply.raw.end();
@@ -268,14 +275,26 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
           reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
         } catch (_err) {
           cleanup();
-          try { reply.raw.end(); } catch { /* already closed */ }
+          try {
+            reply.raw.end();
+          } catch {
+            /* already closed */
+          }
           return;
         }
 
-        if (event.type === 'workflow_completed' || event.type === 'workflow_failed' || event.type === 'workflow_cancelled') {
+        if (
+          event.type === 'workflow_completed' ||
+          event.type === 'workflow_failed' ||
+          event.type === 'workflow_cancelled'
+        ) {
           cleanup();
           setTimeout(() => {
-            try { reply.raw.end(); } catch { /* already closed */ }
+            try {
+              reply.raw.end();
+            } catch {
+              /* already closed */
+            }
           }, 100);
         }
       };
@@ -331,7 +350,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         const firstError = parsed.error.errors[0];
         throw new InvalidRequestError(
           firstError?.message ?? 'Invalid approval body',
-          firstError?.path?.join('.') ?? 'approval_body',
+          firstError?.path?.join('.') ?? 'approval_body'
         );
       }
 
@@ -346,52 +365,43 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
    * GET /v1/workflows/:id/progress — real-time progress summary for polling.
    * Returns task breakdown, credits consumed, and estimated completion % without SSE.
    */
-  fastify.get(
-    '/v1/workflows/:id/progress',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      ensureWorkflowOwned(id, request.user!.id);
-      const progress = getWorkflowProgress(id);
-      if (!progress) {
-        throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
-      }
-      return progress;
+  fastify.get('/v1/workflows/:id/progress', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
+    const progress = getWorkflowProgress(id);
+    if (!progress) {
+      throw new WorkflowError(`Workflow not found: ${id}`, 'workflow_not_found');
     }
-  );
+    return progress;
+  });
 
   /**
    * GET /v1/workflows/:id/pending-approvals — list pending bash command approvals.
    * Allows clients to poll for pending approvals without maintaining an SSE connection.
    */
-  fastify.get(
-    '/v1/workflows/:id/pending-approvals',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      ensureWorkflowOwned(id, request.user!.id);
-      const pending = getPendingApprovals(id);
-      return { workflow_id: id, pending_approvals: pending };
-    }
-  );
+  fastify.get('/v1/workflows/:id/pending-approvals', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
+    const pending = getPendingApprovals(id);
+    return { workflow_id: id, pending_approvals: pending };
+  });
 
   /**
    * POST /v1/workflows/:id/retry — retry a failed or cancelled workflow.
    * Resets failed tasks to pending and re-runs; preserves completed task outputs.
    */
-  fastify.post(
-    '/v1/workflows/:id/retry',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      ensureWorkflowOwned(id, request.user!.id);
-      const result = await retryWorkflow(id);
+  fastify.post('/v1/workflows/:id/retry', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
+    const result = await retryWorkflow(id);
 
-      // Run in background
-      executeWorkflowToCompletion(id).catch((err: Error) => {
-        logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Background retry execution failed');
-      });
+    // Run in background
+    executeWorkflowToCompletion(id).catch((err: Error) => {
+      logger.warn({ workflowId: id, error: getErrorMessage(err) }, 'Background retry execution failed');
+    });
 
-      return { workflow_id: id, status: 'retrying', reset_tasks: result.resetTasks };
-    }
-  );
+    return { workflow_id: id, status: 'retrying', reset_tasks: result.resetTasks };
+  });
 
   /**
    * GET /v1/workflows/:id/tasks/:taskId — get full output for a specific task.
@@ -405,19 +415,32 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       const db = getDb();
 
       const row = db
-        .prepare(`SELECT id AS task_id, description, task_type AS agent_type, status, output,
+        .prepare(
+          `SELECT id AS task_id, description, task_type AS agent_type, status, output,
                          parent_task_ids, created_at, completed_at
-                  FROM tasks WHERE workflow_id = ? AND id = ?`)
-        .get(id, taskId) as {
-          task_id: string; description: string | null; agent_type: string;
-          status: string; output: string | null; parent_task_ids: string | null;
-          created_at: string; completed_at: string | null;
-        } | undefined;
+                  FROM tasks WHERE workflow_id = ? AND id = ?`
+        )
+        .get(id, taskId) as
+        | {
+            task_id: string;
+            description: string | null;
+            agent_type: string;
+            status: string;
+            output: string | null;
+            parent_task_ids: string | null;
+            created_at: string;
+            completed_at: string | null;
+          }
+        | undefined;
 
       if (!row) throw new InvalidRequestError('Task not found', 'not_found');
 
       let dependsOn: string[] = [];
-      try { dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[]; } catch { /* ignore */ }
+      try {
+        dependsOn = JSON.parse(row.parent_task_ids ?? '[]') as string[];
+      } catch {
+        /* ignore */
+      }
 
       return { ...row, depends_on: dependsOn, output: row.output ?? null };
     }
@@ -426,15 +449,12 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /v1/workflows/:id/git-sandboxes — list git sandboxes for a workflow
    */
-  fastify.get(
-    '/v1/workflows/:id/git-sandboxes',
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
-      const { id } = request.params;
-      ensureWorkflowOwned(id, request.user!.id);
-      const sandboxes = listGitSandboxes(id);
-      return { sandboxes };
-    }
-  );
+  fastify.get('/v1/workflows/:id/git-sandboxes', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { id } = request.params;
+    ensureWorkflowOwned(id, request.user!.id);
+    const sandboxes = listGitSandboxes(id);
+    return { sandboxes };
+  });
 
   /**
    * GET /v1/workflows/:id/git-sandboxes/:sandboxId/diff — get diff for a sandbox

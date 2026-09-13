@@ -25,7 +25,8 @@ interface HealthRow {
 export function recordAgentSuccess(agentType: string, model: string, latencyMs: number): void {
   try {
     const db = getDb();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO agent_health (id, agent_type, model, status, last_success_at, success_count_1h, total_latency_ms_1h)
       VALUES (?, ?, ?, 'healthy', datetime('now'), 1, ?)
       ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -34,7 +35,8 @@ export function recordAgentSuccess(agentType: string, model: string, latencyMs: 
         success_count_1h = success_count_1h + 1,
         total_latency_ms_1h = total_latency_ms_1h + excluded.total_latency_ms_1h,
         updated_at = datetime('now')
-    `).run(crypto.randomUUID(), agentType, model, latencyMs);
+    `
+    ).run(crypto.randomUUID(), agentType, model, latencyMs);
   } catch (err) {
     logger.warn({ agentType, error: String(err) }, 'Failed to record agent health success');
   }
@@ -43,7 +45,8 @@ export function recordAgentSuccess(agentType: string, model: string, latencyMs: 
 export function recordAgentFailure(agentType: string, model: string): void {
   try {
     const db = getDb();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO agent_health (id, agent_type, model, status, last_failure_at, failure_count_1h)
       VALUES (?, ?, ?, 'degraded', datetime('now'), 1)
       ON CONFLICT(agent_type, model) DO UPDATE SET
@@ -55,7 +58,8 @@ export function recordAgentFailure(agentType: string, model: string): void {
           ELSE 'healthy'
         END,
         updated_at = datetime('now')
-    `).run(crypto.randomUUID(), agentType, model);
+    `
+    ).run(crypto.randomUUID(), agentType, model);
   } catch (err) {
     logger.warn({ agentType, error: String(err) }, 'Failed to record agent health failure');
   }
@@ -85,16 +89,16 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     const db = getDb();
 
     // Reset hourly counters for stale records (>1 hour since last update)
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE agent_health
       SET success_count_1h = 0, failure_count_1h = 0, total_latency_ms_1h = 0,
           status = CASE WHEN last_success_at > last_failure_at OR last_failure_at IS NULL THEN 'healthy' ELSE 'degraded' END
       WHERE updated_at < datetime('now', '-1 hour')
-    `).run();
+    `
+    ).run();
 
-    const rows = db
-      .prepare('SELECT * FROM agent_health ORDER BY agent_type, model')
-      .all() as HealthRow[];
+    const rows = db.prepare('SELECT * FROM agent_health ORDER BY agent_type, model').all() as HealthRow[];
 
     const agents = rows.map(toHealthStatus);
 
@@ -113,7 +117,8 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     const db = getDb();
 
     const workflowStats = db
-      .prepare(`
+      .prepare(
+        `
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
@@ -122,7 +127,8 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
           SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
         FROM workflows
         WHERE created_at > datetime('now', '-1 hour')
-      `)
+      `
+      )
       .get() as {
       total: number;
       completed: number;
@@ -132,7 +138,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     };
 
     const dbSize = db
-      .prepare("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+      .prepare('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()')
       .get() as { size: number } | undefined;
 
     return {

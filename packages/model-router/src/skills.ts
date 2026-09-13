@@ -190,15 +190,9 @@ export function ensureRunSkillTool(tools?: Tool[]): Tool[] | undefined {
   return hasRunSkill ? tools : [...tools, { type: 'run_skill' }];
 }
 
-export function applySkillToRequest(
-  request: AgentRequest,
-  skill: Skill,
-  input?: string
-): { systemMessage: string } {
+export function applySkillToRequest(request: AgentRequest, skill: Skill, input?: string): { systemMessage: string } {
   const skillSection = formatSkillSection(skill, input);
-  const updatedInstructions = request.instructions
-    ? `${request.instructions}\n\n${skillSection}`
-    : skillSection;
+  const updatedInstructions = request.instructions ? `${request.instructions}\n\n${skillSection}` : skillSection;
 
   request.instructions = updatedInstructions;
   request.tools = mergeTools(request.tools ?? [], skill.tools ?? []);
@@ -323,9 +317,13 @@ function parseYamlLike(lines: string[]): Record<string, string | string[]> {
 
   const flushBlock = () => {
     if (!blockKey) return;
-    const value = blockMode === 'folded'
-      ? blockLines.join('\n').replace(/\n{2,}/g, '\n\n').replace(/\n/g, ' ')
-      : blockLines.join('\n');
+    const value =
+      blockMode === 'folded'
+        ? blockLines
+            .join('\n')
+            .replace(/\n{2,}/g, '\n\n')
+            .replace(/\n/g, ' ')
+        : blockLines.join('\n');
     meta[blockKey] = value.trim();
     blockKey = null;
     blockIndent = null;
@@ -415,10 +413,7 @@ function parseYamlLike(lines: string[]): Record<string, string | string[]> {
 }
 
 function stripQuotes(value: string): string {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1);
   }
   return value;
@@ -430,11 +425,7 @@ function normalizeString(value: string | string[] | undefined): string {
   return value.trim();
 }
 
-function validateSkillMetadata(
-  folderName: string,
-  name: string,
-  description: string
-): void {
+function validateSkillMetadata(folderName: string, name: string, description: string): void {
   if (!name) {
     throw new Error(`SKILL.md missing required 'name' in ${folderName}`);
   }
@@ -462,7 +453,10 @@ function parseTools(value: string | string[] | undefined): Tool[] {
   if (!value) return [];
   const raw = Array.isArray(value)
     ? value
-    : value.split(',').map((entry) => entry.trim()).filter(Boolean);
+    : value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
 
   const tools: Tool[] = [];
   for (const entry of raw) {
@@ -589,10 +583,7 @@ function mergeTools(base: Tool[], extra: Tool[]): Tool[] {
   const seen = new Set<string>();
 
   for (const tool of [...base, ...extra]) {
-    const key =
-      tool.type === 'function' && tool.function?.name
-        ? `function:${tool.function.name}`
-        : tool.type;
+    const key = tool.type === 'function' && tool.function?.name ? `function:${tool.function.name}` : tool.type;
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(tool);
@@ -602,11 +593,7 @@ function mergeTools(base: Tool[], extra: Tool[]): Tool[] {
 }
 
 function formatSkillSection(skill: Skill, input?: string): string {
-  const lines = [
-    'Skills',
-    `- Name: ${skill.name}`,
-    `- Description: ${skill.description}`,
-  ];
+  const lines = ['Skills', `- Name: ${skill.name}`, `- Description: ${skill.description}`];
 
   const body = skill.prompt_addendum?.trim();
   if (body) {

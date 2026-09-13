@@ -1,5 +1,5 @@
 {
-  "name": "orchestrator-platform",
+  "name": "plexus",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -27,6 +27,7 @@
     "prettier": "^3.8.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^2.1.0"
   },
   "pnpm": {

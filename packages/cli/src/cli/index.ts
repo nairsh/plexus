@@ -129,7 +129,9 @@ const args = process.argv.slice(2);
 if (
   args.length > 0 &&
   !args[0].startsWith('-') &&
-  !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive', 'auth'].includes(args[0])
+  !['onboarding', 'doctor', 'config', 'models', 'run', 'help', 'configure', 'config-interactive', 'auth'].includes(
+    args[0]
+  )
 ) {
   // This looks like an objective, not a command
   // Delegate to orchestrate.ts

@@ -40,9 +40,9 @@ export function saveMemory(userId: string, input: SaveMemoryInput): Memory {
   const embeddingJson = input.embedding && input.embedding.length > 0 ? JSON.stringify(input.embedding) : null;
   const embeddingModel = input.embeddingModel ?? null;
 
-  const existing = db
-    .prepare('SELECT id FROM user_memories WHERE user_id = ? AND key = ?')
-    .get(userId, input.key) as { id: string } | undefined;
+  const existing = db.prepare('SELECT id FROM user_memories WHERE user_id = ? AND key = ?').get(userId, input.key) as
+    | { id: string }
+    | undefined;
 
   if (existing) {
     db.prepare(
@@ -78,13 +78,67 @@ function computeRelevanceScore(content: string): number {
 
 // Common English stop-words we skip when building keyword filters
 const STOP_WORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-  'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
-  'do', 'does', 'did', 'have', 'has', 'had', 'what', 'which', 'who',
-  'how', 'when', 'where', 'why', 'i', 'me', 'my', 'you', 'your', 'we',
-  'our', 'it', 'its', 'this', 'that', 'these', 'those', 'not', 'no',
-  'can', 'will', 'would', 'could', 'should', 'may', 'might', 'about',
-  'tell', 'know', 'remember', 'recall',
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'do',
+  'does',
+  'did',
+  'have',
+  'has',
+  'had',
+  'what',
+  'which',
+  'who',
+  'how',
+  'when',
+  'where',
+  'why',
+  'i',
+  'me',
+  'my',
+  'you',
+  'your',
+  'we',
+  'our',
+  'it',
+  'its',
+  'this',
+  'that',
+  'these',
+  'those',
+  'not',
+  'no',
+  'can',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'about',
+  'tell',
+  'know',
+  'remember',
+  'recall',
 ]);
 
 /**
@@ -113,9 +167,9 @@ export function recallMemory(userId: string, query: string, limit = 10, queryEmb
 
   // ── Semantic path ─────────────────────────────────────────────────────────
   if (queryEmbedding && queryEmbedding.length > 0) {
-    const rows = db
-      .prepare('SELECT * FROM user_memories WHERE user_id = ?')
-      .all(userId) as Array<Record<string, unknown>>;
+    const rows = db.prepare('SELECT * FROM user_memories WHERE user_id = ?').all(userId) as Array<
+      Record<string, unknown>
+    >;
 
     const scored = rows
       .map((row) => {
@@ -132,9 +186,7 @@ export function recallMemory(userId: string, query: string, limit = 10, queryEmb
     if (memories.length > 0) {
       const ids = memories.map((m) => m.id);
       const placeholders = ids.map(() => '?').join(',');
-      db.prepare(
-        `UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`
-      ).run(...ids);
+      db.prepare(`UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`).run(...ids);
     }
 
     return memories;
@@ -155,9 +207,7 @@ export function recallMemory(userId: string, query: string, limit = 10, queryEmb
   if (memories.length > 0) {
     const ids = memories.map((m) => m.id);
     const placeholders = ids.map(() => '?').join(',');
-    db.prepare(
-      `UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`
-    ).run(...ids);
+    db.prepare(`UPDATE user_memories SET access_count = access_count + 1 WHERE id IN (${placeholders})`).run(...ids);
   }
 
   return memories;
@@ -165,9 +215,7 @@ export function recallMemory(userId: string, query: string, limit = 10, queryEmb
 
 export function deleteMemory(userId: string, id: string): boolean {
   const db = getDb();
-  const result = db
-    .prepare('DELETE FROM user_memories WHERE id = ? AND user_id = ?')
-    .run(id, userId);
+  const result = db.prepare('DELETE FROM user_memories WHERE id = ? AND user_id = ?').run(id, userId);
   return result.changes > 0;
 }
 
@@ -176,7 +224,9 @@ export function listMemories(userId: string, category?: string, limit = 100, off
 
   if (category) {
     return db
-      .prepare('SELECT * FROM user_memories WHERE user_id = ? AND category = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?')
+      .prepare(
+        'SELECT * FROM user_memories WHERE user_id = ? AND category = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+      )
       .all(userId, category, limit, offset) as Memory[];
   }
 

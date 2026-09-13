@@ -33,9 +33,10 @@ export async function executeBash(
   signal?: AbortSignal
 ): Promise<BashResult> {
   try {
-    const commandToRun = session.workingDirectory && isLocalWorkspace(session)
-      ? `cd ${shellQuote(session.workingDirectory)} && ${command}`
-      : command;
+    const commandToRun =
+      session.workingDirectory && isLocalWorkspace(session)
+        ? `cd ${shellQuote(session.workingDirectory)} && ${command}`
+        : command;
 
     if (isLocalWorkspace(session)) {
       const result = await new Promise<BashResult>((resolvePromise) => {

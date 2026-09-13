@@ -38,3 +38,10 @@ coverage/
 packages/menubar/src-tauri/target/
 packages/menubar/src-tauri/WixTools/
 packages/menubar/src-tauri/gen/
+
+# agent/session scratch
+.claude/
+.swarm/
+.codex/
+AGENTS.md
+CLAUDE.md

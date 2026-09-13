@@ -283,7 +283,7 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     {
       name: 'search_knowledge',
       description:
-        'Search the user\'s knowledge base for relevant documents and passages. Use this to retrieve information from previously uploaded files, PDFs, or documents.',
+        "Search the user's knowledge base for relevant documents and passages. Use this to retrieve information from previously uploaded files, PDFs, or documents.",
       parameters: {
         type: 'object',
         properties: {
@@ -300,7 +300,7 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     {
       name: 'github_api',
       description:
-        'Call the GitHub REST API using the user\'s connected GitHub account. Supports any GitHub API endpoint. Use for creating issues, listing repos, managing PRs, etc.',
+        "Call the GitHub REST API using the user's connected GitHub account. Supports any GitHub API endpoint. Use for creating issues, listing repos, managing PRs, etc.",
       parameters: {
         type: 'object',
         properties: {
@@ -318,7 +318,7 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     {
       name: 'linear_api',
       description:
-        'Query the Linear GraphQL API using the user\'s connected Linear account. Use for creating issues, listing projects, managing cycles, etc.',
+        "Query the Linear GraphQL API using the user's connected Linear account. Use for creating issues, listing projects, managing cycles, etc.",
       parameters: {
         type: 'object',
         properties: {
@@ -335,7 +335,7 @@ export const CANONICAL_TOOL_DEFS = new Map<BuiltinToolName, CanonicalToolDefinit
     {
       name: 'notion_api',
       description:
-        'Call the Notion API using the user\'s connected Notion account. Use for searching pages, querying databases, creating pages, etc.',
+        "Call the Notion API using the user's connected Notion account. Use for searching pages, querying databases, creating pages, etc.",
       parameters: {
         type: 'object',
         properties: {
@@ -407,11 +407,7 @@ const toGoogleSchema = (schema: unknown): unknown => {
   return converted;
 };
 
-const toGoogleDeclaration = (
-  name: string,
-  description: string,
-  parameters: ToolParameters
-): FunctionDeclaration => ({
+const toGoogleDeclaration = (name: string, description: string, parameters: ToolParameters): FunctionDeclaration => ({
   name,
   description,
   parameters: toGoogleSchema(parameters) as FunctionDeclaration['parameters'],

@@ -25,7 +25,8 @@ export const getCommandApprovalReason = (command: string): string | null => {
 
 export const requestCommandApproval = async (request: AgentRequest, command: string): Promise<ToolApprovalDecision> => {
   const cdTarget = request.working_directory ? extractCdTarget(command) : null;
-  const scopeReason = request.working_directory && cdTarget ? getFolderApprovalReason(request.working_directory, cdTarget) : null;
+  const scopeReason =
+    request.working_directory && cdTarget ? getFolderApprovalReason(request.working_directory, cdTarget) : null;
   const reason = scopeReason ?? getCommandApprovalReason(command);
   if (!reason) return 'approve';
   if (!request.trace?.onToolApprovalRequest) return 'approve';

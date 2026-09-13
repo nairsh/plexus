@@ -10,11 +10,7 @@ export interface UsageSummary {
 /**
  * Get aggregated usage for a user over a date range.
  */
-export function getUsageSummary(
-  userId: string,
-  start?: string,
-  end?: string
-): UsageSummary {
+export function getUsageSummary(userId: string, start?: string, end?: string): UsageSummary {
   const db = getDb();
 
   const startDate = start || '2000-01-01';
@@ -97,10 +93,7 @@ export function getCurrentPeriodUsage(userId: string): {
 } {
   const db = getDb();
   const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 19)
-    .replace('T', ' ');
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 19).replace('T', ' ');
 
   const result = db
     .prepare(
